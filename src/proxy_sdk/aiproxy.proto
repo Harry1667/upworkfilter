@@ -1,0 +1,29 @@
+syntax = "proto3";
+package aiproxy;
+service AIProxy {
+  rpc Complete(CompletionRequest) returns (CompletionResponse);
+  rpc StreamComplete(CompletionRequest) returns (stream CompletionChunk);
+}
+message CompletionRequest {
+  string provider = 1;
+  string model = 2;
+  string prompt = 3;
+  string system = 4;
+  int32 max_tokens = 5;
+  string project = 6;
+  string group = 7;
+  string tier = 8;
+  string usage_type = 9;
+}
+message CompletionResponse {
+  string content = 1;
+  int32 input_tokens = 2;
+  int32 output_tokens = 3;
+  int32 latency_ms = 4;
+  string actual_model = 5;
+  string actual_provider = 6;
+}
+message CompletionChunk {
+  string content = 1;
+  bool done = 2;
+}

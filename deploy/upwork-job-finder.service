@@ -1,0 +1,21 @@
+# systemd 服務檔 — 讓 web 伺服器常駐、開機自動啟動、掛掉自動重啟
+# 安裝:見 DEPLOY.md。把 <USER> 與路徑改成你 Oracle 上的實際值。
+[Unit]
+Description=Upwork Job Finder Web
+After=network.target
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=/opt/upwork-job-finder
+# 機密用環境變數,不放進 repo。EnvironmentFile 指向只有你能讀的檔(chmod 600)。
+EnvironmentFile=/opt/upwork-job-finder/.env.production
+ExecStart=/usr/bin/node src/web.js
+Restart=always
+RestartSec=3
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

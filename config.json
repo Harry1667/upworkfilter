@@ -1,0 +1,112 @@
+{
+  "note": "你的個人設定。改這裡就能調整搜尋、技能、出價門檻、評分權重。",
+  "searchQueries": [
+    "AI integration OR full stack developer OR Next.js OR Flutter OR bug fix"
+  ],
+  "searchFilters": {
+    "paymentVerifiedOnly": true,
+    "jobType": "0,1",
+    "sort": "recency"
+  },
+  "mySkills": [
+    "react",
+    "next.js",
+    "nextjs",
+    "node",
+    "node.js",
+    "nodejs",
+    "typescript",
+    "javascript",
+    "express",
+    "fastapi",
+    "python",
+    "flutter",
+    "react native",
+    "ai",
+    "openai",
+    "claude",
+    "anthropic",
+    "gemini",
+    "llm",
+    "prompt",
+    "api integration",
+    "ocr",
+    "automation",
+    "scraping",
+    "playwright",
+    "postgresql",
+    "supabase",
+    "prisma",
+    "sqlite",
+    "docker",
+    "nginx",
+    "owasp",
+    "security audit",
+    "website security",
+    "saas",
+    "webhook",
+    "full stack",
+    "fullstack",
+    "mvp",
+    "n8n",
+    "bug fix",
+    "claude code"
+  ],
+  "rate": {
+    "hourlyFloor": 12,
+    "hourlyTarget": 25,
+    "fixedFloor": 80
+  },
+  "scoring": {
+    "criteria": {
+      "reward": {
+        "label": "報酬合理性",
+        "desc": "預算 vs 工作量、時薪換算",
+        "weight": 20
+      },
+      "skill": {
+        "label": "能力匹配度",
+        "desc": "技能要求 vs 你會的、交付得了嗎",
+        "weight": 20
+      },
+      "client": {
+        "label": "客戶品質",
+        "desc": "付款驗證、評分、聘用率、花費、年資",
+        "weight": 15
+      },
+      "competition": {
+        "label": "競爭強度",
+        "desc": "競標數、面試數、是否已 Hire",
+        "weight": 15
+      },
+      "longterm": {
+        "label": "長期潛力",
+        "desc": "是否轉長期 / 回頭客",
+        "weight": 10
+      },
+      "clarity": {
+        "label": "需求清晰度",
+        "desc": "要什麼明不明確、input/output",
+        "weight": 10
+      },
+      "risk": {
+        "label": "風險訊號",
+        "desc": "預算矛盾、新帳號、廣撒、矛盾條件(分數越高越安全)",
+        "weight": 10
+      }
+    },
+    "threshold": 60,
+    "maybeThreshold": 45
+  },
+  "hardExcludes": {
+    "skipUnverifiedPayment": true,
+    "skipZeroHireRateIfJobsPosted": 3,
+    "skipBelowBudgetFloor": true
+  },
+  "scrape": {
+    "headless": false,
+    "maxJobsPerQuery": 30,
+    "enrichTopN": 8,
+    "delayMsBetweenDetails": 2500
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+session/
+jobs.db
+.gstack/
+session/api-credentials.json
+session/api-tokens.json
+.env
+.env.production
+upwork-*-analysis.html
+last-ingest.json
