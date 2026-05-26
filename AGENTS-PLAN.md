@@ -27,7 +27,7 @@
 
 | 項目 | 值 |
 |------|-----|
-| 本機 | `~/Desktop/未命名檔案夾/upwork-job-finder/` |
+| 本機 | `~/Documents/0-Dev/2-Project/upworkfilter/upwork-job-finder/` |
 | GitHub | `https://github.com/Harry1667/upworkfilter`(public) |
 | 線上網址 | `http://upworkfilter.looptw.com`(SSL 待 aaPanel 申請) |
 | 伺服器 | Oracle `ubuntu@137.131.7.230`,SSH key `~/Documents/important file/ssh-key-2026-04-08.key`,進去 `sudo su` |
@@ -150,5 +150,6 @@ profile.json    你的檔案(gitignore;部署時 fallback 到 profile.example.js
 - [ ] /profile 補上作品集真實連結(目前 link 空)
 - [x] 確認 GitHub 帳號 `Harry1667`(27 public repos)
 - [x] 決定「作品契合」用規則 or AI → **採規則加成**(provenTechs 比對,便宜即時;capability 文字由 AI 一次性歸納)
-- [ ] 部署 Profile Agent 到線上 + 設 server cron 每週自動刷新
-- [ ] 線上用真實 ingested 案子驗證適配度與求職信引用真實 repo
+- [x] 部署 Profile Agent 到線上(commit `ab84f44`,server 已跑出 22 項能力)
+- [x] 設 server cron 每週自動刷新(root crontab `0 1 * * 1` UTC = 週一 09:00 台北;log 在 `profile-agent-cron.log`)
+- [ ] 線上用真實 ingested 案子驗證適配度(看 `reason` 出現 `✓作品:`)與求職信引用真實 repo
