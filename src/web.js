@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { openDb, markApplied, allJobs, upsertJob } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
-import { analyzeJob } from './analyze.js';
+import { analyzeJob, askAI } from './analyze.js';
+import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, extractJson } from './assist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
@@ -118,13 +119,15 @@ function pageJobs() {
           <span class="badge ${j.verdict}">${j.verdict}</span>
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
-        <h2><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
+        <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
         <p class="reason">${esc(j.reason)}</p>
         <div class="grid7">${metrics}</div>
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
         <div class="acts">
-          <a class="open" href="${esc(j.url)}" target="_blank" rel="noopener">在 Upwork 開啟 ↗</a>
-          <button class="gen" onclick="gen('${j.id}',this)">🌐 產生評估網站</button>
+          <a class="open" href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">在 Upwork 開啟 ↗</a>
+          <button class="gen" onclick="cover('${j.id}',this)">✍️ 求職信</button>
+          <button class="gen" onclick="advice('${j.id}',this)">💡 建議</button>
+          <button class="gen" onclick="gen('${j.id}',this)">🌐 評估網站</button>
         </div>
       </article>`;
     })
@@ -134,15 +137,41 @@ function pageJobs() {
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Upwork 案子篩選</title><style>${CSS}</style></head><body>
 <header>
   <h1>Upwork 案子篩選 <span class="sub">APPLY ${counts.APPLY || 0} · MAYBE ${counts.MAYBE || 0} · SKIP ${counts.SKIP || 0} · 共 ${data.length} · 門檻 ${cfg.scoring.threshold}</span></h1>
-  <nav><a href="/"><b>📋 案子</b></a><a href="/settings">⚙️ 評分設定</a></nav>
+  <nav><a href="/"><b>📋 案子</b></a><a href="/reply">💬 客戶回覆</a><a href="/profile">👤 我的檔案</a><a href="/settings">⚙️ 評分設定</a></nav>
   <div class="filters">
     <button data-f="APPLY" class="on">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
     <button data-f="SKIP">🔴 排除</button><button data-f="applied">已投</button><button data-f="all">全部</button>
   </div>
 </header>
-<main>${cards || '<p style="color:var(--mut)">資料庫是空的。先跑 npm run seed。</p>'}</main>
+<main>${cards || '<p style="color:var(--mut)">資料庫是空的。擴充套件抓到案子後會出現在這。</p>'}</main>
+<div id="modal" style="display:none;position:fixed;inset:0;background:#000a;z-index:50;padding:30px;overflow:auto" onclick="if(event.target.id==='modal')this.style.display='none'">
+  <div style="max-width:680px;margin:0 auto;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <b id="mtitle" style="font-size:16px"></b>
+      <button onclick="document.getElementById('modal').style.display='none'" style="background:none;border:0;color:var(--mut);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <button id="mcopy" class="save" style="padding:6px 12px;font-size:13px;margin-bottom:10px;display:none" onclick="navigator.clipboard.writeText(document.getElementById('mbody').dataset.copy||document.getElementById('mbody').innerText);this.textContent='✅ 已複製'">📋 複製</button>
+    <div id="mbody" style="white-space:pre-wrap;font-size:14px;line-height:1.7"></div>
+  </div>
+</div>
 <script>
   const cards=[...document.querySelectorAll('.card')];
+  function showModal(title,html,copyText){document.getElementById('mtitle').textContent=title;
+    const b=document.getElementById('mbody');b.innerHTML=html;b.dataset.copy=copyText||'';
+    document.getElementById('mcopy').style.display=copyText?'inline-block':'none';
+    document.getElementById('modal').style.display='block';}
+  async function cover(id,btn){const t=btn.textContent;btn.disabled=true;btn.textContent='寫作中…';
+    try{const r=await fetch('/api/cover-letter',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
+      const j=await r.json();if(j.ok)showModal('✍️ 求職信(英文,可複製)',j.text.replace(/</g,'&lt;'),j.text);else alert(j.error||'失敗');}
+    catch(e){alert(e.message);}btn.disabled=false;btn.textContent=t;}
+  async function advice(id,btn){const t=btn.textContent;btn.disabled=true;btn.textContent='分析中…';
+    try{const r=await fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
+      const j=await r.json();if(j.ok){const d=j.data;
+        const html='<b>該主打作品:</b><br>'+(d.showPortfolio||[]).map(x=>'• '+x).join('<br>')+
+          '<br><br><b>投標應附:</b><br>'+(d.submit||[]).map(x=>'• '+x).join('<br>')+
+          '<br><br><b>報價:</b>'+(d.priceSuggestion||'')+'<br><b>切入角度:</b>'+(d.angle||'');
+        showModal('💡 接案建議',html);}else alert(j.error||'失敗');}
+    catch(e){alert(e.message);}btn.disabled=false;btn.textContent=t;}
   function f(x){document.querySelectorAll('.filters button').forEach(b=>b.classList.toggle('on',b.dataset.f===x));
     cards.forEach(c=>{let s=x==='all'?1:x==='applied'?c.dataset.applied==='1':c.dataset.verdict===x;c.style.display=s?'':'none';});}
   document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>f(b.dataset.f));f('APPLY');
@@ -209,6 +238,64 @@ async function readBody(req) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function navBar(active) {
+  const link = (href, label) => `<a href="${href}"${active === href ? ' style="font-weight:700;color:var(--tx)"' : ''}>${label}</a>`;
+  return `<nav>${link('/', '📋 案子')}${link('/reply', '💬 客戶回覆')}${link('/profile', '👤 我的檔案')}${link('/settings', '⚙️ 評分設定')}</nav>`;
+}
+
+function pageProfile() {
+  const p = loadProfile();
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的檔案</title><style>${CSS}
+  textarea{width:100%;min-height:480px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:14px;font:13px/1.6 ui-monospace,Menlo,monospace}</style></head><body>
+<header><h1>👤 我的檔案 <span class="sub">所有 AI 功能(求職信/回覆/建議)都讀這份來為你量身</span></h1>${navBar('/profile')}</header>
+<main>
+  <p class="reason">這是 JSON 格式,已照你之前的資料預填。改完按儲存。技能、作品集(name/type/desc/tech/link)、求職信規則都可調。</p>
+  <textarea id="p">${esc(JSON.stringify(p, null, 2))}</textarea>
+  <p><button class="save" onclick="save()">💾 儲存檔案</button> <span id="msg" class="reason"></span></p>
+</main>
+<script>
+  async function save(){let body;try{body=JSON.parse(document.getElementById('p').value);}catch(e){document.getElementById('msg').textContent='❌ JSON 格式錯誤:'+e.message;return;}
+    const r=await fetch('/api/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    document.getElementById('msg').textContent=(await r.json()).ok?'✅ 已儲存':'❌ 失敗';}
+</script></body></html>`;
+}
+
+function pageReply() {
+  const jobs = db.prepare("SELECT id,title FROM jobs ORDER BY last_seen DESC LIMIT 50").all();
+  const opts = ['<option value="">(不綁定特定案子)</option>'].concat(jobs.map((j) => `<option value="${j.id}">${esc(j.title.slice(0, 50))}</option>`)).join('');
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>客戶回覆助手</title><style>${CSS}
+  textarea,select{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:12px;font-size:14px}
+  textarea{min-height:140px;font-family:inherit}label{display:block;color:var(--mut);font-size:13px;margin:12px 0 4px}
+  .out{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-top:14px;white-space:pre-wrap}</style></head><body>
+<header><h1>💬 客戶回覆助手 <span class="sub">貼上客戶訊息,AI 幫你擬專業回覆 + 提醒</span></h1>${navBar('/reply')}</header>
+<main>
+  <label>客戶傳來的訊息</label>
+  <textarea id="msg" placeholder="把客戶在 Upwork 訊息/面試裡說的話貼進來…"></textarea>
+  <label>相關案子(選填,綁定後回覆更貼合)</label>
+  <select id="job">${opts}</select>
+  <label>語氣</label>
+  <select id="tone"><option>專業友善</option><option>熱情積極</option><option>簡潔直接</option><option>謹慎正式</option></select>
+  <p style="margin-top:14px"><button class="save" onclick="go()">✨ 產生回覆</button> <span id="st" class="reason"></span></p>
+  <div id="result" style="display:none">
+    <button class="save" style="padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(document.getElementById('reply').innerText);this.textContent='✅ 已複製'">📋 複製回覆</button>
+    <div class="out" id="reply"></div>
+    <div class="out" id="tips" style="border-color:#bb8009"></div>
+  </div>
+</main>
+<script>
+  async function go(){const msg=document.getElementById('msg').value.trim();if(!msg){alert('請先貼上客戶訊息');return;}
+    document.getElementById('st').textContent='產生中…(約30秒)';
+    try{const r=await fetch('/api/reply',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({message:msg,id:document.getElementById('job').value,tone:document.getElementById('tone').value})});
+      const j=await r.json();document.getElementById('st').textContent='';
+      if(j.ok){document.getElementById('reply').textContent=j.data.reply||'';
+        document.getElementById('tips').innerHTML='<b>⚠️ 提醒:</b><br>'+(j.data.tips||[]).map(x=>'• '+x).join('<br>');
+        document.getElementById('result').style.display='block';}
+      else document.getElementById('st').textContent='❌ '+(j.error||'失敗');}
+    catch(e){document.getElementById('st').textContent='❌ '+e.message;}}
+</script></body></html>`;
+}
+
 // 寬容取值:從多個可能的 key 取第一個有值的
 const pick = (o, ...keys) => {
   for (const k of keys) {
@@ -219,6 +306,12 @@ const pick = (o, ...keys) => {
 };
 
 const ID_RE = /~([0-9a-f]+)/i;
+
+// 把職缺連結整理成乾淨的正式網址(去掉 SEO slug 與追蹤參數)
+function cleanUrl(j) {
+  const m = String(j.url || '').match(ID_RE);
+  return m ? `https://www.upwork.com/jobs/_~${m[1]}/` : (j.url || '');
+}
 
 // 把外部 webhook 送來的一筆職缺,正規化成我們的 job 物件
 function normalizeIngest(raw) {
@@ -336,6 +429,35 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify(r));
     }
+    if (url.pathname === '/api/cover-letter' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+      if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      const text = await askAI(coverLetterPrompt(job, loadProfile()));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, text: text.trim() }));
+    }
+    if (url.pathname === '/api/advice' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+      if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      const data = extractJson(await askAI(advicePrompt(job, loadProfile())));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, data }));
+    }
+    if (url.pathname === '/api/reply' && req.method === 'POST') {
+      const { message, id, tone } = JSON.parse(await readBody(req));
+      const job = id ? db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) : null;
+      const data = extractJson(await askAI(replyPrompt(message, job, loadProfile(), tone)));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, data }));
+    }
+    if (url.pathname === '/api/profile' && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req));
+      saveProfile(body);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
     if (url.pathname === '/api/config' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));
       const cfg = loadConfig();
@@ -362,6 +484,14 @@ createServer(async (req, res) => {
     if (url.pathname === '/settings') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(pageSettings());
+    }
+    if (url.pathname === '/profile') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(pageProfile());
+    }
+    if (url.pathname === '/reply') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(pageReply());
     }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(pageJobs());

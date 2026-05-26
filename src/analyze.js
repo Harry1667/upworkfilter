@@ -196,6 +196,12 @@ function callProxy(env, prompt) {
   }
 }
 
+// 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
+export async function askAI(prompt) {
+  const env = loadEnv();
+  return callProxy(env, prompt);
+}
+
 // 主流程:回傳產出的 HTML 路徑
 export async function analyzeJob(job) {
   const env = loadEnv();

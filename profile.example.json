@@ -1,0 +1,58 @@
+{
+  "note": "你的接案檔案 — 所有 AI 功能(求職信/回覆/建議)都會讀這份來為你量身。可在 /profile 頁編輯。",
+  "name": "Po-Han Hua",
+  "title": "Full Stack Developer | AI Integration & Automation",
+  "level": "Upwork 新手(0 評價,衝第一個 5 星階段)",
+  "hourlyRate": 20,
+  "rateNote": "前幾單可略低於客戶習慣價搶第一個評價",
+  "bio": "全端工程師,專長 AI 整合與自動化。擅長把商業流程痛點轉成可上線的應用,從 UI 到雲端部署一手包。重視業務邏輯與品質掌控,能在通話中為每個技術決策辯護。",
+  "skills": [
+    "React", "Next.js", "Node.js", "TypeScript", "JavaScript", "Express", "FastAPI",
+    "Python", "Flutter", "React Native", "OpenAI API", "Claude API", "Gemini API",
+    "Prompt Engineering", "API Integration", "OCR", "Automation", "Playwright",
+    "PostgreSQL", "Supabase", "Prisma", "SQLite", "Docker", "Nginx", "Oracle Cloud",
+    "OWASP", "Website Security", "n8n", "Webhook"
+  ],
+  "portfolio": [
+    {
+      "name": "Mentora",
+      "type": "Full-Stack AI SaaS",
+      "desc": "多角色 AI 導師平台。Next.js + Node.js + PostgreSQL,Clerk 驗證,Docker/Nginx 部署於 Oracle Cloud,含即時邏輯。",
+      "tech": ["Next.js", "Node.js", "PostgreSQL", "Docker", "Clerk"],
+      "link": ""
+    },
+    {
+      "name": "CamMenu",
+      "type": "AI Mobile App (iOS)",
+      "desc": "AI 菜單翻譯 App。Flutter + Gemini 多模態 API 做 OCR,把複雜圖片轉成結構化 JSON,處理 App Store 訂閱上架。",
+      "tech": ["Flutter", "Gemini API", "OCR", "iOS"],
+      "link": ""
+    },
+    {
+      "name": "MathBox",
+      "type": "Web Tool",
+      "desc": "高效能數學視覺化工具。React + Vite + KaTeX,即時 LaTeX 渲染與符號運算。",
+      "tech": ["React", "Vite", "KaTeX"],
+      "link": ""
+    },
+    {
+      "name": "api-dindon (DingDong Call)",
+      "type": "Backend / Automation",
+      "desc": "醫院叫號通知系統。FastAPI + Celery + Redis,29 家醫院各自爬蟲(共用介面),LINE Bot 推播,Docker Compose 部署。",
+      "tech": ["FastAPI", "Celery", "Redis", "Python", "Docker"],
+      "link": ""
+    }
+  ],
+  "coverLetterStyle": {
+    "language": "English",
+    "rules": [
+      "開頭直接點出客戶的問題,不要先自我介紹",
+      "用一個最相關的作品當證據(具體技術細節)",
+      "給具體做法 + 預估時間",
+      "結尾問一個容易回答、能引導對話的問題",
+      "禁用詞:vibe coder、靠 AI、10x speed、做了15個app",
+      "強調懂業務邏輯、掌控品質,語氣專業但像真人",
+      "長度 70-110 字,精簡"
+    ]
+  }
+}
