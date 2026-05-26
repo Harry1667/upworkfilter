@@ -35,13 +35,20 @@ function scoreReward(j, rate) {
   return 55; // 預算未知
 }
 
-// ② 能力匹配度:案子文字命中多少你的技能
-function scoreSkill(j, mySkills) {
+// ② 能力匹配度:案子文字命中多少你的技能 +「作品契合」加成
+// provenTechs = Profile Agent 從你 GitHub 歸納出的「有真實 repo 證據」技術關鍵字。
+// 設計原則:有真實作品證據 → 適配度↑;只有口頭技能無實作 → 不灌水。
+function scoreSkill(j, mySkills, provenTechs = []) {
   const text = `${j.title || ''} ${j.description || ''}`.toLowerCase();
   const matched = [...new Set(mySkills.filter((s) => text.includes(s.toLowerCase())))];
   const table = [0, 35, 58, 75, 88, 100]; // 命中 0..5+
-  const score = matched.length >= 5 ? 100 : table[matched.length];
-  return { score, matched };
+  let score = matched.length >= 5 ? 100 : table[matched.length];
+
+  // 作品契合:案子文字也命中「有 GitHub 證據」的技術 → 每項 +10,最多 +30
+  const proven = [...new Set((provenTechs || []).filter((t) => t && text.includes(String(t).toLowerCase())))];
+  if (proven.length) score = Math.min(100, score + Math.min(proven.length * 10, 30));
+
+  return { score, matched, proven };
 }
 
 // ③ 客戶品質:付款驗證 + 花費 + 聘用率 + 評分
@@ -136,7 +143,7 @@ function scoreRisk(j, rate) {
 // 綜合:7 子分 → 加權總分(0-100)→ 依門檻判 APPLY / MAYBE / SKIP
 export function scoreJob(j, config) {
   const C = config.scoring.criteria;
-  const sk = scoreSkill(j, config.mySkills);
+  const sk = scoreSkill(j, config.mySkills, config.provenTechs);
   const scores = {
     reward: scoreReward(j, config.rate),
     skill: sk.score,
@@ -164,19 +171,19 @@ export function scoreJob(j, config) {
     reason = `排除:雇用率0%(發了${j.client_jobs_posted}案沒雇人)`;
   } else if (total >= config.scoring.threshold) {
     verdict = 'APPLY';
-    reason = buildReason(j, sk.matched, '值得投', scores);
+    reason = buildReason(j, sk.matched, '值得投', scores, sk.proven);
   } else if (total >= config.scoring.maybeThreshold) {
     verdict = 'MAYBE';
-    reason = buildReason(j, sk.matched, '可考慮', scores);
+    reason = buildReason(j, sk.matched, '可考慮', scores, sk.proven);
   } else {
     verdict = 'SKIP';
-    reason = buildReason(j, sk.matched, '分數不足', scores);
+    reason = buildReason(j, sk.matched, '分數不足', scores, sk.proven);
   }
 
   return { scores, total_score: total, verdict, reason, matched_skills: sk.matched };
 }
 
-function buildReason(j, matched, prefix, scores) {
+function buildReason(j, matched, prefix, scores, proven = []) {
   // 找出最低的兩維,點出弱點
   const low = Object.entries(scores).sort((a, b) => a[1] - b[1]).slice(0, 2)
     .map(([k]) => ({ reward: '報酬', skill: '技能', client: '客戶', competition: '競爭', longterm: '長期', clarity: '清晰度', risk: '風險' }[k]));
@@ -184,6 +191,7 @@ function buildReason(j, matched, prefix, scores) {
   if (j.client_spent_text) bits.push('客戶' + j.client_spent_text.replace(/\s*spent/i, '').trim());
   if (j.proposals_bucket) bits.push('提案' + j.proposals_bucket);
   if (matched.length) bits.push('match:' + matched.slice(0, 3).join('/'));
+  if (proven.length) bits.push('✓作品:' + proven.slice(0, 3).join('/')); // 有 GitHub 證據
   bits.push('弱項:' + low.join('/'));
   return `${prefix} — ${bits.join('、')}`;
 }

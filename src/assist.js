@@ -20,14 +20,19 @@ export function saveProfile(obj) {
 // 把檔案濃縮成 prompt 用的文字
 function profileBrief(p) {
   const port = (p.portfolio || []).map((x) => `- ${x.name}(${x.type}):${x.desc}`).join('\n');
+  // Profile Agent 從 GitHub 歸納的「真實 repo 證據」— 求職信優先引用這些(有實作可佐證)
+  const proven = (p.provenCapabilities || [])
+    .map((c) => `- ${c.repo}:${c.capability}${c.url ? `(${c.url})` : ''} [${(c.techs || []).join('/')}]`)
+    .join('\n');
   return [
     `姓名:${p.name || ''}`,
     `定位:${p.title || ''}|等級:${p.level || ''}|時薪:$${p.hourlyRate || '?'}`,
     `自介:${p.bio || ''}`,
     `技能:${(p.skills || []).join(', ')}`,
     `作品集:\n${port}`,
+    proven ? `已證明能力(GitHub 真實 repo,優先當證據):\n${proven}` : '',
     `求職信規則:${(p.coverLetterStyle?.rules || []).join(';')}`
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function jobBrief(job) {
@@ -56,7 +61,7 @@ ${jobBrief(job)}
 // ② 作品集 / 提交建議(繁中,精簡)
 export function advicePrompt(job, p) {
   return `根據「我的檔案」和「這個職缺」,用**繁體中文**給我精簡建議。只輸出 JSON:
-{"showPortfolio":["該主打哪1-2個作品及一句原因"],"submit":["投標應附上什麼(2-3項)"],"priceSuggestion":"報價建議(1句,給數字)","angle":"切入角度/差異化(1句)"}
+{"showPortfolio":["該主打哪1-2個作品及一句原因(優先用「已證明能力」裡的真實 repo)"],"screenshot":"建議附哪一張作品截圖當證據(1句,指名作品/畫面)","submit":["投標應附上什麼(2-3項)"],"priceSuggestion":"報價建議(1句,給數字)","angle":"切入角度/差異化(1句)"}
 
 我的檔案:
 ${profileBrief(p)}

@@ -1,7 +1,19 @@
 # Upwork Job Finder — Agents 規劃 + 專案交接文件
 
 > 用途:讓新對話能無縫接續開發 agents。涵蓋現況、決策、agent 設計、技術限制、下一步。
-> 最後更新:2026-05-27
+> 最後更新:2026-05-27(✅ Profile Agent 已完成並驗證)
+
+---
+
+## ✅ 已完成:Profile Agent(2026-05-27)
+
+- `src/agents/profile-agent.js`:抓 GitHub `Harry1667`(已確認,27 public repos)→ 排除 fork/archived,取最近更新前 24 個 → 抓 README(截斷 800 字)→ 分批(每批 6 個)餵 ProxyCLI 歸納「這證明我會什麼」+ 技術關鍵字 → 寫回 `profile.json`(`provenCapabilities` / `provenTechs` / `provenUpdatedAt` / `githubUser`)+ 存 DB 新表 `profile_capabilities`。
+- 實測:產出 **22 項 proven capability、63 個技術關鍵字**。
+- 評分作品契合:`score.js` 的 `scoreSkill` 新增 `provenTechs` 參數,案子文字命中「有 GitHub 證據」技術 → 每項 +10(上限 +30);`reason` 顯示 `✓作品:...`。實測 58→78。無 provenTechs 時行為不變(無回歸)。
+- `web.js`:`loadConfig` 自動帶入 `profile.provenTechs`;新增 `POST /api/agent/profile`(跑 agent + `rescoreAll`);`/profile` 頁加「🤖 執行 Profile Agent」按鈕。
+- `assist.js`:`profileBrief` 納入「已證明能力」;`advicePrompt` 新增 `screenshot`(建議附哪張作品截圖);求職信優先引用真實 repo。
+- 觸發方式:`npm run agent:profile [-- <user>]` 或 dashboard 按鈕。可選 `GITHUB_TOKEN` env 提高 rate limit。
+- **未做(下一步)**:server cron 每週自動跑(crontab call `curl -X POST .../api/agent/profile` 或 `npm run agent:profile`);部署到線上驗證。
 
 ---
 
@@ -136,5 +148,7 @@ profile.json    你的檔案(gitignore;部署時 fallback 到 profile.example.js
 ## 7. 待辦雜項
 - [ ] aaPanel 申請 SSL → 改用 https,webhook 也改 https
 - [ ] /profile 補上作品集真實連結(目前 link 空)
-- [ ] 確認 GitHub 帳號 `Harry1667`
-- [ ] 決定「作品契合」用規則 or AI(成本 vs 準度)
+- [x] 確認 GitHub 帳號 `Harry1667`(27 public repos)
+- [x] 決定「作品契合」用規則 or AI → **採規則加成**(provenTechs 比對,便宜即時;capability 文字由 AI 一次性歸納)
+- [ ] 部署 Profile Agent 到線上 + 設 server cron 每週自動刷新
+- [ ] 線上用真實 ingested 案子驗證適配度與求職信引用真實 repo

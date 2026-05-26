@@ -32,7 +32,12 @@ function checkDashAuth(req, res) {
   return false;
 }
 
-const loadConfig = () => JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+const loadConfig = () => {
+  const cfg = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+  // 帶入 Profile Agent 歸納的「有 GitHub 證據」技術,供評分作品契合加成
+  try { cfg.provenTechs = loadProfile().provenTechs || []; } catch { cfg.provenTechs = []; }
+  return cfg;
+};
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const CRIT_ORDER = ['reward', 'skill', 'client', 'competition', 'longterm', 'clarity', 'risk'];
@@ -250,6 +255,8 @@ function pageProfile() {
 <header><h1>👤 我的檔案 <span class="sub">所有 AI 功能(求職信/回覆/建議)都讀這份來為你量身</span></h1>${navBar('/profile')}</header>
 <main>
   <p class="reason">這是 JSON 格式,已照你之前的資料預填。改完按儲存。技能、作品集(name/type/desc/tech/link)、求職信規則都可調。</p>
+  <p class="reason">🤖 <b>Profile Agent</b>:自動抓你的 GitHub(${esc(p.githubUser || 'Harry1667')})歸納「已證明能力」,寫進 provenCapabilities/provenTechs,並讓有真實 repo 證據的案子適配度加成。${p.provenUpdatedAt ? `上次更新:${esc(p.provenUpdatedAt.slice(0, 16).replace('T', ' '))},共 ${(p.provenCapabilities || []).length} 項。` : '尚未執行。'}</p>
+  <p><button class="save" onclick="runAgent()">🤖 執行 Profile Agent(抓 GitHub,約 1-2 分)</button> <span id="amsg" class="reason"></span></p>
   <textarea id="p">${esc(JSON.stringify(p, null, 2))}</textarea>
   <p><button class="save" onclick="save()">💾 儲存檔案</button> <span id="msg" class="reason"></span></p>
 </main>
@@ -257,6 +264,11 @@ function pageProfile() {
   async function save(){let body;try{body=JSON.parse(document.getElementById('p').value);}catch(e){document.getElementById('msg').textContent='❌ JSON 格式錯誤:'+e.message;return;}
     const r=await fetch('/api/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
     document.getElementById('msg').textContent=(await r.json()).ok?'✅ 已儲存':'❌ 失敗';}
+  async function runAgent(){const m=document.getElementById('amsg');m.textContent='執行中…抓 GitHub + AI 歸納 + 重算分數(約 1-2 分,勿關閉)';
+    try{const r=await fetch('/api/agent/profile',{method:'POST'});const j=await r.json();
+      if(j.ok){m.textContent='✅ 完成:'+j.count+' 項已證明能力。重新整理頁面看更新後的檔案。';}
+      else m.textContent='❌ '+(j.error||'失敗');}
+    catch(e){m.textContent='❌ '+e.message;}}
 </script></body></html>`;
 }
 
@@ -417,6 +429,19 @@ createServer(async (req, res) => {
       console.log(`📥 ingest:收到 ${list.length} 筆,入庫 ${results.length} 筆`);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, ingested: results.length, results }));
+    }
+    if (url.pathname === '/api/agent/profile' && req.method === 'POST') {
+      // 觸發 Profile Agent:抓 GitHub → 歸納 proven capabilities → 寫回 profile + 重算分數
+      try {
+        const { runProfileAgent } = await import('./agents/profile-agent.js');
+        const r = await runProfileAgent({}); // user 預設讀 profile.githubUser / GITHUB_USER / Harry1667
+        rescoreAll(); // 立即用新作品證據重算所有案子的適配度
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true, count: r.count, provenTechs: r.provenTechs, capabilities: r.capabilities }));
+      } catch (e) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
     }
     if (url.pathname === '/api/analyze' && req.method === 'POST') {
       const { id } = JSON.parse(await readBody(req));
