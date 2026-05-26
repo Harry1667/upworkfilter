@@ -8,3 +8,4 @@ session/api-tokens.json
 .env.production
 upwork-*-analysis.html
 last-ingest.json
+deploy-credentials.txt

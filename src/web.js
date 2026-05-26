@@ -150,7 +150,9 @@ function pageJobs() {
     document.querySelector('input[onchange*="'+id+'"]').closest('.card').dataset.applied=a?'1':'0';}
   async function gen(id,btn){const t=btn.textContent;btn.disabled=true;btn.textContent='產生中…(約30-60秒,看 gstack 視窗)';
     try{const r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
-      const j=await r.json();btn.textContent=j.ok?'✅ 已開啟網站':'❌ '+(j.error||'失敗');}
+      const j=await r.json();
+      if(j.ok){btn.textContent='✅ 開啟中…';window.open('/analysis?id='+(j.id||id),'_blank');}
+      else btn.textContent='❌ '+(j.error||'失敗');}
     catch(e){btn.textContent='❌ '+e.message;}
     setTimeout(()=>{btn.disabled=false;btn.textContent=t;},8000);}
 </script></body></html>`;
@@ -346,6 +348,16 @@ createServer(async (req, res) => {
       rescoreAll();
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/analysis') { // 檢視已產生的評估網站(雲端用)
+      const id = (url.searchParams.get('id') || '').replace(/[^\w-]/g, '');
+      const f = path.join(__dirname, '..', `upwork-${id}-analysis.html`);
+      if (!id || !existsSync(f)) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        return res.end('找不到評估網站,請先在案件卡片按「產生評估網站」。');
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(readFileSync(f, 'utf8'));
     }
     if (url.pathname === '/settings') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

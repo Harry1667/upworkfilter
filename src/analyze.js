@@ -221,8 +221,8 @@ export async function analyzeJob(job) {
   const safeId = (job.id || 'job').replace(/[^\w-]/g, '').slice(0, 24);
   const file = path.join(ROOT, `upwork-${safeId}-analysis.html`);
   writeFileSync(file, html);
-  exec(`open "${file}"`); // 自動開啟
-  return { ok: true, file };
+  if (process.platform === 'darwin') exec(`open "${file}"`); // 本機 Mac 自動開啟;雲端用 /analysis 路由檢視
+  return { ok: true, file, id: safeId };
 }
 
 // CLI:npm run analyze -- <jobId>  (從 DB 取該案)
