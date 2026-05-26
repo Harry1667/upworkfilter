@@ -203,7 +203,7 @@ export async function analyzeJob(job) {
   // 優先用 DB 裡已有的完整資料(來自擴充套件 ingest)→ 雲端可用、更快、不撞 CF。
   // 沒有描述時才退回本機 gstack 抓取(僅本機可用)。
   let snapshot;
-  if (job.description && job.description.length > 150) {
+  if (job.description && job.description.trim().length > 0) {
     snapshot =
       `標題:${job.title || ''}\n` +
       `${job.description}\n\n[About the client]\n` +
