@@ -6,7 +6,7 @@ import path from 'node:path';
 import { openDb, markApplied, allJobs, upsertJob, setAiVerdict } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
-import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, extractJson } from './assist.js';
+import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -124,6 +124,9 @@ const CSS = `
   .track.low i{background:#da3633}.track.mid i{background:#d29922}
   .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
   .tags span{background:#0d1117;border:1px solid var(--bd);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--mut)}
+  details.dim{margin:8px 0 4px}details.dim>summary{cursor:pointer;color:var(--mut);font-size:12px;list-style:none;user-select:none}
+  details.dim>summary::before{content:"▸ ";}details.dim[open]>summary::before{content:"▾ ";}
+  details.dim>summary:hover{color:var(--ac)}details.dim .grid7{margin-top:8px}
   .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
   /* 次要動作:描邊低調;主要動作(.primary):填色突出 */
   .open{display:inline-flex;align-items:center;gap:5px;background:transparent;color:var(--tx);border:1px solid var(--bd);text-decoration:none;padding:8px 15px;border-radius:9px;font-size:13px;font-weight:500;transition:.15s;cursor:pointer}
@@ -206,8 +209,8 @@ function pageJobs() {
         </div>
         <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
         <p class="reason">${esc(j.reason)}</p>
-        <div class="grid7">${metrics}</div>
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
+        <details class="dim"><summary>展開 7 維評分</summary><div class="grid7">${metrics}</div></details>
         <div class="acts">
           <a class="open primary" href="/job?id=${j.id}">② 評估 →</a>
           <a class="open" href="/proposal?id=${j.id}">③ 提案 →</a>
@@ -408,7 +411,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}</nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/assistant', '🤖 助手', active === '/assistant')}${link('/features', '🧩 功能地圖', active === '/features')}${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}</nav>`;
 }
 
 // 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
@@ -472,6 +475,47 @@ function pageFeatures() {
       else st.textContent='❌ '+(j.error||'失敗');}
     catch(e){st.textContent='❌ '+e.message;}
     btn.disabled=false;}
+</script></body></html>`;
+}
+
+// 🤖 助手:跟 AI 對話(像聊天),帶入你的檔案 + 案件清單當上下文
+function pageAssistant() {
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>接案助手</title><style>${CSS}
+  .chat{display:flex;flex-direction:column;height:calc(100vh - 150px);max-width:860px;margin:0 auto}
+  .msgs{flex:1;overflow-y:auto;padding:8px 0}
+  .msg{margin:10px 0;display:flex}.msg .b{max-width:80%;padding:11px 15px;border-radius:14px;white-space:pre-wrap;line-height:1.6;font-size:14px}
+  .msg.user{justify-content:flex-end}.msg.user .b{background:var(--ac);color:#fff;border-bottom-right-radius:4px}
+  .msg.bot .b{background:var(--card);border:1px solid var(--bd);border-bottom-left-radius:4px}
+  .inbar{display:flex;gap:8px;padding:10px 0;border-top:1px solid var(--bd)}
+  .inbar textarea{flex:1;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:11px;font:14px/1.5 inherit;resize:none;min-height:46px;max-height:140px}
+  .hint{color:var(--mut);font-size:12px;margin:4px 0}</style></head><body>
+<header><h1>🤖 接案助手 <span class="sub">問我任何事:這案值不值得投、怎麼報價、幫想策略…我看得到你的檔案和案件清單</span></h1>${navBar('/assistant')}</header>
+<main>
+  <div class="chat">
+    <div class="msgs" id="msgs">
+      <div class="msg bot"><div class="b">嗨!我是你的接案助手 👋 我看得到你的檔案和目前的案件清單。可以問我例如:\n• 今天哪幾個案最值得投?\n• 這個案我該報多少?\n• 幫我想這案的切入角度\n• 客戶這樣回我該怎麼接?</div></div>
+    </div>
+    <div class="hint" id="hint"></div>
+    <div class="inbar">
+      <textarea id="in" placeholder="輸入問題… (Enter 送出,Shift+Enter 換行)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
+      <button class="save" id="sendBtn" onclick="send()">送出</button>
+    </div>
+  </div>
+</main>
+<script>
+  const history=[];
+  const msgs=document.getElementById('msgs');
+  function add(role,text){const d=document.createElement('div');d.className='msg '+(role==='user'?'user':'bot');
+    const b=document.createElement('div');b.className='b';b.textContent=text;d.appendChild(b);msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return b;}
+  async function send(){const ta=document.getElementById('in'),btn=document.getElementById('sendBtn'),hint=document.getElementById('hint');
+    const text=ta.value.trim();if(!text)return;ta.value='';add('user',text);history.push({role:'user',content:text});
+    btn.disabled=true;hint.textContent='助手思考中…';const bubble=add('bot','…');
+    try{const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:history})});
+      const j=await r.json();
+      if(j.ok){bubble.textContent=j.reply;history.push({role:'assistant',content:j.reply});}
+      else bubble.textContent='❌ '+(j.error||'失敗');}
+    catch(e){bubble.textContent='❌ '+e.message;}
+    hint.textContent='';btn.disabled=false;ta.focus();}
 </script></body></html>`;
 }
 
@@ -852,6 +896,15 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, data }));
     }
+    if (url.pathname === '/api/chat' && req.method === 'POST') {
+      const { messages } = JSON.parse(await readBody(req));
+      // 上下文:依分數排序取前 25 筆(AI 分數優先)當案件清單
+      const jobs = db.prepare(`SELECT id,title,budget_text,proposals_bucket,total_score,verdict,ai_score,ai_verdict FROM jobs
+        ORDER BY COALESCE(ai_score*10, total_score) DESC LIMIT 25`).all();
+      const reply = await askAI(chatPrompt(messages || [], loadProfile(), jobs));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, reply: String(reply).trim() }));
+    }
     if (url.pathname === '/api/reply' && req.method === 'POST') {
       const { message, id, tone } = JSON.parse(await readBody(req));
       const job = id ? db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) : null;
@@ -943,6 +996,10 @@ createServer(async (req, res) => {
     if (url.pathname === '/reply') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(pageReply());
+    }
+    if (url.pathname === '/assistant') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(pageAssistant());
     }
     if (url.pathname === '/features') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

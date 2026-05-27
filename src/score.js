@@ -178,12 +178,28 @@ export function scoreJob(j, config) {
   }
   total = Math.round(total);
 
+  // 低 CP 值閘:預算明顯低於底價 → 降級(避免燒 Connects 投不值得的案)
+  // 低預算 + 高競爭(提案多)= 燒代幣雷案 → 直接略過
+  const floor = config.rate || {};
+  const lowPay =
+    (j.budget_type === 'hourly' && (j.hourly_max ?? j.hourly_min ?? 99) < (floor.hourlyFloor ?? 12)) ||
+    (j.budget_type === 'fixed' && j.fixed_budget != null && j.fixed_budget < (floor.fixedFloor ?? 80));
+  const b = (j.proposals_bucket || '').toLowerCase();
+  const crowded = /15 to 20|20 to 50|50/.test(b);
+
   // 硬性安全閘:雇用率 0% 的死客戶直接打回(不論加權分)
   let verdict, reason;
   const deadClient = j.client_hire_rate === 0 && (j.client_jobs_posted ?? 0) >= 3;
   if (deadClient) {
     verdict = 'SKIP';
     reason = `排除:雇用率0%(發了${j.client_jobs_posted}案沒雇人)`;
+  } else if (lowPay && crowded) {
+    verdict = 'SKIP';
+    reason = `排除:低預算+高競爭(燒 Connects 不值得)— 提案${j.proposals_bucket || '多'}`;
+  } else if (lowPay && total >= config.scoring.maybeThreshold) {
+    // 低薪但其他不錯 → 最多到「可考慮」,不讓它變「值得投」
+    verdict = 'MAYBE';
+    reason = buildReason(j, sk.matched, '可考慮(預算偏低)', scores, sk.proven);
   } else if (total >= config.scoring.threshold) {
     verdict = 'APPLY';
     reason = buildReason(j, sk.matched, '值得投', scores, sk.proven);
