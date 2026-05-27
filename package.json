@@ -16,7 +16,8 @@
     "features": "node src/scan-features.js",
     "enrich": "node src/enrich-gstack.js",
     "agent:profile": "node src/agents/profile-agent.js",
-    "rescore": "node src/rescore.js"
+    "rescore": "node src/rescore.js",
+    "refresh": "node src/refresh-live.js"
   },
   "keywords": [],
   "author": "",

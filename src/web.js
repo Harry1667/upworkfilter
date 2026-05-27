@@ -298,8 +298,19 @@ const CHAT_WIDGET = `
 </script>`;
 
 // 送出 HTML 頁面並注入浮動聊天 agent(統一入口)
+// 全站共用:複製 Upwork 連結到剪貼簿(跨站點擊拿不到登入,改成複製、使用者自己貼)
+const COPY_JS = `<script>
+window.copyUpwork=function(e,el){if(e)e.preventDefault();
+  var u=el.getAttribute('data-url')||el.href||'';
+  var done=function(){var o=el.textContent;el.textContent='✅ 已複製,貼到網址列開啟';el.classList.add('copied');
+    setTimeout(function(){el.textContent=o;el.classList.remove('copied');},1600);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(done,function(){window.prompt('複製這個連結貼到網址列:',u);});}
+  else{window.prompt('複製這個連結貼到網址列:',u);}
+  return false;};
+</script>`;
+
 function serveHtml(res, htmlStr) {
-  const out = String(htmlStr).replace('</body>', CHAT_WIDGET + '</body>');
+  const out = String(htmlStr).replace('</body>', COPY_JS + CHAT_WIDGET + '</body>');
   // no-store:頁面是動態資料(連結/分數會改版),禁止瀏覽器快取 HTML,避免拿到舊連結
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, must-revalidate' });
   res.end(out);
@@ -954,7 +965,7 @@ function pageFeatures() {
   for (const s of tax.sources || []) srcMap[s.jobId] = { title: s.title, url: s.url };
   // 由 jobId 重建「登入後可用」的 Upwork 原案網址(nx 詳情路徑,同 cleanUrl)。
   // sources.url 常被 ingest 汙染(含 span/highlight markup)或是登出版,一律用 jobId 重建。
-  const upworkUrl = (id) => `https://www.upwork.com/nx/search/jobs/details/~${String(id).replace(/[^\w]/g, '')}`;
+  const upworkUrl = (id) => `https://www.upwork.com/jobs/~${String(id).replace(/[^\w]/g, '')}`;
   // 把一組 jobId 渲染成「原案連結清單」:標題 → Upwork 原案,另給內部 ② 評估 連結
   const jobLinks = (ids) => (ids || []).map((id) => {
     const j = srcMap[id] || {};
@@ -1267,7 +1278,7 @@ function pageJob(id) {
        <p><button class="save" onclick="genAn()">🌐 產生 AI 詳細分析</button> <span id="anmsg" class="reason"></span></p>`}
   </div>
 
-  <h2>核心數據</h2>
+  <h2>核心數據 <button class="save" style="background:#30363d;padding:5px 12px;font-size:12px;font-weight:400" onclick="refreshLive()">🔄 抓即時數據</button> <span id="rfmsg" class="reason"></span></h2>
   ${age.stale ? `<div class="worth bad">📸 競爭數據是「${age.text}抓的快照」。提案數/面試數會隨時間暴增(尤其熱門案)— <b>投標前務必到 Upwork 看即時 Proposals / Interviewing</b>,別只信這裡的「${esc(job.proposals_bucket || '?')}」。客戶花費/評分/預算等則穩定可信。</div>` : ''}
   <div class="cards">${coreCards}</div>
 
@@ -1319,6 +1330,13 @@ function pageJob(id) {
       if(r.ok){const j=await r.json();if(j.ok)showIframe();else{m.textContent='❌ '+(j.error||'失敗');btns.forEach(b=>b.disabled=false);}}
       else await probeOrFail(m,btns);}
     catch(e){clearInterval(anTimer);await probeOrFail(m,btns);}}
+  async function refreshLive(){var m=document.getElementById('rfmsg');m.textContent='抓即時數據中…';
+    try{var r=await fetch('/api/refresh-job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})});
+      var j=await r.json();
+      if(j.ok){m.textContent='✅ 已更新,重整中…';setTimeout(function(){location.reload();},600);}
+      else if(j.needLocal){m.innerHTML='⚠️ '+j.msg;}
+      else m.textContent='❌ '+(j.error||'失敗');}
+    catch(e){m.textContent='❌ '+e.message;}}
 </script></body></html>`;
 }
 
@@ -1439,15 +1457,14 @@ const pick = (o, ...keys) => {
 
 const ID_RE = /~([0-9a-f]+)/i;
 
-// 職缺連結 → 用「登入後實際可用」的 nx 詳情路徑 /nx/search/jobs/details/~ID。
-// 實測:公開格式 /jobs/_~ID/ 與 /jobs/~ID?referrer_url_path=... 都會被轉到登出版的 /freelance-jobs/apply 頁;
-// 只有 /nx/search/jobs/details/~ID 會在已登入瀏覽器帶 session 直接進該案(看得到 proposals/client activity)。
+// 職缺連結 → /jobs/~ID(使用者「貼到網址列」會帶登入 session 直接進該案的格式)。
+// 注意:跨站「點擊」跳轉拿不到 Upwork 登入(SameSite/referrer),所以 UI 一律改成「複製連結、自己貼」。
 // id 優先用乾淨的 j.id(數字密文),退回從 url 抓 ~id。
 function cleanUrl(j) {
   const id = (String(j.id || '').match(/[0-9a-f]{6,}/i) || [])[0]
           || (String(j.url || '').match(ID_RE) || [])[1];
   if (!id) return j.url || '';
-  return `https://www.upwork.com/nx/search/jobs/details/~${id}`;
+  return `https://www.upwork.com/jobs/~${id}`;
 }
 
 // 把外部 webhook 送來的一筆職缺,正規化成我們的 job 物件
@@ -1585,7 +1602,9 @@ createServer(async (req, res) => {
       return res.end();
     }
     // /api/ingest 用 INGEST_KEY(擴充套件);其餘頁面/API 一律要登入(hdw-auth JWT cookie)
-    if (url.pathname !== '/api/ingest') {
+    // /api/refresh-job 帶正確 key 時(本機 gstack 腳本用)免 cookie 驗證,比照 ingest
+    const refreshWithKey = url.pathname === '/api/refresh-job' && process.env.INGEST_KEY && url.searchParams.get('key') === process.env.INGEST_KEY;
+    if (url.pathname !== '/api/ingest' && !refreshWithKey) {
       const user = await requireAuth(req, res, url.pathname.startsWith('/api/'));
       if (!user) return;
     }
@@ -1666,6 +1685,27 @@ createServer(async (req, res) => {
       const data = extractJson(await askAI(advicePrompt(job, loadProfile())));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, data }));
+    }
+    if (url.pathname === '/api/refresh-job' && req.method === 'POST') {
+      // 🔄 即時重抓單案會變動的數據(提案/面試/客戶),合併後重算。
+      // live 由本機 gstack 腳本帶入;沒帶 live(網站按鈕)→ 試 API,沒 API 則回 needLocal。
+      const { id, live } = JSON.parse(await readBody(req));
+      const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+      if (!row) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      let fresh = live && Object.keys(live).length ? live : null;
+      if (!fresh) {
+        // TODO(API 啟用後):用官方 API detail 抓即時 totalApplicants。目前 API 未過 → 引導本機重抓。
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, needLocal: true, msg: `雲端目前無法直接抓即時數據(需官方 API 或本機 gstack)。請在本機跑:npm run refresh -- ${id}` }));
+      }
+      const job = { ...row, payment_verified: !!row.payment_verified, enriched: !!row.enriched };
+      for (const k of ['proposals_bucket', 'client_hire_rate', 'client_rating', 'client_reviews', 'client_jobs_posted', 'client_spent_text', 'client_spent_usd', 'posted_at']) {
+        if (live[k] != null && live[k] !== '') job[k] = live[k];
+      }
+      Object.assign(job, scoreJob(job, loadConfig()));
+      upsertJob(db, job); // last_seen 自動更新 → 資料新鮮度重置
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, verdict: job.verdict, competition: job.scores?.competition, proposals_bucket: job.proposals_bucket, blocked: job.blocked }));
     }
     if (url.pathname === '/api/screening' && req.method === 'POST') {
       // 🎯 篩選問題作戰區:抽 screening questions → 逐題答案 + 硬門檻判斷要不要投
