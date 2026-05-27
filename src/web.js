@@ -951,19 +951,13 @@ function pageFeatures() {
   // 溯源用:jobId → {標題,網址}(來自掃描時記下的 sources)
   const srcMap = {};
   for (const s of tax.sources || []) srcMap[s.jobId] = { title: s.title, url: s.url };
-  // 由 jobId 重建乾淨的 Upwork 原案網址。
-  // 部分案子的 sources.url 被 ingest 汙染(含 span/highlight markup),所以優先重建;
-  // 只有當 stored url 是乾淨的 upwork job 連結時才沿用。
-  const upworkUrl = (id, raw) => {
-    const clean = /^https:\/\/www\.upwork\.com\/jobs\/[\w~/-]+$/.test(raw || '') && !/span|highlight|<|>/i.test(raw);
-    if (clean) return raw;
-    const cid = String(id).replace(/[^\w]/g, '');
-    return `https://www.upwork.com/jobs/_~${cid}/`;
-  };
+  // 由 jobId 重建「登入後可用」的 Upwork 原案網址(nx 詳情路徑,同 cleanUrl)。
+  // sources.url 常被 ingest 汙染(含 span/highlight markup)或是登出版,一律用 jobId 重建。
+  const upworkUrl = (id) => `https://www.upwork.com/nx/search/jobs/details/~${String(id).replace(/[^\w]/g, '')}`;
   // 把一組 jobId 渲染成「原案連結清單」:標題 → Upwork 原案,另給內部 ② 評估 連結
   const jobLinks = (ids) => (ids || []).map((id) => {
     const j = srcMap[id] || {};
-    const url = upworkUrl(id, j.url);
+    const url = upworkUrl(id);
     const title = j.title || id;
     return `<li><a href="${esc(url)}" target="_blank" rel="noopener">${esc(title)}</a> <a href="/job?id=${esc(id)}" class="ev">②評估</a></li>`;
   }).join('') || '<li class="reason">(無紀錄)</li>';
@@ -1134,7 +1128,7 @@ function winRateHint(job) {
     const pct = job.ai_win;
     const level = pct >= 70 ? '高' : pct >= 45 ? '中' : '低';
     const color = pct >= 70 ? 'var(--grn)' : pct >= 45 ? 'var(--ylw)' : '#f85149';
-    return { pct, level, color, note: 'AI 估計(綜合競爭/契合/客戶意願)' };
+    return { pct, level, color, note: 'AI 估計(綜合競爭/契合/客戶意願)', isAi: true };
   }
   const comp = job.score_competition ?? 0;     // 競爭越低分越高(提案少)
   const skill = job.score_skill ?? 0;          // 能力匹配(含作品契合)
@@ -1149,7 +1143,46 @@ function winRateHint(job) {
   if (comp >= 75) bits.push('提案數少、容易被看到'); else if (comp <= 30) bits.push('競爭激烈、難出頭');
   if (skill >= 80) bits.push('能力高度吻合(有作品證據)'); else if (skill < 50) bits.push('技能匹配偏弱');
   if (client < 40) bits.push('客戶條件普通');
-  return { pct, level, color, note: bits.join('、') || '條件中性' };
+  return { pct, level, color, note: bits.join('、') || '條件中性', isAi: false };
+}
+
+// 勝率深入解析:為什麼這個數字 + 值不值得投 + 怎麼脫穎而出(規則式,免額外 AI)
+// 兩軸獨立:quality(案子好不好,0-10) 與 win(接不接得到,0-100)。勝率「不」計入總分。
+function winRateAnalysis(job, ev) {
+  const win = winRateHint(job);
+  const quality = ev?.isAi ? ev.score : (job.total_score ?? 0) / 10; // 正規化到 0-10
+  const goodJob = quality >= 6.5;
+  const lowWin = win.pct < 45;
+
+  // 為什麼:把可得的訊號拆出來(競爭/契合/客戶),讓數字有依據
+  const factors = [];
+  const prop = job.proposals_bucket || '';
+  if (prop) {
+    const heavy = /20|50|\+/.test(prop);
+    factors.push({ label: '競爭', detail: `提案 ${prop}${heavy ? '(偏多,晚投更吃虧)' : ''}`, good: !heavy });
+  }
+  const skill = job.score_skill ?? 0;
+  factors.push({ label: '能力契合', detail: skill >= 80 ? '高度吻合(有作品證據)' : skill >= 50 ? '中等' : '偏弱', good: skill >= 70 });
+  const cli = job.score_client ?? 0;
+  factors.push({ label: '客戶', detail: cli >= 60 ? '條件佳' : '普通', good: cli >= 60 });
+  if (job.client_hire_rate != null) factors.push({ label: '雇用率', detail: job.client_hire_rate + '%' + (job.client_hire_rate < 40 ? '(常發案少聘)' : ''), good: job.client_hire_rate >= 50 });
+
+  // 值不值得投(連結 connects 成本框架):好案×難搶 → 賭但要差異化;爛案×難搶 → 省 connects
+  let worth, worthCls;
+  if (goodJob && !lowWin) { worth = '🟢 首選 — 案子好、又搶得到,優先投,提案做紮實即可。'; worthCls = 'ok'; }
+  else if (goodJob && lowWin) { worth = '🟡 好案但競爭激烈 — 值得用 connects 賭一把,但提案「必須差異化」,否則錢會白花。重點看下方策略。'; worthCls = 'mid'; }
+  else if (!goodJob && !lowWin) { worth = '🟡 容易接但案子普通 — 適合衝評價/練手,別期待高報酬。'; worthCls = 'mid'; }
+  else { worth = '🔴 又難搶又普通 — 大機率浪費 connects,建議略過,把 connects 留給好案。'; worthCls = 'bad'; }
+
+  // 怎麼脫穎而出(低勝率時的具體戰術)
+  const tips = [
+    '開頭 3 行直接點出客戶的痛點與你的解法,別用通用模板(AI 一看就知道)',
+    '附「最相關」的真實作品連結/截圖 — 去 ③ 提案 看系統建議主打哪個',
+    /20|50|\+/.test(prop) ? '此案提案已多 → 越早投越好,並在開頭證明你已讀懂需求(問一個聰明問題)' : '提早投、客製化開場',
+    '報價用「價值定位」而非殺價;新手可給明確里程碑與快速交付承諾降低客戶風險'
+  ];
+
+  return { ...win, quality: quality.toFixed(1), goodJob, lowWin, factors, worth, worthCls, tips };
 }
 
 // 共用:單一案頂部資訊列(評估/提案頁共用)
@@ -1175,8 +1208,8 @@ function pageJob(id) {
   if (!job) return notFoundPage('② 評估', '/job', id);
   const cfg = loadConfig();
   const C = cfg.scoring.criteria;
-  const wr = winRateHint(job);
   const ev = effectiveVerdict(job);
+  const wr = winRateAnalysis(job, ev);
   const verdictLine = ev.isAi
     ? `AI 判斷 ${ev.score}/10 · ${esc(ev.verdict)}　|　規則快篩 ${job.total_score}/100`
     : `規則快篩 ${job.total_score}/100 · ${job.verdict}`;
@@ -1197,7 +1230,16 @@ function pageJob(id) {
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:8px}
   .cards .c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}.c .l{color:var(--mut);font-size:12px}.c .v{font-size:15px;font-weight:600;margin-top:2px}
   .winbox{display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:8px 0}
-  .winpct{font-size:34px;font-weight:800}.desc{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 16px;white-space:pre-wrap;font-size:14px;line-height:1.7;max-height:340px;overflow:auto}
+  .winpct{font-size:34px;font-weight:800;min-width:78px}.desc{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 16px;white-space:pre-wrap;font-size:14px;line-height:1.7;max-height:340px;overflow:auto}
+  .winwhy{margin:8px 0}.winwhy .wk{font-size:12px;color:var(--mut);margin-bottom:5px}
+  .facs{display:flex;flex-wrap:wrap;gap:6px}
+  .fac{font-size:12px;padding:3px 9px;border-radius:14px;border:1px solid var(--bd)}
+  .fac.g{background:#0d2a18;border-color:#1f6f3f;color:#7ee2a8}.fac.b{background:#2a1416;border-color:#6e2b30;color:#f0a0a4}
+  .worth{padding:11px 14px;border-radius:10px;margin:8px 0;font-size:14px;font-weight:600}
+  .worth.ok{background:#1a3a26;color:#7ee2a8}.worth.mid{background:#3a3016;color:#e8c477}.worth.bad{background:#3a1a1a;color:#f0a0a4}
+  .howwin{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;margin:8px 0}
+  .howwin summary{cursor:pointer;font-size:14px;font-weight:600;color:var(--ac)}
+  .howwin ul{margin:10px 0 4px;padding-left:20px}.howwin li{margin:5px 0;font-size:13px}
   .jobbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}.jobbar a,.jobbar label{font-size:13px}
   .cta{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;margin:6px 0}
   #anframe{width:100%;height:600px;border:1px solid var(--bd);border-radius:12px;background:#0d1117}</style></head><body>
@@ -1227,8 +1269,21 @@ function pageJob(id) {
   <h2>勝率估計(接不接得到)</h2>
   <div class="winbox">
     <div class="winpct" style="color:${wr.color}">${wr.pct}%</div>
-    <div><b style="color:${wr.color}">${wr.level}勝率</b><br><span class="reason">${esc(wr.note)}</span></div>
+    <div>
+      <b style="color:${wr.color}">${wr.level}勝率</b> <span class="reason">${esc(wr.note)}</span><br>
+      <span class="reason">總分 <b style="color:var(--tx)">${wr.quality}/10</b> = 案子好不好　·　勝率 <b style="color:${wr.color}">${wr.pct}%</b> = 你接不接得到。<b>兩軸獨立,勝率不計入總分</b> — 好案子常常難搶。</span>
+    </div>
   </div>
+  <div class="winwhy">
+    <div class="wk">為什麼是這個數字</div>
+    <div class="facs">${wr.factors.map((f) => `<span class="fac ${f.good ? 'g' : 'b'}">${esc(f.label)}:${esc(f.detail)}</span>`).join('')}</div>
+  </div>
+  <div class="worth ${wr.worthCls}">${esc(wr.worth)}</div>
+  <details class="howwin"${wr.lowWin ? ' open' : ''}>
+    <summary>🏆 就算勝率低,怎麼脫穎而出 / 值不值得花 connects</summary>
+    <ul>${wr.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+    <p class="reason">想要這個案子的「客製化中標策略 + 求職信」→ <a href="/proposal?id=${job.id}">去 ③ 提案</a>(AI 會針對此案給差異化打法)。</p>
+  </details>
 
   <h2>7 維評分(規則式)</h2>
   <div class="grid7" style="margin-bottom:8px">${metrics}</div>
@@ -1379,13 +1434,15 @@ const pick = (o, ...keys) => {
 
 const ID_RE = /~([0-9a-f]+)/i;
 
-// 職缺連結 → 複製「登入後實際可用」的格式:/jobs/~ID + referrer_url_path 指向 nx 詳情路徑。
-// 這條在已登入瀏覽器會帶登入狀態「且」直接進到該案(公開格式 /jobs/_~ID/ 顯示登出版;只給 /nx/... 會登入但沒進案)。
+// 職缺連結 → 用「登入後實際可用」的 nx 詳情路徑 /nx/search/jobs/details/~ID。
+// 實測:公開格式 /jobs/_~ID/ 與 /jobs/~ID?referrer_url_path=... 都會被轉到登出版的 /freelance-jobs/apply 頁;
+// 只有 /nx/search/jobs/details/~ID 會在已登入瀏覽器帶 session 直接進該案(看得到 proposals/client activity)。
+// id 優先用乾淨的 j.id(數字密文),退回從 url 抓 ~id。
 function cleanUrl(j) {
-  const m = String(j.url || '').match(ID_RE);
-  if (!m) return j.url || '';
-  const id = m[1];
-  return `https://www.upwork.com/jobs/~${id}?referrer_url_path=%2Fnx%2Fsearch%2Fjobs%2Fdetails%2F~${id}`;
+  const id = (String(j.id || '').match(/[0-9a-f]{6,}/i) || [])[0]
+          || (String(j.url || '').match(ID_RE) || [])[1];
+  if (!id) return j.url || '';
+  return `https://www.upwork.com/nx/search/jobs/details/~${id}`;
 }
 
 // 把外部 webhook 送來的一筆職缺,正規化成我們的 job 物件
