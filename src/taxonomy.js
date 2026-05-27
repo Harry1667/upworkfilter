@@ -116,6 +116,22 @@ export function mergeBatch(tax, query, extracted, scannedJobs) {
   return cat;
 }
 
+// 功能地圖的「大類名稱」(母類別)— 供每案標母類別當受控詞彙
+export function taxonomyCategoryNames() {
+  const tax = loadTaxonomy();
+  return [...new Set(Object.values(tax.categories || {}).map((c) => c?.name?.trim()).filter(Boolean))];
+}
+
+// 功能地圖的「小功能名稱」(子類別)— 供每案標子功能當受控詞彙,兩邊同一套詞
+export function taxonomyFeatureNames() {
+  const tax = loadTaxonomy();
+  const names = [];
+  for (const c of Object.values(tax.categories || {})) {
+    for (const f of Object.values(c.features || {})) if (f?.name) names.push(f.name.trim());
+  }
+  return [...new Set(names)];
+}
+
 // 轉成排序好的檢視結構(大類依案子數、功能依頻率降序)
 export function toView(tax) {
   return Object.values(tax.categories || {})

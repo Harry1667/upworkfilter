@@ -61,18 +61,19 @@ export function openDb() {
   try { db.exec('ALTER TABLE jobs ADD COLUMN ai_score REAL'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN ai_verdict TEXT'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN ai_win INTEGER'); } catch { /* 已存在 */ }
-  // 屬性標籤(受控詞彙,逗號分隔)— AI 快篩產生,供卡片顯示 + 列表篩選 + 功能地圖
+  // 分類標籤(來自功能地圖):category=母類別(大類,1個)、tags=子功能(小類,逗號分隔)
+  try { db.exec('ALTER TABLE jobs ADD COLUMN category TEXT'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN tags TEXT'); } catch { /* 已存在 */ }
   // 學習迴路:投標結果(applied→ 已回/面試/錄取/未回),供日後校正評分
   try { db.exec('ALTER TABLE jobs ADD COLUMN outcome TEXT'); } catch { /* 已存在 */ }
   return db;
 }
 
-// 寫入 AI 判斷(score 0-10、verdict、win 中標機率 0-100、tags 屬性標籤陣列)
-export function setAiVerdict(db, id, score, verdict, win, tags) {
+// 寫入 AI 判斷(score、verdict、win、tags 子功能陣列、category 母類別)
+export function setAiVerdict(db, id, score, verdict, win, tags, category) {
   const tagStr = Array.isArray(tags) ? tags.join(',') : (tags ?? null);
-  db.prepare('UPDATE jobs SET ai_score = ?, ai_verdict = ?, ai_win = ?, tags = COALESCE(?, tags) WHERE id = ?')
-    .run(score ?? null, verdict ?? null, win ?? null, tagStr, id);
+  db.prepare('UPDATE jobs SET ai_score = ?, ai_verdict = ?, ai_win = ?, tags = COALESCE(?, tags), category = COALESCE(?, category) WHERE id = ?')
+    .run(score ?? null, verdict ?? null, win ?? null, tagStr, category ?? null, id);
 }
 
 // 學習迴路:標記投標結果

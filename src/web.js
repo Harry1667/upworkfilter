@@ -7,8 +7,6 @@ import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome } fro
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
-import { TAG_TYPES } from './triage.js';
-const TYPE_TAGS = new Set(TAG_TYPES); // 哪些屬性標籤是「案型」(著色用)
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -73,7 +71,7 @@ async function autoTriageIngested(ids) {
     const { triageJobs } = await import('./triage.js');
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
     const res = await triageJobs(rows);
-    for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags);
+    for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
     console.log(`🤖 自動快篩完成:${res.length} 案`);
   } catch (e) {
     console.error('自動快篩失敗:' + e.message);
@@ -129,7 +127,7 @@ const CSS = `
   .tags span{background:#0d1117;border:1px solid var(--bd);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--mut)}
   .atags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}
   .atag{font-size:12px;border-radius:6px;padding:2px 9px;font-weight:500}
-  .atag.type{background:#13233b;color:#79c0ff;border:1px solid #1f3a5f}
+  .atag.parent{background:#13233b;color:#79c0ff;border:1px solid #1f3a5f;font-weight:600}
   .atag.need{background:#2d2150;color:#b392f0;border:1px solid #4a3a6a}
   .fit{font-size:12px;border-radius:6px;padding:2px 9px;font-weight:600}
   .fit.hit{background:#0d2818;color:#3fb950;border:1px solid #1f5c38}
@@ -258,7 +256,8 @@ function pageJobs() {
   const todayNew = data.filter((j) => (j.first_seen || '').slice(0, 10) === todayStr).length;
   const todo = data.filter((j) => effectiveVerdict(j).cls === 'APPLY' && !j.applied).length;
   const untriaged = data.filter((j) => j.ai_score == null).length;
-  // 收集所有出現過的屬性標籤(給篩選下拉)
+  // 收集母類別 + 子功能(給篩選下拉)
+  const allParents = [...new Set(data.map((j) => (j.category || '').trim()).filter(Boolean))].sort();
   const allTags = [...new Set(data.flatMap((j) => (j.tags || '').split(',').map((x) => x.trim()).filter(Boolean)))].sort();
   const cards = data
     .map((j) => {
@@ -281,11 +280,13 @@ function pageJobs() {
       const jtext = `${j.title || ''} ${j.description || ''}`.toLowerCase();
       const provenHits = (cfg.provenTechs || []).filter((t) => t && jtext.includes(String(t).toLowerCase())).length;
       const fit = provenHits >= 2 ? { t: '🟢 強項命中', c: 'hit' } : provenHits === 1 ? { t: '🟡 部分符合', c: 'partial' } : { t: '⚪ 需補技能', c: 'none' };
-      // 屬性標籤(AI 受控詞彙)
+      // 分類標籤(來自功能地圖):母類別 + 子功能
+      const parent = (j.category || '').trim();
       const jtags = (j.tags || '').split(',').map((x) => x.trim()).filter(Boolean);
-      const atagHtml = jtags.map((t) => `<span class="atag ${TYPE_TAGS.has(t) ? 'type' : 'need'}">${esc(t)}</span>`).join('');
+      const parentHtml = parent ? `<span class="atag parent">📂 ${esc(parent)}</span>` : '';
+      const childHtml = jtags.map((t) => `<span class="atag need">${esc(t)}</span>`).join('');
       return `
-      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-fit="${fit.c}" data-tags="${esc(jtags.join(','))}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}">
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
@@ -294,7 +295,7 @@ function pageJobs() {
         </div>
         <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
         <p class="reason">${esc(j.reason)}</p>
-        <div class="atags"><span class="fit ${fit.c}">${fit.t}</span>${atagHtml}</div>
+        <div class="atags"><span class="fit ${fit.c}">${fit.t}</span>${parentHtml}${childHtml}</div>
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
         <details class="dim"><summary>展開 7 維評分</summary><div class="grid7">${metrics}</div></details>
         <div class="acts">
@@ -318,8 +319,12 @@ function pageJobs() {
   <div class="filters">
     <button data-f="APPLY" class="on">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
     <button data-f="SKIP">🔴 排除</button><button data-f="applied">已投</button><button data-f="all">全部</button>
+    <select id="parentFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
+      <option value="">📂 全部大類</option>
+      ${allParents.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+    </select>
     <select id="tagFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
-      <option value="">🏷️ 全部類型</option>
+      <option value="">🔧 全部功能</option>
       ${allTags.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
     </select>
     <select id="fitFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
@@ -331,14 +336,16 @@ function pageJobs() {
 <script>
   const cards=[...document.querySelectorAll('.card')];
   let verdictF='APPLY';
-  function applyFilters(){const tag=document.getElementById('tagFilter').value,fit=document.getElementById('fitFilter').value;
+  function applyFilters(){const par=document.getElementById('parentFilter').value,tag=document.getElementById('tagFilter').value,fit=document.getElementById('fitFilter').value;
     cards.forEach(c=>{
       let okV=verdictF==='all'?1:verdictF==='applied'?c.dataset.applied==='1':c.dataset.verdict===verdictF;
+      let okP=!par||c.dataset.parent===par;
       let okT=!tag||(','+c.dataset.tags+',').indexOf(','+tag+',')>=0;
       let okF=!fit||c.dataset.fit===fit;
-      c.style.display=(okV&&okT&&okF)?'':'none';});}
+      c.style.display=(okV&&okP&&okT&&okF)?'':'none';});}
   function f(x){verdictF=x;document.querySelectorAll('.filters button').forEach(b=>b.classList.toggle('on',b.dataset.f===x));applyFilters();}
   document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>f(b.dataset.f));
+  document.getElementById('parentFilter').onchange=applyFilters;
   document.getElementById('tagFilter').onchange=applyFilters;
   document.getElementById('fitFilter').onchange=applyFilters;
   f('APPLY');
@@ -1109,7 +1116,7 @@ createServer(async (req, res) => {
       }
       const { triageJobs } = await import('./triage.js');
       const results = await triageJobs(rows);
-      for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags);
+      for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, triaged: results.length, candidates: rows.length }));
     }
