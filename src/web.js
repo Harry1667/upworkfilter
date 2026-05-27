@@ -110,7 +110,7 @@ async function autoTriageIngested(ids) {
     _triageBusy = true;
     const { triageJobs } = await import('./triage.js');
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
-    const res = await triageJobs(rows);
+    const res = await triageJobs(rows, { outcomeNote: outcomeNoteText(computeOutcomeStats()) });
     for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
     console.log(`🤖 自動快篩完成:${res.length} 案`);
   } catch (e) {
@@ -118,6 +118,43 @@ async function autoTriageIngested(ids) {
   } finally {
     _triageBusy = false;
   }
+}
+
+// 🔁 學習迴路:從已標記 outcome 的案統計「AI 預測勝率 vs 真實結果」
+// 正向 = 已回覆/面試中/已錄取(有獲得注意);負向 = 沒回/落選;已投待回 = pending(不列入率)
+const _POS_OUTCOMES = new Set(['已回覆', '面試中', '已錄取']);
+function computeOutcomeStats() {
+  const rows = db.prepare(`SELECT ai_win, outcome, category FROM jobs
+    WHERE outcome IS NOT NULL AND outcome != '' AND outcome != '已投待回'`).all();
+  const bucketKey = (w) => (w == null ? 'none' : w >= 60 ? 'high' : w >= 40 ? 'mid' : 'low');
+  const b = { high: { n: 0, pos: 0 }, mid: { n: 0, pos: 0 }, low: { n: 0, pos: 0 }, none: { n: 0, pos: 0 } };
+  const cat = {};
+  let won = 0;
+  for (const r of rows) {
+    const pos = _POS_OUTCOMES.has(r.outcome);
+    const k = bucketKey(r.ai_win); b[k].n++; if (pos) b[k].pos++;
+    if (r.outcome === '已錄取') won++;
+    const c = (r.category || '其他').trim() || '其他';
+    (cat[c] = cat[c] || { n: 0, pos: 0 }).n++; if (pos) cat[c].pos++;
+  }
+  const pending = db.prepare(`SELECT COUNT(*) c FROM jobs WHERE outcome='已投待回'`).get().c;
+  return { decided: rows.length, won, pending, buckets: b, cat };
+}
+// 把實績濃縮成一句餵給 AI 快篩(樣本 <5 不餵,避免噪音誤導)
+function outcomeNoteText(s) {
+  if (!s || s.decided < 5) return '';
+  const rate = (o) => (o.n ? Math.round((o.pos / o.n) * 100) : null);
+  const parts = [];
+  for (const [k, label] of [['high', '估≥60%'], ['mid', '估40-59%'], ['low', '估<40%']]) {
+    const o = s.buckets[k]; if (o.n) parts.push(`${label}的案實際獲回應 ${o.pos}/${o.n}(${rate(o)}%)`);
+  }
+  const cats = Object.entries(s.cat).filter(([, o]) => o.n >= 2);
+  const good = cats.filter(([, o]) => o.pos / o.n >= 0.4).map(([c]) => c);
+  const bad = cats.filter(([, o]) => o.pos === 0).map(([c]) => c);
+  let line = `【我的真實投標實績(校正用:共 ${s.decided} 案有結果,錄取 ${s.won})】${parts.join(';')}`;
+  if (good.length) line += `;實際有回應的領域:${good.join('、')}`;
+  if (bad.length) line += `;一直槓龜的領域:${bad.join('、')}(這類 win 要保守)`;
+  return line + '。請據此校正 win,別系統性高估或低估。';
 }
 
 // 用新 config 重算 DB 所有案子的分數
@@ -237,7 +274,7 @@ const CHAT_WIDGET = `
   var panel=document.getElementById('cwPanel'),msgs=document.getElementById('cwMsgs'),ta=document.getElementById('cwTa');
   var hist=[];try{hist=JSON.parse(sessionStorage.getItem(KEY)||'[]');}catch(e){}
   function ctx(){var p=location.pathname,id=(new URLSearchParams(location.search)).get('id')||'';
-    var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/features':'功能地圖','/me':'我的能力','/profile':'Upwork Profile','/scoring':'評分設定','/assistant':'助手'};
+    var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/features':'功能地圖','/me':'我的能力','/profile':'Upwork Profile','/scoring':'評分設定','/agents':'Agents 中控台','/assistant':'助手'};
     return {page:(m[p]||p),jobId:id};}
   function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
   // 安全渲染輕量 markdown(先 escape 防 XSS,再轉粗體/換行;移除井號與反引號)
@@ -709,6 +746,129 @@ function pageMe() {
 </script></body></html>`;
 }
 
+// 🤖 Agents 中控台:列出所有 agent 的設定資料 + 學到的東西 + 聊天機器人
+function pageAgents() {
+  const p = loadProfile();
+  const cfg = loadConfig();
+  const cap = p.capability || {};
+  const os = computeOutcomeStats();
+  const note = outcomeNoteText(os);
+  const rate = (o) => (o.n ? Math.round((o.pos / o.n) * 100) + '%' : '—');
+
+  // 🧠 Profile Agent:已證明能力
+  const caps = (p.provenCapabilities || []);
+  const capsHtml = caps.length
+    ? caps.map((c) => `<li><b>${esc(c.repo)}</b> — ${esc(c.capability)} <small style="color:var(--mut)">[${esc((c.techs || []).join('/'))}]</small></li>`).join('')
+    : '<li class="reason">尚未執行 Profile Agent。</li>';
+
+  // 🎯 能力邊界(第二道門)
+  const skillsHtml = (cap.skills || []).length
+    ? `<table><tr><th>可交付項目</th><th>深度</th><th>✅ 能做</th><th>🚫 不做</th></tr>${(cap.skills || []).map((s) => `<tr><td>${esc(s.name)}</td><td>${esc(s.level)}/5</td><td>${esc(s.canDo) || '<span style="color:var(--mut)">—</span>'}</td><td>${esc(s.cantDo) || '<span style="color:var(--mut)">—</span>'}</td></tr>`).join('')}</table>`
+    : '<p class="reason">尚未設定能力。去 <a href="/me">🎯 我的能力</a> 設定。</p>';
+
+  // ⚖️ 評分設定
+  const C = cfg.scoring.criteria;
+  const weightsHtml = CRIT_ORDER.map((k) => `${C[k].label} ${C[k].weight}%`).join(' · ');
+
+  // 📈 學習迴路:AI 預測勝率 vs 真實結果
+  const bRow = (label, o) => `<tr><td>${label}</td><td>${o.n}</td><td>${o.pos}</td><td><b>${rate(o)}</b></td></tr>`;
+  const catRows = Object.entries(os.cat).filter(([, o]) => o.n >= 1)
+    .sort((a, b) => b[1].n - a[1].n)
+    .map(([c, o]) => `<tr><td>${esc(c)}</td><td>${o.n}</td><td>${o.pos}</td><td>${rate(o)}</td></tr>`).join('');
+  const learnedHtml = os.decided >= 1
+    ? `<p class="reason">共投有結果 <b>${os.decided}</b> 案(待回 ${os.pending} · 錄取 ${os.won})。「獲回應」= 已回覆/面試中/已錄取。</p>
+       <table><tr><th>AI 預測勝率組</th><th>投了</th><th>獲回應</th><th>實際命中率</th></tr>
+       ${bRow('估 ≥60%', os.buckets.high)}${bRow('估 40-59%', os.buckets.mid)}${bRow('估 <40%', os.buckets.low)}${bRow('未估', os.buckets.none)}</table>
+       ${catRows ? `<p class="reason" style="margin-top:12px">依領域:</p><table><tr><th>領域</th><th>投了</th><th>獲回應</th><th>命中率</th></tr>${catRows}</table>` : ''}
+       <p class="reason" style="margin-top:12px">${note ? '🔁 餵給 AI 快篩的校正:<br>' + esc(note) : '⚠️ 樣本未達 5 案,還不夠餵給 AI 校正(避免噪音)。多標幾筆結果就會自動啟用。'}</p>`
+    : '<p class="reason">還沒有投標結果。投標後到「② 評估」頁右上角把結果標起來(已回覆/面試/錄取/落選),這裡就會統計,並回饋給 AI 校正未來勝率估計。</p>';
+
+  const updated = p.provenUpdatedAt ? esc(p.provenUpdatedAt.slice(0, 16).replace('T', ' ')) : '尚未執行';
+
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agents 中控台</title><style>${CSS}
+  .asec{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0}
+  .asec h2{margin-top:0;border-left:3px solid var(--ac);padding-left:10px;font-size:16px}
+  .asec table{width:100%;border-collapse:collapse;margin-top:6px}
+  .asec td,.asec th{border:1px solid var(--bd);padding:7px 9px;text-align:left;font-size:13px;vertical-align:top}
+  .asec th{background:#0d1117;color:var(--mut)}
+  .asec ul{margin:6px 0;padding-left:20px}.asec li{margin:5px 0;font-size:14px}
+  .chatbox{display:flex;flex-direction:column;height:340px;background:#0d1117;border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+  .chatlog{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+  .bub{max-width:85%;padding:8px 12px;border-radius:10px;font-size:14px;white-space:pre-wrap;line-height:1.5}
+  .bub.u{align-self:flex-end;background:var(--ac);color:#fff}
+  .bub.a{align-self:flex-start;background:var(--card);border:1px solid var(--bd)}
+  .chatin{display:flex;gap:8px;padding:10px;border-top:1px solid var(--bd)}
+  .chatin input{flex:1;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px}
+  .chatin button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 16px;cursor:pointer}
+  .qhint{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+  .qhint button{background:var(--card);border:1px solid var(--bd);color:var(--mut);border-radius:14px;padding:4px 11px;font-size:12px;cursor:pointer}
+  .qhint button:hover{border-color:var(--ac);color:var(--tx)}</style></head><body>
+<header><h1>🤖 Agents 中控台 <span class="sub">這些 agent 怎麼設定的、學到了什麼,都在這。要改去對應頁面</span></h1>${navBar('/agents')}</header>
+<main>
+  <div class="asec">
+    <h2>🧠 Profile Agent — 已證明能力</h2>
+    <p class="reason">自動抓 GitHub(<b>${esc(p.githubUser || 'Harry1667')}</b>)歸納真實作品能力,供求職信引用、評分加成。上次更新:${updated} · 共 ${caps.length} 項 · ${(p.provenTechs || []).length} 個技術關鍵字。
+      <button class="open" onclick="runAgent()" style="margin-left:6px">🔄 立即重跑</button> <span id="amsg" class="reason"></span></p>
+    <ul>${capsHtml}</ul>
+  </div>
+
+  <div class="asec">
+    <h2>🎯 能力邊界(第二道門) <a href="/me" style="font-size:13px;font-weight:400">編輯 →</a></h2>
+    ${skillsHtml}
+    <p class="reason" style="margin-top:10px">🚫 紅線(不碰):${esc((cap.redlines || []).join('、')) || '—'}</p>
+    <p class="reason">📏 規模上限:${esc(cap.scaleCeiling) || '—'}</p>
+  </div>
+
+  <div class="asec">
+    <h2>🚪 第一道門關鍵字(案子來源) <a href="/me" style="font-size:13px;font-weight:400">編輯 →</a></h2>
+    <div class="tags">${(cap.searchKeywords || []).map((k) => `<span class="pill">${esc(k)}</span>`).join('') || '<span class="reason">—</span>'}</div>
+  </div>
+
+  <div class="asec">
+    <h2>⚖️ 評分設定 <a href="/scoring" style="font-size:13px;font-weight:400">編輯 →</a></h2>
+    <p class="reason">模式:<b>${cfg.scoring.mode === 'newbie' ? '🌱 新手' : '⚖️ 標準'}</b> · APPLY 門檻 ≥${cfg.scoring.threshold} · MAYBE ≥${cfg.scoring.maybeThreshold}</p>
+    <p class="reason">權重:${weightsHtml}</p>
+  </div>
+
+  <div class="asec">
+    <h2>📈 學習迴路 — Agent 學到的東西</h2>
+    ${learnedHtml}
+  </div>
+
+  <div class="asec">
+    <h2>💬 問 Agents</h2>
+    <p class="reason">問它任何關於你的設定、能力、實績、某個案子值不值得投。它看得到上面所有資料。</p>
+    <div class="qhint">
+      <button onclick="ask(this.textContent)">我的能力邊界有哪些?</button>
+      <button onclick="ask(this.textContent)">根據我的投標實績,我該調整什麼?</button>
+      <button onclick="ask(this.textContent)">現在最值得投的案是哪幾個?</button>
+    </div>
+    <div class="chatbox">
+      <div class="chatlog" id="clog"><div class="bub a">嗨,我是你的接案 Agent。上面的設定與實績我都看得到,問我吧。</div></div>
+      <div class="chatin"><input id="cin" placeholder="輸入問題…" onkeydown="if(event.key==='Enter')send()"><button onclick="send()">送出</button></div>
+    </div>
+  </div>
+</main>
+<script>
+  const hist=[];
+  function bubble(role,text){var d=document.createElement('div');d.className='bub '+(role==='user'?'u':'a');d.textContent=text;
+    document.getElementById('clog').appendChild(d);var l=document.getElementById('clog');l.scrollTop=l.scrollHeight;return d;}
+  function ask(q){document.getElementById('cin').value=q;send();}
+  async function send(){var inp=document.getElementById('cin'),q=inp.value.trim();if(!q)return;inp.value='';
+    bubble('user',q);hist.push({role:'user',content:q});
+    var ph=bubble('assistant','思考中…');
+    try{var r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({messages:hist,context:{page:'Agents 中控台',scope:'agents'}})});
+      var j=await r.json();ph.textContent=j.ok?j.reply:('\\u274c '+(j.error||'失敗'));
+      if(j.ok)hist.push({role:'assistant',content:j.reply});}
+    catch(e){ph.textContent='\\u274c '+e.message;}}
+  async function runAgent(){var m=document.getElementById('amsg');m.textContent='執行中…抓 GitHub + AI 歸納(約 1-2 分,勿關閉)';
+    try{var r=await fetch('/api/agent/profile',{method:'POST'});var j=await r.json();
+      m.textContent=j.ok?('\\u2705 完成:'+j.count+' 項。重新整理看更新。'):'\\u274c '+(j.error||'失敗');}
+    catch(e){m.textContent='\\u274c '+e.message;}}
+</script></body></html>`;
+}
+
 // ⚖️ 評分引擎:新手/標準模式切換 + 權重滑桿 + 門檻
 function pageScoring() {
   const cfg = loadConfig();        // 已套用啟用模式的權重
@@ -777,7 +937,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}<a href="/logout">登出</a></nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}<a href="/logout">登出</a></nav>`;
 }
 
 // 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
@@ -1384,6 +1544,14 @@ createServer(async (req, res) => {
           note += `\n目前正在看這個案:「${j.title}」 | 評分 ${ev.isAi ? ev.score + '/10 ' + ev.verdict : ev.score + '/100 ' + ev.verdict} | 預算 ${j.budget_text || '?'} | 提案 ${j.proposals_bucket || '?'} | 客戶花費 ${j.client_spent_text || '?'}\n描述:${String(j.description || '').slice(0, 1200)}`;
         }
       }
+      // Agents 中控台的聊天:額外帶入評分設定、第一道門關鍵字、投標實績校正(能力邊界已在 profile 裡)
+      if (context && context.scope === 'agents') {
+        const cfg = loadConfig(); const pp = loadProfile();
+        note += `\n\n【Agents 設定與學到的東西】\n` +
+          `評分模式:${cfg.scoring.mode};APPLY 門檻≥${cfg.scoring.threshold}、MAYBE≥${cfg.scoring.maybeThreshold}\n` +
+          `第一道門搜尋關鍵字:${(pp.capability?.searchKeywords || []).join(', ') || '(未設)'}\n` +
+          (outcomeNoteText(computeOutcomeStats()) || '投標實績:樣本不足(<5),還沒學到校正資料');
+      }
       const reply = await askAI(chatPrompt(recentMsgs, loadProfile(), jobs, note));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, reply: String(reply).trim() }));
@@ -1461,7 +1629,7 @@ createServer(async (req, res) => {
         return res.end('{"ok":true,"triaged":0,"msg":"沒有待快篩的案"}');
       }
       const { triageJobs } = await import('./triage.js');
-      const results = await triageJobs(rows);
+      const results = await triageJobs(rows, { outcomeNote: outcomeNoteText(computeOutcomeStats()) });
       for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, triaged: results.length, candidates: rows.length }));
@@ -1487,6 +1655,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/me') {
       return serveHtml(res, pageMe());
+    }
+    if (url.pathname === '/agents') {
+      return serveHtml(res, pageAgents());
     }
     if (url.pathname === '/scoring' || url.pathname === '/settings' || url.pathname === '/setup') {
       return serveHtml(res, pageScoring()); // /settings、/setup 舊路由導向(back-compat)
