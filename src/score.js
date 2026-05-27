@@ -103,14 +103,20 @@ function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
   const proven = [...new Set((provenTechs || []).filter(inText))];
   if (proven.length) score = Math.min(100, score + Math.min(proven.length * 10, 30));
 
-  // 超綱封頂:命中紅線技能 → 能力分大幅降
-  let overscope = false;
-  if (redHit.length) { score = Math.min(score, 22); overscope = true; }
+  // 紅線處理:區分「核心就是紅線技術」vs「核心是你的強項、只順帶提到紅線」
+  // coreStrong = 命中至少一個深度≥4 的核心可交付項目 → 紅線多半只是 JD 順帶列出,不該硬擋。
+  const coreStrong = topLevel != null && topLevel >= 4;
+  let overscope = false;   // 硬擋(SKIP + blocked):核心就是紅線技術
+  let redlineSoft = false; // 軟標(⚠️ 提醒,不擋):核心是你的強項,紅線只是順帶
+  if (redHit.length) {
+    if (coreStrong) redlineSoft = true;
+    else { score = Math.min(score, 22); overscope = true; }
+  }
 
   // 能力圈外:有分級能力清單、但案子文字完全沒命中任何技能 → 不是我的領域
   const outOfScope = !!(graded && matched.length === 0);
 
-  return { score, matched, proven, overscope, outOfScope, redHit, topLevel };
+  return { score, matched, proven, overscope, redlineSoft, outOfScope, redHit, topLevel };
 }
 
 // ③ 客戶品質:付款驗證 + 花費 + 聘用率 + 評分
@@ -263,10 +269,14 @@ export function scoreJob(j, config) {
   let blocked = 0;
   if (sk.overscope) {
     verdict = 'SKIP'; blocked = 1;
-    reason = `🚫 第二道門·紅線「${sk.redHit.join('/')}」(不碰)— ${reason}`;
+    reason = `🚫 第二道門·紅線「${sk.redHit.join('/')}」(核心技術,不碰)— ${reason}`;
   } else if (sk.outOfScope) {
     verdict = 'SKIP'; blocked = 1;
     reason = `🚫 第二道門·能力圈外(無技能命中,非你的領域)— ${reason}`;
+  } else if (sk.redlineSoft) {
+    // 核心是你的強項,只是順帶提到紅線 → 不擋,但標 ⚠️ 讓你自己判斷;不讓它穩坐「值得投」
+    if (verdict === 'APPLY') verdict = 'MAYBE';
+    reason = `⚠️ 含紅線「${sk.redHit.join('/')}」(順帶提及,核心是你強項,自行判斷)— ${reason}`;
   }
 
   return { scores, total_score: total, verdict, reason, blocked, matched_skills: sk.matched };
