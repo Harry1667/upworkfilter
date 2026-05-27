@@ -791,17 +791,6 @@ function pageProposal(id) {
     <div class="out" id="exout"></div>
   </div>
 
-  <div class="sect" id="scsect" style="display:none">
-    <h2>📋 篩選問答 / 指定專案說明(英文,可直接貼)</h2>
-    <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._sc||'');this.textContent='✅ 已複製'">📋 複製</button>
-    <div class="out" id="scout"></div>
-  </div>
-
-  <div class="sect" id="vidsect" style="display:none">
-    <h2>🎥 影片回答講稿(逐題)</h2>
-    <div class="out" id="vidout"></div>
-  </div>
-
   <div class="sect" id="adsect" style="display:none">
     <h2>💡 投標策略(報價 / 作品 / Profile highlights)</h2>
     <div class="out" id="adout"></div>
@@ -820,9 +809,7 @@ function pageProposal(id) {
       const [c,a]=await Promise.all([cover,adv]);
       if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';}
       if(a.ok){const d=a.data;
-        if((d.applyRequirements||[]).length){document.getElementById('reqout').innerHTML=(d.applyRequirements).map(function(x){return '• '+x;}).join('<br>');document.getElementById('reqsect').style.display='block';}
-        if(d.screeningDraft&&d.screeningDraft.trim()){window._sc=d.screeningDraft;document.getElementById('scout').textContent=d.screeningDraft;document.getElementById('scsect').style.display='block';}
-        if((d.videoScripts||[]).length){document.getElementById('vidout').innerHTML=(d.videoScripts).map(function(x,i){return '<b>題 '+(i+1)+':</b><br>'+x;}).join('<br><br>');document.getElementById('vidsect').style.display='block';}
+        if((d.applyRequirements||[]).length){document.getElementById('reqout').innerHTML=(d.applyRequirements).map(function(x){return '• '+x;}).join('<br>')+'<br><br><span style="color:var(--mut)">需要影片講稿 / 指定專案說明?點右下角 💬 助手,貼上題目讓它幫你寫。</span>';document.getElementById('reqsect').style.display='block';}
         if(d.recentExperience){window._ex=d.recentExperience;document.getElementById('exout').textContent=d.recentExperience;document.getElementById('exsect').style.display='block';}
         const hl=(d.profileHighlights||[]).map(x=>'<span class="pill">'+x+'</span>').join(' ');
         document.getElementById('adout').innerHTML=
