@@ -41,6 +41,8 @@ export function openDb() {
       total_score       INTEGER,
       verdict           TEXT,
       reason            TEXT,
+      ai_score          REAL,
+      ai_verdict        TEXT,
       enriched          INTEGER DEFAULT 0,
       applied           INTEGER DEFAULT 0,
       first_seen        TEXT,
@@ -51,7 +53,15 @@ export function openDb() {
   for (const col of [...SCORE_COLS]) {
     try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col} INTEGER`); } catch { /* 已存在 */ }
   }
+  // AI 詳細分析的判斷(0-10 + verdict),產生分析後寫入;規則重算不會覆蓋
+  try { db.exec('ALTER TABLE jobs ADD COLUMN ai_score REAL'); } catch { /* 已存在 */ }
+  try { db.exec('ALTER TABLE jobs ADD COLUMN ai_verdict TEXT'); } catch { /* 已存在 */ }
   return db;
+}
+
+// 寫入 AI 詳細分析的判斷(供卡片/評估頁優先顯示)
+export function setAiVerdict(db, id, score, verdict) {
+  db.prepare('UPDATE jobs SET ai_score = ?, ai_verdict = ? WHERE id = ?').run(score ?? null, verdict ?? null, id);
 }
 
 // 讀回 job 物件(重算評分用)

@@ -50,7 +50,18 @@
     "mvp",
     "n8n",
     "bug fix",
-    "claude code"
+    "claude code",
+    "redis",
+    "mysql",
+    "firebase",
+    "tailwind",
+    "react-native",
+    "fastify",
+    "swift",
+    "swiftui",
+    "celery",
+    "android",
+    "rest api"
   ],
   "rate": {
     "hourlyFloor": 12,

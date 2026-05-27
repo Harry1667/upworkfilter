@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, extractJson } from './assist.js';
@@ -79,16 +79,17 @@ const CSS = `
   nav.zones a{padding:4px 0;border-bottom:2px solid transparent}
   nav.zones a.on{color:var(--tx);font-weight:700;border-bottom-color:var(--ac)}
   nav .navsep{color:var(--bd);margin-right:14px}
-  .flowhint{margin-top:8px;font-size:13px;color:var(--mut)}.flowhint b{color:var(--tx)}
-  .open.primary{background:var(--ac);color:#fff;border-color:var(--ac)!important;font-weight:600}
-  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-  .filters button{background:var(--card);color:var(--tx);border:1px solid var(--bd);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:13px}
-  .filters button.on{background:var(--ac);border-color:var(--ac);color:#fff}
+  .flowhint{margin-top:10px;font-size:13px;color:var(--mut)}.flowhint b{color:var(--tx)}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .filters button{background:var(--card);color:var(--tx);border:1px solid var(--bd);padding:6px 15px;border-radius:20px;cursor:pointer;font-size:13px;transition:.15s}
+  .filters button:hover{border-color:var(--ac)}
+  .filters button.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600}
   main{max-width:860px;margin:0 auto;padding:18px}
   .card{background:var(--card);border:1px solid var(--bd);border-left-width:4px;border-radius:12px;padding:16px;margin-bottom:14px}
   .card.v-APPLY{border-left-color:var(--grn)} .card.v-MAYBE{border-left-color:var(--ylw)} .card.v-SKIP{border-left-color:var(--red);opacity:.7}
   .top{display:flex;align-items:center;gap:10px}
-  .score{font-size:24px;font-weight:700;min-width:40px}
+  .score{font-size:24px;font-weight:700;min-width:40px}.score .smax{font-size:13px;color:var(--mut);font-weight:400}
+  .aitag{font-size:10px;font-weight:700;background:#2d2150;color:#b392f0;padding:2px 7px;border-radius:5px;border:1px solid #4a3a6a;letter-spacing:.5px}
   .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px}
   .badge.APPLY{background:#1a3a26;color:#3fb950}.badge.MAYBE{background:#3a3016;color:#d29922}.badge.SKIP{background:#21262d;color:#8b949e}
   .applied{margin-left:auto;font-size:13px;color:var(--mut);cursor:pointer;user-select:none}
@@ -100,9 +101,13 @@ const CSS = `
   .track.low i{background:#da3633}.track.mid i{background:#d29922}
   .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
   .tags span{background:#0d1117;border:1px solid var(--bd);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--mut)}
-  .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .open{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:13px}
-  .gen{background:#1f6f3f;color:#fff;border:0;padding:7px 14px;border-radius:8px;font-size:13px;cursor:pointer}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
+  /* 次要動作:描邊低調;主要動作(.primary):填色突出 */
+  .open{display:inline-flex;align-items:center;gap:5px;background:transparent;color:var(--tx);border:1px solid var(--bd);text-decoration:none;padding:8px 15px;border-radius:9px;font-size:13px;font-weight:500;transition:.15s;cursor:pointer}
+  .open:hover{border-color:var(--ac);color:var(--ac);background:#4493f815}
+  .open.primary{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:700;box-shadow:0 1px 8px #4493f840}
+  .open.primary:hover{filter:brightness(1.12);color:#fff;background:var(--ac)}
+  .gen{background:#1f6f3f;color:#fff;border:0;padding:8px 15px;border-radius:9px;font-size:13px;cursor:pointer;font-weight:600;transition:.15s}
   .gen:hover{filter:brightness(1.15)}.gen:disabled{opacity:.7;cursor:wait}
   /* settings */
   .srow{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px 16px;margin-bottom:10px}
@@ -113,21 +118,38 @@ const CSS = `
   .thr{display:flex;gap:24px;flex-wrap:wrap;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:14px}
   .thr label{display:block;font-size:13px;color:var(--mut);margin-bottom:6px}
   .thr input{width:90px;background:#0d1117;border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:6px 10px;font-size:15px}
-  .save{background:var(--grn);color:#fff;border:0;padding:11px 22px;border-radius:9px;font-size:15px;cursor:pointer}
-  .save:hover{filter:brightness(1.1)}
+  .save{display:inline-flex;align-items:center;gap:6px;background:var(--grn);color:#fff;border:0;padding:11px 22px;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;transition:.15s;box-shadow:0 1px 10px #2ea04340}
+  .save:hover{filter:brightness(1.12);transform:translateY(-1px)}
+  .save:active{transform:translateY(0)}
+  .save:disabled{opacity:.55;cursor:wait;transform:none;box-shadow:none}
 `;
 
 function trackCls(v) { return v < 34 ? 'track low' : v < 67 ? 'track mid' : 'track'; }
+
+// AI 詳細分析的中文 verdict → 內部 APPLY/MAYBE/SKIP(供徽章/篩選用)
+function aiVerdictClass(v) {
+  if (v === '強力接' || v === '可接') return 'APPLY';
+  if (v === '觀望') return 'MAYBE';
+  return 'SKIP'; // 略過 / 其他
+}
+// 一個案最終要顯示的判斷:有 AI 分析就以 AI 為準,否則用規則
+// 回傳 { score, scoreMax, verdict, cls, isAi }
+function effectiveVerdict(j) {
+  if (j.ai_score != null && j.ai_verdict) {
+    return { score: j.ai_score, scoreMax: 10, verdict: j.ai_verdict, cls: aiVerdictClass(j.ai_verdict), isAi: true };
+  }
+  return { score: j.total_score, scoreMax: 100, verdict: j.verdict, cls: j.verdict, isAi: false };
+}
 
 function pageJobs() {
   const cfg = loadConfig();
   const C = cfg.scoring.criteria;
   const data = db.prepare('SELECT * FROM jobs ORDER BY total_score DESC, last_seen DESC').all();
-  const counts = data.reduce((a, j) => ((a[j.verdict] = (a[j.verdict] || 0) + 1), a), {});
+  const counts = data.reduce((a, j) => { const c = effectiveVerdict(j).cls; a[c] = (a[c] || 0) + 1; return a; }, {});
   // 動線提示:今日新案 + 未處理(值得投但還沒投)
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayNew = data.filter((j) => (j.first_seen || '').slice(0, 10) === todayStr).length;
-  const todo = data.filter((j) => j.verdict === 'APPLY' && !j.applied).length;
+  const todo = data.filter((j) => effectiveVerdict(j).cls === 'APPLY' && !j.applied).length;
   const cards = data
     .map((j) => {
       const tags = [];
@@ -141,11 +163,15 @@ function pageJobs() {
         const v = j[COL[k]] ?? 0;
         return `<div class="m"><b>${C[k].label}</b> ${v}<div class="${trackCls(v)}"><i style="width:${v}%"></i></div></div>`;
       }).join('');
+      const ev = effectiveVerdict(j);
+      const scoreHtml = ev.isAi
+        ? `<span class="score">${ev.score}<span class="smax">/10</span></span><span class="aitag">AI</span>`
+        : `<span class="score">${ev.score}</span>`;
       return `
-      <article class="card v-${j.verdict}" data-verdict="${j.verdict}" data-applied="${j.applied}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}">
         <div class="top">
-          <span class="score">${j.total_score}</span>
-          <span class="badge ${j.verdict}">${j.verdict}</span>
+          ${scoreHtml}
+          <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
         <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
@@ -482,6 +508,10 @@ function pageJob(id) {
   const cfg = loadConfig();
   const C = cfg.scoring.criteria;
   const wr = winRateHint(job);
+  const ev = effectiveVerdict(job);
+  const verdictLine = ev.isAi
+    ? `AI 判斷 ${ev.score}/10 · ${esc(ev.verdict)}　|　規則快篩 ${job.total_score}/100`
+    : `規則快篩 ${job.total_score}/100 · ${job.verdict}`;
   const aid = String(id).replace(/[^\w-]/g, '');
   const hasAnalysis = existsSync(path.join(__dirname, '..', `upwork-${aid}-analysis.html`));
   const core = [
@@ -504,13 +534,14 @@ function pageJob(id) {
   .cta{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;margin:6px 0}
   #anframe{width:100%;height:600px;border:1px solid var(--bd);border-radius:12px;background:#0d1117}</style></head><body>
 <header>
-  <h1>② 評估 <span class="sub">總分 ${job.total_score} · ${job.verdict}</span></h1>
+  <h1>② 評估 <span class="sub">${verdictLine}</span></h1>
   ${navBar('/job', job.id)}
   ${jobBarHtml(job, '/job')}
 </header>
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
   <p class="reason">${esc(job.reason)}</p>
+  ${ev.isAi ? '' : '<p class="reason" style="color:#d29922">⚠️ 尚未做 AI 詳細分析。下方分數是規則快篩(可能高估報酬),建議產生 AI 分析取得更準的判斷。</p>'}
 
   <h2>🌐 AI 詳細分析</h2>
   <div id="anwrap">${hasAnalysis
@@ -804,6 +835,8 @@ createServer(async (req, res) => {
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       const r = await analyzeJob(job); // 抓取(雲端用 DB 描述)+ ProxyCLI AI + 產 HTML
+      // 以 AI 判斷為準:把 AI 的總分/verdict 存進 DB,卡片/評估頁優先顯示
+      if (r.totalScore != null) setAiVerdict(db, id, Number(r.totalScore), r.verdict);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify(r));
     }

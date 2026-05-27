@@ -232,7 +232,8 @@ export async function analyzeJob(job) {
   const file = path.join(ROOT, `upwork-${safeId}-analysis.html`);
   writeFileSync(file, html);
   if (process.platform === 'darwin') exec(`open "${file}"`); // 本機 Mac 自動開啟;雲端用 /analysis 路由檢視
-  return { ok: true, file, id: safeId };
+  // 回傳 AI 判斷(totalScore 0-10、verdict 強力接/可接/觀望/略過)→ 供卡片/評估頁優先顯示
+  return { ok: true, file, id: safeId, totalScore: data.totalScore, verdict: data.verdict, summary: data.summary };
 }
 
 // CLI:npm run analyze -- <jobId>  (從 DB 取該案)

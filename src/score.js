@@ -26,11 +26,26 @@ function scoreReward(j, rate) {
     return 60;
   }
   if (j.budget_type === 'fixed') {
-    if (j.fixed_budget == null) return 55;
-    if (j.fixed_budget < rate.fixedFloor) return 25;
-    if (j.fixed_budget >= rate.fixedFloor * 5) return 100;
-    if (j.fixed_budget >= rate.fixedFloor * 2) return 80;
-    return 65;
+    const b = j.fixed_budget;
+    if (b == null) return 55;
+    let s;
+    if (b < rate.fixedFloor) s = 25;
+    else if (b >= rate.fixedFloor * 5) s = 100;
+    else if (b >= rate.fixedFloor * 2) s = 80;
+    else s = 65;
+    // 預算 vs 工作量:大範圍專案卻給低 fixed 預算 → 報酬其實不合理,降分
+    // (例:$2000 接「整套 AI sales stack / CRM / 平台」是嚴重低價)
+    const text = `${j.title || ''} ${j.description || ''}`.toLowerCase();
+    const bigScope =
+      /(full|complete|entire|whole|end[\s-]?to[\s-]?end|from scratch|full[\s-]?stack)/.test(text) ||
+      (/(crm|saas|platform|system|stack|marketplace|mvp|dashboard|web app|mobile app|automation pipeline)/.test(text) &&
+       /(build|develop|create|set ?up|implement|design and|architect)/.test(text));
+    if (bigScope) {
+      if (b < 1000) s = Math.min(s, 35);
+      else if (b < 3000) s = Math.min(s, 55);
+      else if (b < 5000) s = Math.min(s, 70);
+    }
+    return s;
   }
   return 55; // 預算未知
 }
