@@ -10,6 +10,10 @@ const SCORE_COLS = ['score_reward', 'score_skill', 'score_client', 'score_compet
 
 export function openDb() {
   const db = new DatabaseSync(DB_PATH);
+  // 並發處理:WAL 允許「多讀 + 單寫」,busy_timeout 讓連線遇到鎖時等待而非直接報錯
+  // (修「database is locked」:web 進程與快篩/重算腳本同時存取 jobs.db)
+  try { db.exec('PRAGMA journal_mode = WAL'); } catch { /* ignore */ }
+  try { db.exec('PRAGMA busy_timeout = 8000'); } catch { /* ignore */ }
   db.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
       id                TEXT PRIMARY KEY,

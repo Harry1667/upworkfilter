@@ -58,6 +58,28 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const CRIT_ORDER = ['reward', 'skill', 'client', 'competition', 'longterm', 'clarity', 'risk'];
 const COL = { reward: 'score_reward', skill: 'score_skill', client: 'score_client', competition: 'score_competition', longterm: 'score_longterm', clarity: 'score_clarity', risk: 'score_risk' };
 
+// 背景:對剛 ingest 進來、還沒 AI 分數的案自動快篩(便宜 AI),不阻塞 ingest 回應
+// 預設開啟;.env 設 AI_TRIAGE_ON_INGEST=0 可關。錯誤只記 log,不影響 ingest。
+let _triageBusy = false;
+async function autoTriageIngested(ids) {
+  if (_triageBusy || !ids || ids.length === 0) return; // 同時間只跑一輪,避免疊跑
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND id IN (${placeholders})`).all(...ids);
+    if (rows.length === 0) return;
+    _triageBusy = true;
+    const { triageJobs } = await import('./triage.js');
+    console.log(`🤖 自動快篩:${rows.length} 個新案…`);
+    const res = await triageJobs(rows);
+    for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict);
+    console.log(`🤖 自動快篩完成:${res.length} 案`);
+  } catch (e) {
+    console.error('自動快篩失敗:' + e.message);
+  } finally {
+    _triageBusy = false;
+  }
+}
+
 // 用新 config 重算 DB 所有案子的分數
 function rescoreAll() {
   const cfg = loadConfig();
@@ -783,7 +805,10 @@ createServer(async (req, res) => {
       }
       console.log(`📥 ingest:收到 ${list.length} 筆,入庫 ${results.length} 筆`);
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, ingested: results.length, results }));
+      res.end(JSON.stringify({ ok: true, ingested: results.length, results }));
+      // 先回應擴充套件,再「背景」對新進、還沒 AI 分數的案自動快篩(不阻塞 ingest)
+      if (process.env.AI_TRIAGE_ON_INGEST !== '0') autoTriageIngested(results.map((r) => r.id));
+      return;
     }
     if (url.pathname === '/api/agent/profile' && req.method === 'POST') {
       // 觸發 Profile Agent:抓 GitHub → 歸納 proven capabilities → 寫回 profile + 重算分數

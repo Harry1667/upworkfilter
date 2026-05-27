@@ -1,6 +1,8 @@
 node_modules/
 session/
 jobs.db
+jobs.db-wal
+jobs.db-shm
 .gstack/
 session/api-credentials.json
 session/api-tokens.json
