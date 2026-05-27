@@ -1714,8 +1714,18 @@ createServer(async (req, res) => {
       }
       Object.assign(job, scoreJob(job, loadConfig()));
       upsertJob(db, job); // last_seen 自動更新 → 資料新鮮度重置
+      // 重抓後補跑該案 AI 快篩,讓 AI 分數/勝率也吃到最新競爭(blocked 的不浪費 AI)
+      let aiScore = null, aiWin = null;
+      if (!job.blocked) {
+        try {
+          const fresh = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+          const { triageJobs } = await import('./triage.js');
+          const r = (await triageJobs([fresh], { outcomeNote: outcomeNoteText(computeOutcomeStats()) }))[0];
+          if (r) { setAiVerdict(db, id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); aiScore = r.score; aiWin = r.win; }
+        } catch (e) { console.error('refresh 後快篩失敗:' + e.message); }
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, verdict: job.verdict, competition: job.scores?.competition, proposals_bucket: job.proposals_bucket, blocked: job.blocked }));
+      return res.end(JSON.stringify({ ok: true, verdict: job.verdict, competition: job.scores?.competition, proposals_bucket: job.proposals_bucket, blocked: job.blocked, ai_score: aiScore, ai_win: aiWin }));
     }
     if (url.pathname === '/api/screening' && req.method === 'POST') {
       // 🎯 篩選問題作戰區:抽 screening questions → 逐題答案 + 硬門檻判斷要不要投

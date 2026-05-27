@@ -84,7 +84,8 @@ async function main() {
   const r = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, live }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.ok) { console.error('❌ 更新失敗:', r.status, JSON.stringify(j)); process.exit(1); }
-  console.log(`✅ 已更新並重算 → verdict=${j.verdict} 競爭分=${j.competition} 提案=${j.proposals_bucket}`);
+  const ai = j.ai_score != null ? ` · AI ${j.ai_score}/10 勝率 ${j.ai_win ?? '?'}%` : '';
+  console.log(`✅ 已更新並重算 → verdict=${j.verdict} 競爭分=${j.competition} 提案=${j.proposals_bucket}${ai}`);
   console.log(`   看結果:${REFRESH_URL}/job?id=${id}`);
 }
 
