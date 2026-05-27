@@ -179,11 +179,15 @@ function extractJson(s) {
 
 // 呼叫 ProxyCLI(gRPC)— 透過 Python helper(proxy_call.py),prompt 從 stdin 餵入
 // 用「非同步」execFile:不阻塞 Node 事件迴圈(否則 AI 產生時整個伺服器會凍結,連刷新都卡住)
-function callProxy(env, prompt) {
+function callProxy(env, prompt, opts = {}) {
   const helper = path.join(__dirname, 'proxy_sdk', 'proxy_call.py');
+  // opts.provider / opts.tier:覆蓋預設模型(快篩走便宜的 openai/low,大分析維持預設)
+  const childEnv = { ...process.env };
+  if (opts.provider) childEnv.AI_PROXY_PROVIDER = opts.provider;
+  if (opts.tier) childEnv.AI_PROXY_TIER = opts.tier;
   return new Promise((resolve, reject) => {
     const child = execFile('python3', [helper], {
-      env: { ...process.env },
+      env: childEnv,
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
       timeout: 200000
@@ -201,9 +205,10 @@ function callProxy(env, prompt) {
 }
 
 // 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
-export async function askAI(prompt) {
+// opts.provider/opts.tier:可指定便宜模型(快篩用),預設用 .env 的 provider/tier
+export async function askAI(prompt, opts = {}) {
   const env = loadEnv();
-  return callProxy(env, prompt);
+  return callProxy(env, prompt, opts);
 }
 
 // 主流程:回傳產出的 HTML 路徑

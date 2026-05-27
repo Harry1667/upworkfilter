@@ -156,6 +156,7 @@ function pageJobs() {
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayNew = data.filter((j) => (j.first_seen || '').slice(0, 10) === todayStr).length;
   const todo = data.filter((j) => effectiveVerdict(j).cls === 'APPLY' && !j.applied).length;
+  const untriaged = data.filter((j) => j.ai_score == null).length;
   const cards = data
     .map((j) => {
       const tags = [];
@@ -198,7 +199,10 @@ function pageJobs() {
 <header>
   <h1>📋 探索案件 <span class="sub">APPLY ${counts.APPLY || 0} · MAYBE ${counts.MAYBE || 0} · SKIP ${counts.SKIP || 0} · 共 ${data.length} · 門檻 ${cfg.scoring.threshold}</span></h1>
   ${navBar('/')}
-  <div class="flowhint">🆕 今日新案 <b>${todayNew}</b> · ⏳ 待處理(值得投未投) <b>${todo}</b></div>
+  <div class="flowhint">🆕 今日新案 <b>${todayNew}</b> · ⏳ 待處理(值得投未投) <b>${todo}</b> · 🤖 未 AI 快篩 <b>${untriaged}</b>
+    <button class="open" id="triageBtn" style="margin-left:10px" onclick="triage(false)">🤖 AI 快篩${untriaged ? ` (${untriaged})` : ''}</button>
+    <span id="trmsg" style="color:var(--mut)"></span>
+  </div>
   <div class="filters">
     <button data-f="APPLY" class="on">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
     <button data-f="SKIP">🔴 排除</button><button data-f="applied">已投</button><button data-f="all">全部</button>
@@ -212,6 +216,14 @@ function pageJobs() {
   document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>f(b.dataset.f));f('APPLY');
   async function mark(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});
     document.querySelector('input[onchange*="'+id+'"]').closest('.card').dataset.applied=a?'1':'0';}
+  async function triage(all){const b=document.getElementById('triageBtn'),m=document.getElementById('trmsg');
+    b.disabled=true;let s=0;m.textContent=' 快篩中…(便宜 AI 批次,勿關閉) 0s';
+    const t=setInterval(()=>{m.textContent=' 快篩中…(便宜 AI 批次,勿關閉) '+(++s)+'s';},1000);
+    try{const r=await fetch('/api/triage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({all:!!all})});
+      const j=await r.json();clearInterval(t);
+      if(j.ok){m.textContent=' ✅ 已快篩 '+j.triaged+' 案,重整中…';setTimeout(()=>location.reload(),800);}
+      else m.textContent=' ❌ '+(j.error||'失敗');}
+    catch(e){clearInterval(t);m.textContent=' ❌ '+e.message;}b.disabled=false;}
 </script></body></html>`;
 }
 
@@ -847,6 +859,22 @@ createServer(async (req, res) => {
       if (r.totalScore != null) setAiVerdict(db, id, Number(r.totalScore), r.verdict);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify(r));
+    }
+    if (url.pathname === '/api/triage' && req.method === 'POST') {
+      // AI 快篩:便宜模型批次粗評,重排序。預設只篩「還沒 AI 分數」的案;?all=1 重篩全部。
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const rows = body.all
+        ? db.prepare('SELECT * FROM jobs').all()
+        : db.prepare('SELECT * FROM jobs WHERE ai_score IS NULL').all();
+      if (rows.length === 0) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end('{"ok":true,"triaged":0,"msg":"沒有待快篩的案"}');
+      }
+      const { triageJobs } = await import('./triage.js');
+      const results = await triageJobs(rows);
+      for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, triaged: results.length, candidates: rows.length }));
     }
     if (url.pathname === '/analysis') { // 提供已產生的 AI 詳細分析 HTML(評估頁 iframe 內嵌)
       const aid = (url.searchParams.get('id') || '').replace(/[^\w-]/g, '');
