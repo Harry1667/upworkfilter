@@ -137,10 +137,14 @@ const CSS = `
   header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
   h1{font-size:18px;margin:0 0 10px;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
   h1 .sub{color:var(--mut);font-size:13px;font-weight:400}
-  nav a{margin-right:14px;font-size:14px;text-decoration:none;color:var(--mut)}
-  nav.zones a{padding:4px 0;border-bottom:2px solid transparent}
-  nav.zones a.on{color:var(--tx);font-weight:700;border-bottom-color:var(--ac)}
-  nav .navsep{color:var(--bd);margin-right:14px}
+  nav a{font-size:14px;text-decoration:none;color:var(--mut)}
+  nav.zones{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  nav.zones a{padding:6px 13px;border:1px solid var(--bd);border-radius:9px;background:var(--card);font-size:13px;line-height:1;transition:.15s}
+  nav.zones a:hover{border-color:var(--ac);color:var(--tx)}
+  nav.zones a.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:700}
+  nav.zones a[href="/logout"]{margin-left:auto;border-color:transparent;background:transparent}
+  nav.zones a[href="/logout"]:hover{color:#f85149}
+  nav .navsep{width:1px;align-self:stretch;background:var(--bd);margin:0 4px;color:transparent;overflow:hidden}
   .flowhint{margin-top:10px;font-size:13px;color:var(--mut)}.flowhint b{color:var(--tx)}
   .filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   .filters button{background:var(--card);color:var(--tx);border:1px solid var(--bd);padding:6px 15px;border-radius:20px;cursor:pointer;font-size:13px;transition:.15s}
@@ -773,7 +777,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}<a href="/logout" style="margin-left:6px">登出</a></nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}<a href="/logout">登出</a></nav>`;
 }
 
 // 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
