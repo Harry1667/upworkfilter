@@ -73,7 +73,9 @@ async function requireAuth(req, res, isApi) {
 // 原始 config(未套用模式)— 寫入時用,避免把模式覆蓋值存回檔案
 const loadConfigRaw = () => {
   const cfg = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
-  try { cfg.provenTechs = loadProfile().provenTechs || []; } catch { cfg.provenTechs = []; }
+  // provenTechs + capability(分級能力)都來自 profile.json,供評分「能力匹配度」用
+  try { const p = loadProfile(); cfg.provenTechs = p.provenTechs || []; cfg.capability = p.capability || null; }
+  catch { cfg.provenTechs = []; cfg.capability = null; }
   return cfg;
 };
 // 評分用 config:依 scoring.mode(newbie/standard)把對應權重與門檻套進 criteria
@@ -229,7 +231,7 @@ const CHAT_WIDGET = `
   var panel=document.getElementById('cwPanel'),msgs=document.getElementById('cwMsgs'),ta=document.getElementById('cwTa');
   var hist=[];try{hist=JSON.parse(sessionStorage.getItem(KEY)||'[]');}catch(e){}
   function ctx(){var p=location.pathname,id=(new URLSearchParams(location.search)).get('id')||'';
-    var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/features':'功能地圖','/profile':'我的檔案','/scoring':'評分設定','/assistant':'助手'};
+    var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/features':'功能地圖','/me':'我的能力','/profile':'Upwork Profile','/scoring':'評分設定','/assistant':'助手'};
     return {page:(m[p]||p),jobId:id};}
   function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
   // 安全渲染輕量 markdown(先 escape 防 XSS,再轉粗體/換行;移除井號與反引號)
@@ -445,14 +447,14 @@ function pageProfile() {
   const capList = (p.provenCapabilities || [])
     .map((c) => `<li><b>${esc(c.repo)}</b> — ${esc(c.capability)}<br><small style="color:var(--mut)">[${esc((c.techs || []).join(' / '))}]</small></li>`)
     .join('') || '<li class="reason">尚未執行 Profile Agent。</li>';
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的檔案</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Upwork Profile</title><style>${CSS}
   .form label{display:block;color:var(--mut);font-size:13px;margin:14px 0 4px}
   .form input,.form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:14px/1.6 inherit}
   .form textarea{min-height:80px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .port{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin:10px 0}
   .port input{margin-bottom:6px}.port .x{float:right;background:none;border:0;color:#f85149;cursor:pointer;font-size:16px}
   .caps li{margin:8px 0}h2{border-left:3px solid var(--grn);padding-left:10px}</style></head><body>
-<header><h1>👤 我的檔案 <span class="sub">「我是誰」— AI 寫求職信/回覆/建議都讀這份</span></h1>${navBar('/profile')}</header>
+<header><h1>🪪 Upwork Profile <span class="sub">「我在 Upwork 是誰」— 身分/作品/求職信規則,AI 寫文都讀這份。能力數值請去 <a href="/me">🎯 我的能力</a></span></h1>${navBar('/profile')}</header>
 <main class="form">
   <h2>基本資料</h2>
   <div class="row2">
@@ -525,6 +527,97 @@ function portfolioRow(it, i) {
     <input class="p_link" placeholder="連結" value="${a(it.link)}"></div>`;
 }
 
+// 🎯 我的能力:分級技能清單 + 紅線(不碰)+ 規模上限。評分「能力匹配度」與案件推薦都讀這份。
+const LEVEL_LABELS = { 5: '5 精通', 4: '4 熟練', 3: '3 能做', 2: '2 勉強', 1: '1 碰過' };
+function pageMe() {
+  const p = loadProfile();
+  const cap = p.capability || { skills: [], redlines: [], scaleCeiling: '' };
+  const v = (x) => esc(x == null ? '' : x);
+  const lvOptions = (sel) => [5, 4, 3, 2, 1]
+    .map((n) => `<option value="${n}"${Number(sel) === n ? ' selected' : ''}>${LEVEL_LABELS[n]}</option>`).join('');
+  const skillRow = (s) => `<div class="cap">
+    <button class="x" onclick="this.parentNode.remove()">✕</button>
+    <input class="c_name" placeholder="技能名稱" value="${v(s.name)}">
+    <select class="c_lv">${lvOptions(s.level)}</select>
+    <input class="c_kw" placeholder="比對關鍵字(逗號分隔,小寫)" value="${v((s.keywords || []).join(', '))}">
+  </div>`;
+  const skillRows = (cap.skills || []).map(skillRow).join('');
+  const redlines = (cap.redlines || []).join(', ');
+  const searchKeywords = (cap.searchKeywords || []).join('\n');
+  const searchFilters = (loadConfig().searchFilters) || {};
+
+  // 🎯 最貼合你能力的案件:能力分高、未投、且非超綱
+  const recos = db.prepare(`SELECT id,title,total_score,ai_score,score_skill,reason FROM jobs
+    WHERE applied=0 ORDER BY score_skill DESC, COALESCE(ai_score*10,total_score) DESC LIMIT 40`).all()
+    .filter((j) => !String(j.reason || '').includes('超綱') && (j.score_skill ?? 0) >= 55)
+    .slice(0, 8);
+  const recoHtml = recos.length
+    ? recos.map((j) => `<a class="reco" href="/job?id=${j.id}">
+        <span class="rs">${j.score_skill ?? 0}</span>
+        <span class="rt">${esc(j.title)}</span>
+        <small class="rr">${esc(String(j.reason || '').slice(0, 60))}</small>
+      </a>`).join('')
+    : '<p class="reason">目前沒有貼合能力的未投案件。先去 ① 列表 抓案、或調整下方能力清單。</p>';
+
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的能力</title><style>${CSS}
+  .form label{display:block;color:var(--mut);font-size:13px;margin:14px 0 4px}
+  .form input,.form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:14px/1.6 inherit}
+  .form textarea{min-height:70px}
+  .cap{display:grid;grid-template-columns:1.4fr 110px 2fr;gap:8px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin:8px 0;position:relative}
+  .cap input,.cap select{background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px;font:14px inherit}
+  .cap .x{position:absolute;top:-8px;right:-8px;background:#21262d;border:1px solid var(--bd);color:#f85149;cursor:pointer;font-size:13px;border-radius:50%;width:22px;height:22px;line-height:1}
+  h2{border-left:3px solid var(--ac);padding-left:10px;font-size:16px;margin:26px 0 8px}
+  .legend{font-size:12px;color:var(--mut);margin:2px 0 10px}
+  .reco{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin:6px 0;text-decoration:none;color:var(--tx)}
+  .reco:hover{border-color:var(--ac)}
+  .reco .rs{font-weight:700;font-size:18px;color:var(--grn);min-width:34px;text-align:center}
+  .reco .rt{font-weight:600;flex:1}.reco .rr{color:var(--mut);font-size:12px;display:block}
+  .save{background:var(--grn);color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:14px;cursor:pointer;font-weight:600}</style></head><body>
+<header><h1>🎯 我的能力 <span class="sub">「我能做到哪、做得多好」— 決定哪些案在能力圈內、超綱的會被降級標 ⚠️</span></h1>${navBar('/me')}</header>
+<main class="form">
+  <h2>🎯 最貼合你能力的案件</h2>
+  <p class="legend">依「能力匹配度」分數排序的未投案件(已排除超綱)。點進去評估。</p>
+  ${recoHtml}
+
+  <h2>分級技能清單</h2>
+  <p class="legend">level:<b>5 精通</b>(能在通話辯護每個決策)· <b>4 熟練</b>(獨立交付)· <b>3 能做</b>(需查文件/多點時間)· <b>2 勉強</b>(邊學邊做)· <b>1 碰過</b>。關鍵字用來比對案子文字(小寫)。</p>
+  <div id="caps">${skillRows}</div>
+  <button class="save" style="background:#30363d" onclick="addCap()">＋ 新增技能</button>
+
+  <h2>🚫 紅線 / 不碰(逗號分隔)</h2>
+  <p class="legend">案子文字命中任一,該案會被標「⚠️超綱」並從 APPLY 降為 MAYBE。例:wordpress、php、solidity、unity。</p>
+  <textarea id="f_red">${esc(redlines)}</textarea>
+
+  <h2>📏 能接的專案規模上限</h2>
+  <textarea id="f_scale">${v(cap.scaleCeiling)}</textarea>
+
+  <p style="margin-top:18px"><button class="save" onclick="save()">💾 儲存並重算所有案子</button> <span id="msg" class="reason"></span></p>
+</main>
+<script>
+  const BASE=${JSON.stringify(p)};
+  const LVOPT=${JSON.stringify(lvOptions(4))};
+  function capTpl(){return '<div class="cap"><button class="x" onclick="this.parentNode.remove()">\\u2715</button>'+
+    '<input class="c_name" placeholder="技能名稱">'+
+    '<select class="c_lv">'+LVOPT+'</select>'+
+    '<input class="c_kw" placeholder="比對關鍵字(逗號分隔,小寫)"></div>';}
+  function addCap(){document.getElementById('caps').insertAdjacentHTML('beforeend',capTpl());}
+  function save(){
+    const skills=[...document.querySelectorAll('.cap')].map(c=>({
+      name:c.querySelector('.c_name').value.trim(),
+      level:Number(c.querySelector('.c_lv').value)||3,
+      keywords:c.querySelector('.c_kw').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)
+    })).filter(x=>x.name);
+    const redlines=document.getElementById('f_red').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+    const capability=Object.assign({},BASE.capability||{},{skills:skills,redlines:redlines,scaleCeiling:document.getElementById('f_scale').value.trim()});
+    const body=Object.assign({},BASE,{capability:capability});
+    const m=document.getElementById('msg');m.textContent='儲存中…重算所有案子(數秒)';
+    fetch('/api/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
+      .then(r=>r.json()).then(j=>{m.innerHTML=j.ok?'\\u2705 已儲存並重算!→ <a href="/">回列表看新結果</a>':'\\u274c 失敗';
+        if(j.ok)setTimeout(()=>location.reload(),900);});
+  }
+</script></body></html>`;
+}
+
 // ⚖️ 評分引擎:新手/標準模式切換 + 權重滑桿 + 門檻
 function pageScoring() {
   const cfg = loadConfig();        // 已套用啟用模式的權重
@@ -593,7 +686,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}<a href="/logout" style="margin-left:6px">登出</a></nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}<a href="/logout" style="margin-left:6px">登出</a></nav>`;
 }
 
 // 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
@@ -607,10 +700,19 @@ function pageFeatures() {
   // 溯源用:jobId → {標題,網址}(來自掃描時記下的 sources)
   const srcMap = {};
   for (const s of tax.sources || []) srcMap[s.jobId] = { title: s.title, url: s.url };
+  // 由 jobId 重建乾淨的 Upwork 原案網址。
+  // 部分案子的 sources.url 被 ingest 汙染(含 span/highlight markup),所以優先重建;
+  // 只有當 stored url 是乾淨的 upwork job 連結時才沿用。
+  const upworkUrl = (id, raw) => {
+    const clean = /^https:\/\/www\.upwork\.com\/jobs\/[\w~/-]+$/.test(raw || '') && !/span|highlight|<|>/i.test(raw);
+    if (clean) return raw;
+    const cid = String(id).replace(/[^\w]/g, '');
+    return `https://www.upwork.com/jobs/_~${cid}/`;
+  };
   // 把一組 jobId 渲染成「原案連結清單」:標題 → Upwork 原案,另給內部 ② 評估 連結
   const jobLinks = (ids) => (ids || []).map((id) => {
     const j = srcMap[id] || {};
-    const url = j.url || `https://www.upwork.com/jobs/_~${id}/`;
+    const url = upworkUrl(id, j.url);
     const title = j.title || id;
     return `<li><a href="${esc(url)}" target="_blank" rel="noopener">${esc(title)}</a> <a href="/job?id=${esc(id)}" class="ev">②評估</a></li>`;
   }).join('') || '<li class="reason">(無紀錄)</li>';
@@ -1200,6 +1302,7 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/profile' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));
       saveProfile(body);
+      rescoreAll(); // 能力(capability)會影響評分,存檔後重算所有案
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
@@ -1220,7 +1323,7 @@ createServer(async (req, res) => {
       }
       if (body.threshold != null) { if (target === 'newbie') s.newbieThreshold = Number(body.threshold); else s.threshold = Number(body.threshold); }
       if (body.maybeThreshold != null) { if (target === 'newbie') s.newbieMaybeThreshold = Number(body.maybeThreshold); else s.maybeThreshold = Number(body.maybeThreshold); }
-      delete cfg.provenTechs; // 不要把衍生欄位寫進檔案
+      delete cfg.provenTechs; delete cfg.capability; // 不要把衍生欄位寫進檔案
       writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
       rescoreAll();
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -1270,6 +1373,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/profile') {
       return serveHtml(res, pageProfile());
+    }
+    if (url.pathname === '/me') {
+      return serveHtml(res, pageMe());
     }
     if (url.pathname === '/scoring' || url.pathname === '/settings' || url.pathname === '/setup') {
       return serveHtml(res, pageScoring()); // /settings、/setup 舊路由導向(back-compat)
