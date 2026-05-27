@@ -234,7 +234,9 @@ function effectiveVerdict(j) {
 function pageJobs() {
   const cfg = loadConfig();
   const C = cfg.scoring.criteria;
-  const data = db.prepare('SELECT * FROM jobs ORDER BY total_score DESC, last_seen DESC').all();
+  // 排序:已投沉到底 → 再依「實際顯示的分數」(AI 分數優先,×10 對齊 0-100,否則規則分)→ 再依最新
+  const data = db.prepare(`SELECT * FROM jobs
+    ORDER BY applied ASC, COALESCE(ai_score * 10, total_score) DESC, last_seen DESC`).all();
   const counts = data.reduce((a, j) => { const c = effectiveVerdict(j).cls; a[c] = (a[c] || 0) + 1; return a; }, {});
   // 動線提示:今日新案 + 未處理(值得投但還沒投)
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -299,7 +301,9 @@ function pageJobs() {
     cards.forEach(c=>{let s=x==='all'?1:x==='applied'?c.dataset.applied==='1':c.dataset.verdict===x;c.style.display=s?'':'none';});}
   document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>f(b.dataset.f));f('APPLY');
   async function mark(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});
-    document.querySelector('input[onchange*="'+id+'"]').closest('.card').dataset.applied=a?'1':'0';}
+    const card=document.querySelector('input[onchange*="'+id+'"]').closest('.card');
+    card.dataset.applied=a?'1':'0';
+    if(a)card.parentNode.appendChild(card);} // 已投 → 沉到列表最底
   async function triage(all){const b=document.getElementById('triageBtn'),m=document.getElementById('trmsg');
     b.disabled=true;let s=0;m.textContent=' 快篩中…(便宜 AI 批次,勿關閉) 0s';
     const t=setInterval(()=>{m.textContent=' 快篩中…(便宜 AI 批次,勿關閉) '+(++s)+'s';},1000);
