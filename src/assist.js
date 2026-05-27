@@ -17,15 +17,10 @@ export function saveProfile(obj) {
   writeFileSync(PROFILE_PATH, JSON.stringify(obj, null, 2));
 }
 
-// 把檔案濃縮成 prompt 用的文字
-function profileBrief(p) {
-  const port = (p.portfolio || []).map((x) => `- ${x.name}(${x.type}):${x.desc}`).join('\n');
-  // Profile Agent 從 GitHub 歸納的「真實 repo 證據」— 求職信優先引用這些(有實作可佐證)
-  const proven = (p.provenCapabilities || [])
-    .map((c) => `- ${c.repo}:${c.capability}${c.url ? `(${c.url})` : ''} [${(c.techs || []).join('/')}]`)
-    .join('\n');
-  // 能力邊界(可交付項目 + 能做/不做)— 讓 AI 判斷案子在不在能力圈、別承諾做不到的事
-  const capSkills = (p.capability?.skills || [])
+// 能力邊界(可交付項目 + level + 能做/不做 + 紅線 + 規模上限)
+// 所有 AI(快篩/大分析/求職信/聊天)共用:讓 AI 判斷案子在不在能力圈、別承諾做不到的事、勝率反映深度。
+export function capabilityBrief(p) {
+  const skills = (p.capability?.skills || [])
     .map((s) => {
       const bits = [`${s.name}(深度${s.level}/5)`];
       if (s.canDo) bits.push(`能做:${s.canDo}`);
@@ -33,10 +28,21 @@ function profileBrief(p) {
       return `- ${bits.join(';')}`;
     })
     .join('\n');
+  if (!skills) return '';
   const redlines = (p.capability?.redlines || []).join('、');
-  const capBrief = capSkills
-    ? `我的可交付能力與邊界:\n${capSkills}${redlines ? `\n絕不接(紅線):${redlines}` : ''}${p.capability?.scaleCeiling ? `\n規模上限:${p.capability.scaleCeiling}` : ''}`
-    : '';
+  return `我的可交付能力與邊界(深度 5 精通…1 碰過):\n${skills}` +
+    (redlines ? `\n絕不接(紅線,出現即略過):${redlines}` : '') +
+    (p.capability?.scaleCeiling ? `\n規模上限:${p.capability.scaleCeiling}` : '');
+}
+
+// 把檔案濃縮成 prompt 用的文字
+function profileBrief(p) {
+  const port = (p.portfolio || []).map((x) => `- ${x.name}(${x.type}):${x.desc}`).join('\n');
+  // Profile Agent 從 GitHub 歸納的「真實 repo 證據」— 求職信優先引用這些(有實作可佐證)
+  const proven = (p.provenCapabilities || [])
+    .map((c) => `- ${c.repo}:${c.capability}${c.url ? `(${c.url})` : ''} [${(c.techs || []).join('/')}]`)
+    .join('\n');
+  const capBrief = capabilityBrief(p);
   return [
     `姓名:${p.name || ''}`,
     `定位:${p.title || ''}|等級:${p.level || ''}|時薪:$${p.hourlyRate || '?'}`,
