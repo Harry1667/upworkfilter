@@ -186,7 +186,11 @@ const CHAT_WIDGET = `
     var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/features':'功能地圖','/profile':'我的檔案','/scoring':'評分設定','/assistant':'助手'};
     return {page:(m[p]||p),jobId:id};}
   function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
-  function bubble(role,text){var d=document.createElement('div');d.className='m '+(role==='user'?'u':'b');d.textContent=text;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
+  // 安全渲染輕量 markdown(先 escape 防 XSS,再轉粗體/換行;# 與 ` 去掉)
+  function md(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>').replace(/\`([^\`]+)\`/g,'$1').replace(/^#+\\s*/gm,'').replace(/\\n/g,'<br>');}
+  function setText(el,role,text){if(role==='user')el.textContent=text;else el.innerHTML=md(text);}
+  function bubble(role,text){var d=document.createElement('div');d.className='m '+(role==='user'?'u':'b');setText(d,role,text);msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
   function render(){msgs.innerHTML='';if(hist.length===0){bubble('bot','嗨!我是你的接案助手 👋 我知道你現在在哪一頁、看哪個案 — 直接問我這案值不值得投、怎麼報價、幫想切入角度都行。');}else{hist.forEach(function(m){bubble(m.role,m.content);});}}
   function save(){try{sessionStorage.setItem(KEY,JSON.stringify(hist.slice(-20)));}catch(e){}}
   document.getElementById('cwBtn').onclick=function(){panel.classList.toggle('open');if(panel.classList.contains('open')){setCtx();ta.focus();}};
@@ -196,7 +200,7 @@ const CHAT_WIDGET = `
   function send(){var t=ta.value.trim();if(!t)return;ta.value='';bubble('user',t);hist.push({role:'user',content:t});save();
     var b=bubble('bot','…');
     fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:hist,context:ctx()})})
-      .then(function(r){return r.json();}).then(function(j){if(j.ok){b.textContent=j.reply;hist.push({role:'assistant',content:j.reply});save();}else{b.textContent='❌ '+(j.error||'失敗');}})
+      .then(function(r){return r.json();}).then(function(j){if(j.ok){setText(b,'bot',j.reply);hist.push({role:'assistant',content:j.reply});save();}else{b.textContent='❌ '+(j.error||'失敗');}})
       .catch(function(e){b.textContent='❌ '+e.message;});}
   render();setCtx();
 })();
