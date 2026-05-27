@@ -301,12 +301,18 @@ const CHAT_WIDGET = `
 // 送出 HTML 頁面並注入浮動聊天 agent(統一入口)
 // 全站共用:複製 Upwork 連結到剪貼簿(跨站點擊拿不到登入,改成複製、使用者自己貼)
 const COPY_JS = `<script>
+// HTTP(非 HTTPS)下 navigator.clipboard 不可用,故先試它、再用 execCommand 直接複製,最後才 prompt。
 window.copyUpwork=function(e,el){if(e)e.preventDefault();
   var u=el.getAttribute('data-url')||el.href||'';
-  var done=function(){var o=el.textContent;el.textContent='✅ 已複製,貼到網址列開啟';el.classList.add('copied');
+  var done=function(){var o=el.getAttribute('data-label')||el.textContent;el.setAttribute('data-label',o);
+    el.textContent='✅ 已複製,貼到網址列開啟';el.classList.add('copied');
     setTimeout(function(){el.textContent=o;el.classList.remove('copied');},1600);};
-  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(done,function(){window.prompt('複製這個連結貼到網址列:',u);});}
-  else{window.prompt('複製這個連結貼到網址列:',u);}
+  var legacy=function(){try{var t=document.createElement('textarea');t.value=u;t.style.position='fixed';t.style.opacity='0';
+    document.body.appendChild(t);t.focus();t.select();var ok=document.execCommand('copy');document.body.removeChild(t);
+    if(ok){done();return;}}catch(_){}
+    window.prompt('複製這個連結貼到網址列:',u);};
+  if(navigator.clipboard&&navigator.clipboard.writeText&&window.isSecureContext){navigator.clipboard.writeText(u).then(done,legacy);}
+  else{legacy();}
   return false;};
 </script>`;
 

@@ -107,6 +107,9 @@ function renderHtml(job, d) {
   const li = (arr) => (arr || []).map((x) => `<li>${esc(x)}</li>`).join('');
   const pill = (arr, cls = '') => (arr || []).map((x) => `<span class="pill ${cls}">${esc(x)}</span>`).join('');
   const closedBanner = d.closed ? `<div class="banner">🔴 此職缺可能已關閉(This job is no longer available)— 分析僅供同類案參考</div>` : '';
+  // 乾淨的 Upwork 原案網址(/jobs/~ID,貼到網址列即登入並進完整詳情頁);跨站點擊拿不到登入故改「複製」
+  const upId = (String(job.id || '').match(/[0-9a-f]{6,}/i) || [])[0] || (String(job.url || '').match(/~([0-9a-f]+)/i) || [])[1] || '';
+  const upUrl = upId ? `https://www.upwork.com/jobs/~${upId}` : (job.url || '');
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(job.title || 'Upwork 案件評估')}</title><style>
 :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ac:#4493f8}
@@ -114,7 +117,7 @@ function renderHtml(job, d) {
 .wrap{max-width:860px;margin:0 auto;padding:24px}
 .banner{background:#3a1a1a;color:#f85149;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-weight:600}
 h1{font-size:22px;margin:0 0 6px}h2{font-size:17px;margin:26px 0 10px;border-left:3px solid var(--grn);padding-left:10px}
-.sub{color:var(--mut);margin:0 0 14px}.btn{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:9px 16px;border-radius:8px;font-size:14px}
+.sub{color:var(--mut);margin:0 0 14px}.btn{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:9px 16px;border-radius:8px;font-size:14px;border:0;cursor:pointer}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .cards .c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px}.c .l{color:var(--mut);font-size:12px}.c .v{font-size:16px;font-weight:600;margin-top:2px}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}
@@ -129,7 +132,7 @@ ul{margin:6px 0;padding-left:22px}li{margin:3px 0}
 ${closedBanner}
 <h1>${esc(job.title || '')}</h1>
 <p class="sub">${esc(d.summary)}</p>
-<a class="btn" href="${esc(job.url)}" target="_blank" rel="noopener">🔗 前往 Upwork 原始職缺</a>
+<button class="btn" onclick="cpy('${esc(upUrl)}',this,'✅ 已複製,貼到網址列開啟')">📋 複製 Upwork 連結</button>
 
 <h2>① 案件核心數據</h2>
 <div class="cards">${(d.core || []).map((c) => `<div class="c"><div class="l">${esc(c.label)}</div><div class="v">${esc(c.value)}</div></div>`).join('')}</div>
@@ -155,7 +158,7 @@ ${closedBanner}
 <div class="card"><ul>${li(d.submitItems)}</ul><b>報價建議:</b>${esc(d.priceAdvice)}</div>
 
 <h2>⑦ 提案草稿(英文,可複製)</h2>
-<button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('cl').innerText);this.textContent='✅ 已複製'">📋 複製提案</button>
+<button class="copy" onclick="cpy(document.getElementById('cl').innerText,this,'✅ 已複製')">📋 複製提案</button>
 <div class="cover" id="cl">${esc(d.coverLetter)}</div>
 
 <h2>⑧ 勝率評估 + 下一步</h2>
@@ -167,6 +170,12 @@ ${(d.scores || []).map((s) => `<tr><td>${esc(s.name)}</td><td>${esc(s.weight)}%<
 </table>
 <p style="margin-top:14px">加權總分 <span class="total">${esc(d.totalScore)}</span> / 10 → <b style="color:${verdictColor}">${esc(d.verdict)}</b></p>
 <p class="sub">8+強力接 · 6–7.9可接 · 4–5.9觀望 · &lt;4略過</p>
+<script>
+// HTTP 下 navigator.clipboard 不可用 → 用 execCommand 直接複製,最後才 prompt
+window.cpy=function(text,btn,okMsg){var done=function(){var o=btn.textContent;btn.textContent=okMsg||'✅ 已複製';setTimeout(function(){btn.textContent=o;},1600);};
+  if(navigator.clipboard&&navigator.clipboard.writeText&&window.isSecureContext){navigator.clipboard.writeText(text).then(done,function(){leg();});}else{leg();}
+  function leg(){try{var t=document.createElement('textarea');t.value=text;t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.focus();t.select();var ok=document.execCommand('copy');document.body.removeChild(t);if(ok){done();return;}}catch(_){}window.prompt('複製:',text);}};
+</script>
 </div></body></html>`;
 }
 
