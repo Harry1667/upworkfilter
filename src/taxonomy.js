@@ -60,14 +60,19 @@ ${blocks}
    {
      "name": "小功能名稱(如:對話記憶)",
      "difficulty": "低/中/高(實作難度)",
-     "tools": ["常用工具/API/技術(如 Redis、pgvector、Stripe、Google Sheets API)"],
+     "toolsInJob": ["**只列上面案子描述裡真的有出現**的工具/API/技術名稱;描述沒提就放空陣列,嚴禁自行補充"],
+     "toolsSuggested": ["AI 建議:實作此功能『通常』會用到、但上面描述沒提到的典型工具/技術"],
      "frequency": 這批案子裡有幾個需要此功能(整數 1~${jobs.length}),
      "depends": ["相依的其他小功能名稱(沒有就空陣列)"],
      "note": "一句話說明(≤20字)"
    }
  ]
 }
-規則:小功能要具體可辨識(像「對話記憶」「存到 Google Sheet」「下訂單卡片」),不要過度抽象。8~15 個小功能即可。只回 JSON。`;
+規則:
+- 小功能要具體可辨識(像「對話記憶」「存到 Google Sheet」「下訂單卡片」),不要過度抽象。8~15 個即可。
+- **toolsInJob 一定要忠於原文**:只能放案子描述裡實際出現的工具名稱,沒出現就空陣列,絕不腦補。
+- toolsSuggested 才是你的建議,且不要和 toolsInJob 重複。
+只回 JSON。`;
 }
 
 // 把一批 AI 萃取結果合併進 taxonomy(跨批次/跨關鍵字累積)
@@ -84,9 +89,15 @@ export function mergeBatch(tax, query, extracted, scannedJobs) {
     const fid = slug(f.name);
     const cur = cat.features[fid];
     const freq = Number(f.frequency) || 1;
+    // 工具分兩類:案子點名(忠於原文) vs AI 建議(典型技術棧)。
+    // 相容舊資料:舊欄位 f.tools 視為未分類,併入 toolsInJob。
+    const inJob = uniq([...(f.toolsInJob || []), ...(f.tools || [])]);
+    const suggested = uniq(f.toolsSuggested).filter((t) => !inJob.includes(t)); // 不和點名重複
     if (cur) {
       cur.frequency += freq;
-      cur.tools = uniq([...(cur.tools || []), ...(f.tools || [])]);
+      cur.toolsInJob = uniq([...(cur.toolsInJob || cur.tools || []), ...inJob]);
+      cur.toolsSuggested = uniq([...(cur.toolsSuggested || []), ...suggested]).filter((t) => !cur.toolsInJob.includes(t));
+      delete cur.tools; // 清掉舊的混合欄位
       cur.depends = uniq([...(cur.depends || []), ...(f.depends || [])]);
       // 難度取較高者(保守看待風險)
       if ((DIFFICULTY_RANK[f.difficulty] || 0) > (DIFFICULTY_RANK[cur.difficulty] || 0)) cur.difficulty = f.difficulty;
@@ -96,7 +107,8 @@ export function mergeBatch(tax, query, extracted, scannedJobs) {
         id: fid,
         name: f.name.trim(),
         difficulty: DIFFICULTY_RANK[f.difficulty] ? f.difficulty : '中',
-        tools: uniq(f.tools),
+        toolsInJob: inJob,
+        toolsSuggested: suggested,
         frequency: freq,
         depends: uniq(f.depends),
         note: f.note || ''

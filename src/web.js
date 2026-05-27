@@ -606,19 +606,27 @@ function pageFeatures() {
 
   const cats = view.map((c) => {
     const rows = c.features.map((f) => {
-      const tools = (f.tools || []).map((t) => `<span>${esc(t)}</span>`).join('') || '<span class="reason">—</span>';
+      // 工具分兩類:📋 案子點名(忠於描述) vs 💡 AI 建議(典型技術棧)。相容舊資料的 f.tools。
+      const inJob = f.toolsInJob || f.tools || [];
+      const suggested = f.toolsSuggested || [];
+      const tj = inJob.map((t) => `<span class="tj">${esc(t)}</span>`).join('');
+      const ts = suggested.map((t) => `<span class="ts">${esc(t)}</span>`).join('');
+      const toolsCell =
+        (tj ? `<div class="tools"><span class="tlbl">📋 案子點名</span><span class="tags">${tj}</span></div>` : '') +
+        (ts ? `<div class="tools"><span class="tlbl sg">💡 AI 建議</span><span class="tags">${ts}</span></div>` : '') ||
+        '<span class="reason">—</span>';
       const deps = (f.depends || []).length ? `<div class="dep">↳ 需先:${(f.depends).map(esc).join('、')}</div>` : '';
       return `<tr>
         <td><b>${esc(f.name)}</b>${f.note ? `<div class="reason">${esc(f.note)}</div>` : ''}${deps}</td>
         <td class="${dCls[f.difficulty] || ''}" style="text-align:center;white-space:nowrap">${esc(f.difficulty)}</td>
         <td style="text-align:center"><b>${f.frequency}</b></td>
-        <td><div class="tags">${tools}</div></td>
+        <td>${toolsCell}</td>
       </tr>`;
     }).join('');
     return `<details class="catbox" open>
       <summary><span class="cn">${esc(c.name)}</span> <span class="reason">${c.jobCount || 0} 個案 · ${c.features.length} 個功能</span></summary>
       <table class="ftab">
-        <tr><th>小功能</th><th>難度</th><th>出現案數</th><th>常用工具 / API</th></tr>
+        <tr><th>小功能</th><th>難度</th><th>出現案數</th><th>工具 / 技術棧</th></tr>
         ${rows || '<tr><td colspan="4" class="reason">尚無功能</td></tr>'}
       </table>
     </details>`;
@@ -633,11 +641,15 @@ function pageFeatures() {
   .ftab{width:100%;border-collapse:collapse;margin-top:6px}
   .ftab th,.ftab td{border:1px solid var(--bd);padding:8px 10px;text-align:left;font-size:13px;vertical-align:top}
   .ftab th{background:#0d1117;color:var(--mut);font-weight:600}
-  .ftab .tags{margin:0}.dep{font-size:12px;color:var(--ac);margin-top:3px}
+  .ftab .tags{margin:0;display:inline-flex;flex-wrap:wrap;gap:5px}.dep{font-size:12px;color:var(--ac);margin-top:3px}
+  .tools{display:flex;align-items:flex-start;gap:8px;margin:2px 0}
+  .tlbl{flex:0 0 72px;font-size:11px;color:#3fb950;padding-top:3px;white-space:nowrap}.tlbl.sg{color:var(--mut)}
+  .ftab .tj{background:#0d2a18;border-color:#1f6f3f;color:#7ee2a8}
+  .ftab .ts{opacity:.75;font-style:italic}
   .ok{color:#3fb950}.mid{color:#d29922}.bad{color:#f85149}</style></head><body>
 <header><h1>🧩 功能地圖 <span class="sub">同類案子需要哪些功能 · 更新:${updated}</span></h1>${navBar('/features')}</header>
 <main>
-  <p class="reason">輸入工作類型(關鍵字),系統去 Upwork 爬同類案子、用 AI 歸納出「這類案子通常需要哪些小功能」並標難度/工具/出現頻率。<b>只記錄功能,不開發</b>。一次可輸入多個,用逗號分隔。</p>
+  <p class="reason">輸入工作類型(關鍵字),系統從同類案子用 AI 歸納出「這類案子通常需要哪些小功能」並標難度/工具/出現頻率。<b>只記錄功能,不開發</b>。一次可輸入多個,用逗號分隔。<br>工具分兩類:<b style="color:#7ee2a8">📋 案子點名</b>=描述裡真的出現的;<b style="color:var(--mut)">💡 AI 建議</b>=這功能通常會用到的典型技術(AI 推測,非客戶要求)。</p>
   <div class="scan">
     <input id="q" placeholder="例如:chatbot, voice assistant, web scraping">
     <button class="save" id="go" onclick="scan()">🔍 掃描功能</button>
