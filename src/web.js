@@ -6,7 +6,7 @@ import path from 'node:path';
 import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
-import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, advicePrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
+import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1277,7 +1277,7 @@ function pageProposal(id) {
 </header>
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
-  <p class="reason">按下方按鈕一次產生:求職信 + 投標策略 + 特殊要求(影片題/指定專案)。約 30-60 秒。</p>
+  <p class="reason">按下方按鈕一次產生:求職信 + 投標策略 + 特殊要求 + 🎯 篩選問題作戰區(逐題答案 + 判斷符不符合)。約 30-60 秒。<b>篩選問題只在提案表單頁</b>,記得把那段一起貼進下方「完整職缺內容」才抓得到。</p>
   <p class="reason" style="background:#13233b;border:1px solid var(--ac);border-radius:8px;padding:10px 12px">💬 <b>想要更自然、能來回修改、且自動列出「這個 apply 每一欄要填什麼」的求職信?</b> 點右下角 💬 助手,把 Upwork 投標頁內容貼進去,說「幫我投這個案」—— 它會列出每個欄位 + 各寫一份草稿,你不滿意就叫它改。(下面這個是一次性版本,適合快速參考)</p>
   <details style="margin:8px 0"><summary style="cursor:pointer;color:var(--mut);font-size:13px">▸ 貼上完整職缺內容(選填,強烈建議)— 抓到影片題/指定專案/篩選問題</summary>
     <textarea id="descOv" placeholder="從 Upwork 投標頁把完整職缺描述(含 To Apply / 影片題 / 指定專案那段)複製貼進來,提案會更完整準確" style="width:100%;min-height:120px;margin-top:8px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:13px/1.5 inherit"></textarea>
@@ -1287,6 +1287,12 @@ function pageProposal(id) {
   <div class="sect" id="reqsect" style="display:none;border-color:#bb8009;background:#3a30160d">
     <h2>⚠️ 這案的特殊投標要求(別漏!)</h2>
     <div class="out" id="reqout"></div>
+  </div>
+
+  <div class="sect" id="scrsect" style="display:none;border-color:#b392f0">
+    <h2>🎯 篩選問題作戰區 <span class="sub" style="font-size:13px;color:var(--mut);font-weight:400">逐題答案 + 硬門檻判斷你符不符合(要準,記得上面貼完整 JD)</span></h2>
+    <div id="scroverall" style="margin-bottom:8px"></div>
+    <div class="out" id="scrout"></div>
   </div>
 
   <div class="sect" id="clsect" style="display:none">
@@ -1309,14 +1315,38 @@ function pageProposal(id) {
 <script>
   const ID=${JSON.stringify(job.id)};
   async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
+  // 🎯 篩選問題作戰區渲染(用 DOM textContent,避免轉義/XSS 問題)
+  function renderScreening(d){
+    if(!d||!d.hasQuestions){var s=document.getElementById('scrsect');s.style.display='block';
+      document.getElementById('scroverall').textContent='';document.getElementById('scrout').innerHTML='<span class="reason">'+((d&&d.overallNote)||'此 JD 沒抓到篩選問題(把提案表單那段也貼進上面的「完整職缺內容」會更準)')+'</span>';return;}
+    var ov=document.getElementById('scroverall');ov.innerHTML='';
+    var color=(d.overall||'').indexOf('不建議')>=0?'#f85149':(d.overall||'').indexOf('謹慎')>=0?'#d29922':'#3fb950';
+    var h=document.createElement('div');h.style.cssText='font-size:16px;font-weight:700;color:'+color;h.textContent='➤ '+(d.overall||'');ov.appendChild(h);
+    var n=document.createElement('div');n.className='reason';n.textContent=d.overallNote||'';ov.appendChild(n);
+    var out=document.getElementById('scrout');out.innerHTML='';
+    (d.questions||[]).forEach(function(q,i){
+      var box=document.createElement('div');box.style.cssText='border:1px solid var(--bd);border-radius:8px;padding:10px;margin:8px 0';
+      var qt=document.createElement('div');qt.style.fontWeight='600';qt.textContent=(i+1)+'. '+(q.q||'')+(q.hard?'  [硬門檻]':'');box.appendChild(qt);
+      var mc=q.meet==='不符合'?'#f85149':q.meet==='勉強符合'?'#d29922':'#3fb950';
+      var meet=document.createElement('div');meet.style.margin='5px 0';
+      var ms=document.createElement('span');ms.style.cssText='color:'+mc+';font-weight:600';ms.textContent=q.meet||'';meet.appendChild(ms);
+      var note=document.createElement('span');note.className='reason';note.textContent='  '+(q.note||'');meet.appendChild(note);box.appendChild(meet);
+      var ans=document.createElement('div');ans.style.cssText='background:#0d1117;border:1px solid var(--bd);border-radius:6px;padding:8px;white-space:pre-wrap;font-size:13px;margin-top:4px';ans.textContent=q.answer||'';box.appendChild(ans);
+      var btn=document.createElement('button');btn.className='save';btn.style.cssText='background:var(--grn);padding:4px 10px;font-size:12px;margin-top:6px';btn.textContent='📋 複製答案';btn.onclick=function(){navigator.clipboard.writeText(ans.innerText);btn.textContent='✅ 已複製';};box.appendChild(btn);
+      out.appendChild(box);
+    });
+    document.getElementById('scrsect').style.display='block';
+  }
   async function gen(){const btn=document.getElementById('go'),st=document.getElementById('st');
     const descOverride=(document.getElementById('descOv').value||'').trim();
-    btn.disabled=true;st.textContent='產生中…(求職信 + 策略,約30-60秒)';
+    btn.disabled=true;st.textContent='產生中…(求職信 + 策略 + 篩選問題作戰區,約30-60秒)';
     const body=JSON.stringify({id:ID,descOverride:descOverride});
     const cover=fetch('/api/cover-letter',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
     const adv=fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
+    const scr=fetch('/api/screening',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json()).catch(function(){return{ok:false};});
     try{
-      const [c,a]=await Promise.all([cover,adv]);
+      const [c,a,sc]=await Promise.all([cover,adv,scr]);
+      if(sc&&sc.ok&&sc.data)renderScreening(sc.data);
       if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';}
       if(a.ok){const d=a.data;
         if((d.applyRequirements||[]).length){document.getElementById('reqout').innerHTML=(d.applyRequirements).map(function(x){return '• '+x;}).join('<br>')+'<br><br><span style="color:var(--mut)">需要影片講稿 / 指定專案說明?點右下角 💬 助手,貼上題目讓它幫你寫。</span>';document.getElementById('reqsect').style.display='block';}
@@ -1564,6 +1594,16 @@ createServer(async (req, res) => {
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述 → 抓影片題/指定專案
       const data = extractJson(await askAI(advicePrompt(job, loadProfile())));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, data }));
+    }
+    if (url.pathname === '/api/screening' && req.method === 'POST') {
+      // 🎯 篩選問題作戰區:抽 screening questions → 逐題答案 + 硬門檻判斷要不要投
+      const { id, descOverride } = JSON.parse(await readBody(req));
+      const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+      if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000);
+      const data = extractJson(await askAI(screeningPrompt(job, loadProfile())));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, data }));
     }

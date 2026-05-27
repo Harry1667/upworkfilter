@@ -146,6 +146,48 @@ ${fullJob}
 只輸出 JSON,不要任何多餘文字。`;
 }
 
+// ②b 篩選問題作戰區 — 抽出 Upwork screening questions,逐題草擬答案 + 用硬門檻判斷要不要投
+export function screeningPrompt(job, p) {
+  const full = [
+    `標題:${job.title || ''}`,
+    `預算:${job.budget_text || '未知'}|提案數:${job.proposals_bucket || '?'}`,
+    `完整描述:\n${(job.description || '').slice(0, 6000)}`
+  ].join('\n');
+  return `你是 Upwork 提案教練。下面是職缺完整內容。請找出客戶的「篩選問題 / Screening Questions」——
+常見標題:"You will be asked to answer the following questions"、"Answer the following"、或編號問句清單(1. 2. 3.)。
+這些問題既是投標必填、也是判斷「要不要投」的關鍵(常含 key criteria / must / do not apply / 100% 這種硬門檻)。
+
+逐題判斷時,務必對照下方「我的能力與邊界」**誠實**評估,特別注意這類硬門檻:
+- 「能不能自己寫 code(不只是 n8n/AI/自動化)」
+- 「能不能 24 小時內支援/修 bug」
+- 「是否從零打造過、自己想出解法而不只是照指令 coding」
+不符合就老實說不符合,並反映在 overall;不要硬凹。
+
+只輸出 JSON,不要 markdown 圍欄:
+{
+ "hasQuestions": true/false,
+ "overall": "建議投 / 謹慎評估 / 不建議投",
+ "overallNote": "一句繁中:綜合這些硬門檻,你符不符合、該不該投、為什麼",
+ "questions": [
+   {
+     "q": "問題原文(英文照抄,精簡)",
+     "hard": true/false,
+     "meet": "符合 / 勉強符合 / 不符合",
+     "answer": "可直接貼的英文答案(誠實、具體、引用真實作品;符合就自信作答,不符合就給最誠實但仍積極的講法,別說謊)",
+     "note": "繁中提醒:這題的陷阱 / 怎麼答較好 / 為何符不符合"
+   }
+ ]
+}
+若完全找不到篩選問題,回 {"hasQuestions":false,"overall":"","overallNote":"此 JD 未含篩選問題(或你貼的內容未涵蓋提案表單那段)","questions":[]}。
+
+我的檔案與能力邊界:
+${profileBrief(p)}
+
+職缺完整內容:
+${full}
+只輸出 JSON。`;
+}
+
 // ③ 客戶訊息回覆助手(繁中思路 + 英文回覆)
 export function replyPrompt(clientMessage, job, p, tone) {
   const ctx = job ? `\n相關職缺:\n${jobBrief(job)}\n` : '';
