@@ -414,7 +414,7 @@ function pageJobs() {
           ${j.ai_win != null ? `<span class="winbadge ${winCls(j.ai_win)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${j.ai_win}%</span>` : ''}
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
-        <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
+        <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(j.title)}</a></h2>
         <p class="reason">${esc(j.reason)}</p>
         <div class="atags"><span class="fit ${fit.c}">${fit.t}</span>${parentHtml}${childHtml}</div>
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
@@ -422,7 +422,7 @@ function pageJobs() {
         <div class="acts">
           <a class="open primary" href="/job?id=${j.id}">② 評估 →</a>
           <a class="open" href="/proposal?id=${j.id}">③ 提案 →</a>
-          <a class="open" href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">Upwork ↗</a>
+          <a class="open" href="${esc(cleanUrl(j))}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Upwork ↗</a>
         </div>
       </article>`;
     })
@@ -670,7 +670,7 @@ function pageMe() {
   <input id="o_url" readonly style="color:var(--ac)">
   <p style="margin:8px 0">
     <button class="save" onclick="copyUrl()">📋 複製搜尋網址</button>
-    <a class="save" id="openUrl" target="_blank" rel="noopener" style="background:#30363d;text-decoration:none;display:inline-block">↗ 在 Upwork 開啟預覽</a>
+    <a class="save" id="openUrl" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="background:#30363d;text-decoration:none;display:inline-block">↗ 在 Upwork 開啟預覽</a>
     <span id="kwmsg" class="reason"></span>
   </p>
 
@@ -960,7 +960,7 @@ function pageFeatures() {
     const j = srcMap[id] || {};
     const url = upworkUrl(id);
     const title = j.title || id;
-    return `<li><a href="${esc(url)}" target="_blank" rel="noopener">${esc(title)}</a> <a href="/job?id=${esc(id)}" class="ev">②評估</a></li>`;
+    return `<li><a href="${esc(url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(title)}</a> <a href="/job?id=${esc(id)}" class="ev">②評估</a></li>`;
   }).join('') || '<li class="reason">(無紀錄)</li>';
 
   const cats = view.map((c) => {
@@ -1193,7 +1193,7 @@ function jobBarHtml(job, active) {
   const opts = outcomes.map((o) => `<option value="${o}"${(job.outcome || '') === o ? ' selected' : ''}>${o || '— 投標結果 —'}</option>`).join('');
   return `<div class="jobbar">
     ${back}
-    <a href="${esc(cleanUrl(job))}" target="_blank" rel="noopener">🔗 Upwork 原案 ↗</a>
+    <a href="${esc(cleanUrl(job))}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">🔗 Upwork 原案 ↗</a>
     <label class="applied"><input type="checkbox" ${job.applied ? 'checked' : ''} onchange="markJob('${job.id}',this.checked)"> 標記已投</label>
     <select onchange="setOutcome('${job.id}',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:13px">${opts}</select>
   </div>
