@@ -58,17 +58,26 @@ ${jobBrief(job)}
 只輸出 cover letter 英文本文,不要任何中文說明、不要標題、不要引號。`;
 }
 
-// ② 作品集 / 提交建議(繁中,精簡)
+// ② 投標策略 — 對齊 Upwork 提案表單真正要填的欄位
 export function advicePrompt(job, p) {
-  return `根據「我的檔案」和「這個職缺」,用**繁體中文**給我精簡建議。只輸出 JSON:
-{"showPortfolio":["該主打哪1-2個作品及一句原因(優先用「已證明能力」裡的真實 repo)"],"screenshot":"建議附哪一張作品截圖當證據(1句,指名作品/畫面)","submit":["投標應附上什麼(2-3項)"],"priceSuggestion":"報價建議(1句,給數字)","angle":"切入角度/差異化(1句)"}
+  const gh = p.githubUser ? `https://github.com/${p.githubUser}` : '';
+  return `你是 Upwork 接案顧問。根據「我的檔案」和「這個職缺」,產出投標表單要填的內容。除了 recentExperience 用**英文**(直接貼進 Upwork),其餘用**繁體中文**。只輸出 JSON:
+{
+ "showPortfolio":["主打哪 1-2 個作品 + 一句原因(優先用『已證明能力』裡的真實 repo)"],
+ "screenshot":"建議附哪一張作品截圖當證據(1句,指名作品/畫面)",
+ "recentExperience":"英文段落(3-4句),可直接貼到 Upwork『Describe your recent experience with similar projects』欄:引用 2-3 個真實作品+具體技術,展現端到端能力,語氣專業像真人,禁用 vibe coder/靠AI/10x",
+ "githubLink":"${gh}",
+ "profileHighlights":["挑 4 個最貼合此案的能力標籤(Upwork Profile highlights 用,每個≤6字)"],
+ "bid":"報價建議:給具體時薪/金額數字 + 一句理由。務必比較『客戶預算』vs『我的 profile rate $${p.hourlyRate || 20}』:若客戶預算遠低於我的底價,老實說值不值得接、若為搶首評價/長期建議 bid 多少",
+ "angle":"切入角度/差異化(1句)"
+}
 
 我的檔案:
 ${profileBrief(p)}
 
 職缺:
 ${jobBrief(job)}
-只輸出 JSON。`;
+只輸出 JSON,不要任何多餘文字。`;
 }
 
 // ③ 客戶訊息回覆助手(繁中思路 + 英文回覆)

@@ -112,6 +112,7 @@ const CSS = `
   .top{display:flex;align-items:center;gap:10px}
   .score{font-size:24px;font-weight:700;min-width:40px}.score .smax{font-size:13px;color:var(--mut);font-weight:400}
   .aitag{font-size:10px;font-weight:700;background:#2d2150;color:#b392f0;padding:2px 7px;border-radius:5px;border:1px solid #4a3a6a;letter-spacing:.5px}
+  .pill{display:inline-block;background:#0d1117;border:1px solid var(--bd);border-radius:14px;padding:3px 11px;font-size:13px;margin:3px 4px 0 0}
   .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px}
   .badge.APPLY{background:#1a3a26;color:#3fb950}.badge.MAYBE{background:#3a3016;color:#d29922}.badge.SKIP{background:#21262d;color:#8b949e}
   .applied{margin-left:auto;font-size:13px;color:var(--mut);cursor:pointer;user-select:none}
@@ -658,8 +659,14 @@ function pageProposal(id) {
     <div class="out" id="clout"></div>
   </div>
 
+  <div class="sect" id="exsect" style="display:none">
+    <h2>📝 近期相似經驗(英文 · Upwork『Describe your recent experience』可直接貼)</h2>
+    <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._ex||'');this.textContent='✅ 已複製'">📋 複製</button>
+    <div class="out" id="exout"></div>
+  </div>
+
   <div class="sect" id="adsect" style="display:none">
-    <h2>💡 投標策略</h2>
+    <h2>💡 投標策略(報價 / 作品 / Profile highlights)</h2>
     <div class="out" id="adout"></div>
   </div>
 </main>
@@ -674,10 +681,16 @@ function pageProposal(id) {
       const [c,a]=await Promise.all([cover,adv]);
       if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';}
       if(a.ok){const d=a.data;
-        document.getElementById('adout').innerHTML='<b>該主打作品:</b><br>'+(d.showPortfolio||[]).map(x=>'• '+x).join('<br>')+
-          (d.screenshot?'<br><br><b>建議附截圖:</b>'+d.screenshot:'')+
-          '<br><br><b>投標應附:</b><br>'+(d.submit||[]).map(x=>'• '+x).join('<br>')+
-          '<br><br><b>報價:</b>'+(d.priceSuggestion||'')+'<br><b>切入角度:</b>'+(d.angle||'');
+        if(d.recentExperience){window._ex=d.recentExperience;document.getElementById('exout').textContent=d.recentExperience;document.getElementById('exsect').style.display='block';}
+        const hl=(d.profileHighlights||[]).map(x=>'<span class="pill">'+x+'</span>').join(' ');
+        document.getElementById('adout').innerHTML=
+          '<b>💲 報價:</b>'+(d.bid||d.priceSuggestion||'')+
+          '<br><br><b>🔗 GitHub:</b>'+(d.githubLink?'<a href=\"'+d.githubLink+'\" target=\"_blank\">'+d.githubLink+'</a>':'(未設)')+
+          '<br><br><b>📌 Profile highlights(挑這4個):</b><br>'+(hl||'—')+
+          '<br><br><b>🖼️ 該主打作品:</b><br>'+(d.showPortfolio||[]).map(x=>'• '+x).join('<br>')+
+          (d.screenshot?'<br><b>建議附截圖:</b>'+d.screenshot:'')+
+          '<br><br><b>📎 投標應附:</b><br>'+(d.submit||[]).map(x=>'• '+x).join('<br>')+
+          '<br><br><b>🎯 切入角度:</b>'+(d.angle||'');
         document.getElementById('adsect').style.display='block';}
       st.textContent=(c.ok||a.ok)?'✅ 完成':'❌ '+((c.error||a.error)||'失敗');
     }catch(e){st.textContent='❌ '+e.message;}
