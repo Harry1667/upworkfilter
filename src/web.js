@@ -544,9 +544,10 @@ function pageMe() {
     .map((n) => `<option value="${n}"${Number(sel) === n ? ' selected' : ''}>${LEVEL_LABELS[n]}</option>`).join('');
   const skillRow = (s) => `<div class="cap">
     <button class="x" onclick="this.parentNode.remove()">✕</button>
-    <input class="c_name" placeholder="技能名稱" value="${v(s.name)}">
-    <select class="c_lv">${lvOptions(s.level)}</select>
-    <input class="c_kw" placeholder="比對關鍵字(逗號分隔,小寫)" value="${v((s.keywords || []).join(', '))}">
+    <div class="caph"><input class="c_name" placeholder="可交付項目(例:全棧 Web App)" value="${v(s.name)}"><select class="c_lv">${lvOptions(s.level)}</select></div>
+    <input class="c_can" placeholder="✅ 能做:具體做得到什麼(例:前後台+DB+金流+部署一手包)" value="${v(s.canDo)}">
+    <input class="c_cant" placeholder="🚫 不做:邊界在哪(例:需團隊的大型企業系統、原生 AR)" value="${v(s.cantDo)}">
+    <input class="c_kw" placeholder="比對關鍵字(逗號分隔,小寫,供案件比對)" value="${v((s.keywords || []).join(', '))}">
   </div>`;
   const skillRows = (cap.skills || []).map(skillRow).join('');
   const redlines = (cap.redlines || []).join(', ');
@@ -570,8 +571,11 @@ function pageMe() {
   .form label{display:block;color:var(--mut);font-size:13px;margin:14px 0 4px}
   .form input,.form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:14px/1.6 inherit}
   .form textarea{min-height:70px}
-  .cap{display:grid;grid-template-columns:1.4fr 110px 2fr;gap:8px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin:8px 0;position:relative}
-  .cap input,.cap select{background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px;font:14px inherit}
+  .cap{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin:10px 0;position:relative}
+  .cap .caph{display:grid;grid-template-columns:1fr 110px;gap:8px;margin-bottom:6px}
+  .cap input,.cap select{display:block;width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px;font:14px inherit;margin-bottom:6px}
+  .cap .caph input,.cap .caph select{margin-bottom:0}
+  .cap .c_name{font-weight:600}
   .cap .x{position:absolute;top:-8px;right:-8px;background:#21262d;border:1px solid var(--bd);color:#f85149;cursor:pointer;font-size:13px;border-radius:50%;width:22px;height:22px;line-height:1}
   h2{border-left:3px solid var(--ac);padding-left:10px;font-size:16px;margin:26px 0 8px}
   .legend{font-size:12px;color:var(--mut);margin:2px 0 10px}
@@ -614,8 +618,8 @@ function pageMe() {
   <p class="legend">依「能力匹配度」分數排序的未投案件(已排除超綱)。點進去評估。</p>
   ${recoHtml}
 
-  <h2>🎯 第二道門:分級技能清單</h2>
-  <p class="legend">level:<b>5 精通</b>(能在通話辯護每個決策)· <b>4 熟練</b>(獨立交付)· <b>3 能做</b>(需查文件/多點時間)· <b>2 勉強</b>(邊學邊做)· <b>1 碰過</b>。關鍵字用來比對案子文字(小寫)。</p>
+  <h2>🎯 第二道門:可交付能力 + 邊界</h2>
+  <p class="legend">每項是「<b>你能交付的具體成果</b>」,不是工具名。填<b>能做/不做</b>把邊界講清楚(框架不等於會做任何事)。<br>level=你在這項的深度:<b>5 精通</b>(通話能辯護每個決策)· <b>4 熟練</b>(獨立交付)· <b>3 能做</b>(需查文件/多點時間)· <b>2 勉強</b>· <b>1 碰過</b>。關鍵字供案件比對(小寫)。</p>
   <div id="caps">${skillRows}</div>
   <button class="save" style="background:#30363d" onclick="addCap()">＋ 新增技能</button>
 
@@ -657,14 +661,17 @@ function pageMe() {
       if(term)out.push(term);});
     document.getElementById('f_kw').value=[...new Set(out)].join('\\n');genUrl();}
   function capTpl(){return '<div class="cap"><button class="x" onclick="this.parentNode.remove()">\\u2715</button>'+
-    '<input class="c_name" placeholder="技能名稱">'+
-    '<select class="c_lv">'+LVOPT+'</select>'+
+    '<div class="caph"><input class="c_name" placeholder="可交付項目(例:全棧 Web App)"><select class="c_lv">'+LVOPT+'</select></div>'+
+    '<input class="c_can" placeholder="\\u2705 能做:具體做得到什麼">'+
+    '<input class="c_cant" placeholder="\\u{1F6AB} 不做:邊界在哪">'+
     '<input class="c_kw" placeholder="比對關鍵字(逗號分隔,小寫)"></div>';}
   function addCap(){document.getElementById('caps').insertAdjacentHTML('beforeend',capTpl());}
   function save(){
     const skills=[...document.querySelectorAll('.cap')].map(c=>({
       name:c.querySelector('.c_name').value.trim(),
       level:Number(c.querySelector('.c_lv').value)||3,
+      canDo:c.querySelector('.c_can').value.trim(),
+      cantDo:c.querySelector('.c_cant').value.trim(),
       keywords:c.querySelector('.c_kw').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)
     })).filter(x=>x.name);
     const redlines=document.getElementById('f_red').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);

@@ -101,51 +101,36 @@
     ]
   },
   "capability": {
-    "note": "我的能力數值與邊界 — 評分『能力匹配度』與案件推薦用這份。可在 /me 頁編輯。level:5精通/4熟練/3能做/2勉強/1碰過。",
+    "note": "我的能力 = 可交付項目 + 邊界(能做/不做)。level=在這項的深度(5精通…1碰過)。keywords 供案件比對。可在 /me 編輯。",
     "skills": [
       {
-        "name": "React",
+        "name": "全棧 Web App / SaaS（React/Next/Node）",
         "level": 5,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "react",
-          "react.js"
-        ]
-      },
-      {
-        "name": "Next.js",
-        "level": 5,
-        "keywords": [
           "next.js",
           "nextjs",
-          "next js"
-        ]
-      },
-      {
-        "name": "Node.js",
-        "level": 5,
-        "keywords": [
+          "node",
           "node.js",
           "nodejs",
-          "node "
+          "express",
+          "full stack",
+          "fullstack",
+          "saas",
+          "typescript",
+          "javascript",
+          "mvp",
+          "web app",
+          "dashboard"
         ]
       },
       {
-        "name": "TypeScript",
+        "name": "AI 整合 / LLM 應用（OpenAI/Claude/Gemini）",
         "level": 5,
-        "keywords": [
-          "typescript"
-        ]
-      },
-      {
-        "name": "JavaScript",
-        "level": 5,
-        "keywords": [
-          "javascript"
-        ]
-      },
-      {
-        "name": "AI 整合 / LLM API",
-        "level": 5,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "openai",
           "claude",
@@ -153,12 +138,47 @@
           "gemini",
           "llm",
           "gpt",
-          "prompt"
+          "prompt",
+          "chatbot",
+          "rag",
+          "ai integration"
         ]
       },
       {
-        "name": "自動化 / 爬蟲",
+        "name": "OCR / 多模態文件解析",
         "level": 4,
+        "canDo": "",
+        "cantDo": "",
+        "keywords": [
+          "ocr",
+          "vision",
+          "image analysis",
+          "multimodal",
+          "document parsing",
+          "pdf"
+        ]
+      },
+      {
+        "name": "跨平台行動 App（Flutter / React Native）",
+        "level": 4,
+        "canDo": "",
+        "cantDo": "",
+        "keywords": [
+          "flutter",
+          "dart",
+          "react native",
+          "react-native",
+          "expo",
+          "mobile app",
+          "ios app",
+          "android app"
+        ]
+      },
+      {
+        "name": "自動化 / 爬蟲 / 後端任務佇列",
+        "level": 4,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "automation",
           "scraping",
@@ -166,120 +186,64 @@
           "playwright",
           "puppeteer",
           "n8n",
-          "webhook"
-        ]
-      },
-      {
-        "name": "Express",
-        "level": 4,
-        "keywords": [
-          "express"
-        ]
-      },
-      {
-        "name": "FastAPI / Python",
-        "level": 4,
-        "keywords": [
+          "webhook",
+          "celery",
+          "redis",
+          "cron",
           "fastapi",
-          "python",
-          "flask",
-          "django"
+          "python"
         ]
       },
       {
-        "name": "Flutter",
+        "name": "資料庫 / 後端 API（PostgreSQL/Supabase）",
         "level": 4,
-        "keywords": [
-          "flutter",
-          "dart"
-        ]
-      },
-      {
-        "name": "PostgreSQL / Supabase",
-        "level": 4,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "postgresql",
           "postgres",
           "supabase",
-          "prisma"
+          "prisma",
+          "sqlite",
+          "mysql",
+          "rest api",
+          "api integration",
+          "fastify"
         ]
       },
       {
-        "name": "SQLite",
+        "name": "部署 / DevOps（Docker/Nginx/雲端）",
         "level": 4,
-        "keywords": [
-          "sqlite"
-        ]
-      },
-      {
-        "name": "Docker / 部署",
-        "level": 4,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "docker",
           "nginx",
           "deploy",
+          "deployment",
           "vps",
-          "oracle cloud"
+          "oracle cloud",
+          "ci/cd"
         ]
       },
       {
-        "name": "OCR / 多模態",
-        "level": 4,
-        "keywords": [
-          "ocr",
-          "vision",
-          "image analysis",
-          "multimodal"
-        ]
-      },
-      {
-        "name": "REST API 整合",
-        "level": 4,
-        "keywords": [
-          "rest api",
-          "api integration",
-          "restful"
-        ]
-      },
-      {
-        "name": "React Native",
+        "name": "網站安全 / 稽核（OWASP）",
         "level": 3,
-        "keywords": [
-          "react native",
-          "react-native",
-          "expo"
-        ]
-      },
-      {
-        "name": "Redis / MySQL",
-        "level": 3,
-        "keywords": [
-          "redis",
-          "mysql",
-          "celery"
-        ]
-      },
-      {
-        "name": "Firebase",
-        "level": 3,
-        "keywords": [
-          "firebase",
-          "firestore"
-        ]
-      },
-      {
-        "name": "網站安全 / OWASP",
-        "level": 3,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "owasp",
           "security audit",
           "website security",
-          "penetration"
+          "penetration",
+          "vulnerability"
         ]
       },
       {
-        "name": "Swift / iOS",
+        "name": "iOS 原生（Swift/SwiftUI）",
         "level": 3,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "swift",
           "swiftui",
@@ -287,22 +251,41 @@
         ]
       },
       {
-        "name": "Chrome Extension",
+        "name": "Chrome 擴充功能",
         "level": 3,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "chrome extension",
           "browser extension"
         ]
       },
       {
-        "name": "Bug 修復 / 小任務",
+        "name": "前端工具 / 視覺化（KaTeX/Canvas/PWA）",
         "level": 4,
+        "canDo": "",
+        "cantDo": "",
+        "keywords": [
+          "katex",
+          "canvas",
+          "pwa",
+          "data visualization",
+          "tailwind",
+          "vite"
+        ]
+      },
+      {
+        "name": "Bug 修復 / 小型維護任務",
+        "level": 4,
+        "canDo": "",
+        "cantDo": "",
         "keywords": [
           "bug fix",
           "bug fixing",
           "fix bug",
           "small task",
-          "quick fix"
+          "quick fix",
+          "troubleshoot"
         ]
       }
     ],

@@ -24,11 +24,25 @@ function profileBrief(p) {
   const proven = (p.provenCapabilities || [])
     .map((c) => `- ${c.repo}:${c.capability}${c.url ? `(${c.url})` : ''} [${(c.techs || []).join('/')}]`)
     .join('\n');
+  // 能力邊界(可交付項目 + 能做/不做)— 讓 AI 判斷案子在不在能力圈、別承諾做不到的事
+  const capSkills = (p.capability?.skills || [])
+    .map((s) => {
+      const bits = [`${s.name}(深度${s.level}/5)`];
+      if (s.canDo) bits.push(`能做:${s.canDo}`);
+      if (s.cantDo) bits.push(`不做:${s.cantDo}`);
+      return `- ${bits.join(';')}`;
+    })
+    .join('\n');
+  const redlines = (p.capability?.redlines || []).join('、');
+  const capBrief = capSkills
+    ? `我的可交付能力與邊界:\n${capSkills}${redlines ? `\n絕不接(紅線):${redlines}` : ''}${p.capability?.scaleCeiling ? `\n規模上限:${p.capability.scaleCeiling}` : ''}`
+    : '';
   return [
     `姓名:${p.name || ''}`,
     `定位:${p.title || ''}|等級:${p.level || ''}|時薪:$${p.hourlyRate || '?'}`,
     `自介:${p.bio || ''}`,
     `技能:${(p.skills || []).join(', ')}`,
+    capBrief,
     `作品集:\n${port}`,
     proven ? `已證明能力(GitHub 真實 repo,優先當證據):\n${proven}` : '',
     `求職信規則:${(p.coverLetterStyle?.rules || []).join(';')}`
