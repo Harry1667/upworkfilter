@@ -61,6 +61,7 @@ const COL = { reward: 'score_reward', skill: 'score_skill', client: 'score_clien
 // 背景:對剛 ingest 進來、還沒 AI 分數的案自動快篩(便宜 AI),不阻塞 ingest 回應
 // 預設開啟;.env 設 AI_TRIAGE_ON_INGEST=0 可關。錯誤只記 log,不影響 ingest。
 let _triageBusy = false;
+let _scanBusy = false; // 功能地圖掃描同時只跑一輪
 async function autoTriageIngested(ids) {
   if (_triageBusy || !ids || ids.length === 0) return; // 同時間只跑一輪,避免疊跑
   try {
@@ -579,10 +580,10 @@ function pageFeatures() {
     const q=document.getElementById('q').value.split(',').map(s=>s.trim()).filter(Boolean);
     if(!q.length){alert('請先輸入工作類型關鍵字');return;}
     const btn=document.getElementById('go'),st=document.getElementById('st');
-    btn.disabled=true;st.textContent='掃描中…(爬案子 + AI 歸納,每個關鍵字約 1-3 分,勿關閉)';
+    btn.disabled=true;st.textContent='送出中…';
     try{const r=await fetch('/api/scan-features',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({queries:q})});
       const j=await r.json();
-      if(j.ok){st.textContent='✅ 完成,重新整理中…';location.reload();}
+      if(j.ok&&j.started){st.innerHTML='✅ 已開始背景掃描 '+j.queries+' 個關鍵字(每個約 1-3 分)。完成後<a href="/features"> 重新整理</a> 看結果,不用一直等。';}
       else st.textContent='❌ '+(j.error||'失敗');}
     catch(e){st.textContent='❌ '+e.message;}
     btn.disabled=false;}
@@ -1156,10 +1157,17 @@ createServer(async (req, res) => {
       const { queries } = JSON.parse(await readBody(req));
       const list = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q || '').trim()).filter(Boolean);
       if (!list.length) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"請提供關鍵字"}'); }
-      const { scanFeatures } = await import('./scan-features.js');
-      const view = await scanFeatures(list);
+      if (_scanBusy) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"已有掃描在進行中,請等它完成"}'); }
+      // 背景掃描(多關鍵字會跑很久,同步會 nginx 超時 → 立即回應、背景跑、完成後重整看結果)
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, categories: view.length }));
+      res.end(JSON.stringify({ ok: true, started: true, queries: list.length }));
+      _scanBusy = true;
+      import('./scan-features.js')
+        .then(({ scanFeatures }) => scanFeatures(list))
+        .then(() => console.log(`🧩 功能掃描完成:${list.join(', ')}`))
+        .catch((e) => console.error('功能掃描失敗:' + e.message))
+        .finally(() => { _scanBusy = false; });
+      return;
     }
     return serveHtml(res, pageJobs());
   } catch (e) {
