@@ -771,6 +771,11 @@ function pageProposal(id) {
   <p class="reason">按下方按鈕一次產生:求職信(引用真實作品)+ 投標策略。約 30-60 秒。</p>
   <p><button class="save" id="go" onclick="gen()">✨ 產生提案</button> <span id="st" class="reason"></span></p>
 
+  <div class="sect" id="reqsect" style="display:none;border-color:#bb8009;background:#3a30160d">
+    <h2>⚠️ 這案的特殊投標要求(別漏!)</h2>
+    <div class="out" id="reqout"></div>
+  </div>
+
   <div class="sect" id="clsect" style="display:none">
     <h2>✍️ 求職信(英文,可複製)</h2>
     <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._cl||'');this.textContent='✅ 已複製'">📋 複製</button>
@@ -781,6 +786,17 @@ function pageProposal(id) {
     <h2>📝 近期相似經驗(英文 · Upwork『Describe your recent experience』可直接貼)</h2>
     <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._ex||'');this.textContent='✅ 已複製'">📋 複製</button>
     <div class="out" id="exout"></div>
+  </div>
+
+  <div class="sect" id="scsect" style="display:none">
+    <h2>📋 篩選問答 / 指定專案說明(英文,可直接貼)</h2>
+    <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._sc||'');this.textContent='✅ 已複製'">📋 複製</button>
+    <div class="out" id="scout"></div>
+  </div>
+
+  <div class="sect" id="vidsect" style="display:none">
+    <h2>🎥 影片回答講稿(逐題)</h2>
+    <div class="out" id="vidout"></div>
   </div>
 
   <div class="sect" id="adsect" style="display:none">
@@ -799,6 +815,9 @@ function pageProposal(id) {
       const [c,a]=await Promise.all([cover,adv]);
       if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';}
       if(a.ok){const d=a.data;
+        if((d.applyRequirements||[]).length){document.getElementById('reqout').innerHTML=(d.applyRequirements).map(function(x){return '• '+x;}).join('<br>');document.getElementById('reqsect').style.display='block';}
+        if(d.screeningDraft&&d.screeningDraft.trim()){window._sc=d.screeningDraft;document.getElementById('scout').textContent=d.screeningDraft;document.getElementById('scsect').style.display='block';}
+        if((d.videoScripts||[]).length){document.getElementById('vidout').innerHTML=(d.videoScripts).map(function(x,i){return '<b>題 '+(i+1)+':</b><br>'+x;}).join('<br><br>');document.getElementById('vidsect').style.display='block';}
         if(d.recentExperience){window._ex=d.recentExperience;document.getElementById('exout').textContent=d.recentExperience;document.getElementById('exsect').style.display='block';}
         const hl=(d.profileHighlights||[]).map(x=>'<span class="pill">'+x+'</span>').join(' ');
         document.getElementById('adout').innerHTML=

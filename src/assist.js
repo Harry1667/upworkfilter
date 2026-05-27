@@ -58,25 +58,38 @@ ${jobBrief(job)}
 只輸出 cover letter 英文本文,不要任何中文說明、不要標題、不要引號。`;
 }
 
-// ② 投標策略 — 對齊 Upwork 提案表單真正要填的欄位
+// ② 投標策略 — 對齊 Upwork 提案表單真正要填的欄位 + 偵測「特殊投標要求」
 export function advicePrompt(job, p) {
   const gh = p.githubUser ? `https://github.com/${p.githubUser}` : '';
-  return `你是 Upwork 接案顧問。根據「我的檔案」和「這個職缺」,產出投標表單要填的內容。除了 recentExperience 用**英文**(直接貼進 Upwork),其餘用**繁體中文**。只輸出 JSON:
+  // 用完整描述(投標要求/影片題/指定專案常在描述最後,別截斷)
+  const fullJob = [
+    `標題:${job.title || ''}`,
+    `預算:${job.budget_text || '未知'}|提案數:${job.proposals_bucket || '?'}|付款驗證:${job.payment_verified ? '是' : '否'}`,
+    `客戶:花費 ${job.client_spent_text || '?'}、評分 ${job.client_rating ?? '無'}、聘用率 ${job.client_hire_rate ?? '?'}%`,
+    `完整描述:\n${(job.description || '').slice(0, 4000)}`
+  ].join('\n');
+  return `你是 Upwork 接案顧問。根據「我的檔案」和「這個職缺的完整描述」,產出投標要填的內容。
+**特別注意**:仔細讀描述裡的「To Apply / Required / 申請方式 / 篩選問題」段落 —— 很多案有特殊投標要求(要錄影片回答、要按指定格式寫一個專案說明、要回答特定問題、地點/資格偏好)。**務必抓出來,別讓使用者漏掉**。
+
+除了 recentExperience / screeningDraft / videoScripts 的可貼內容用**英文**,其餘用**繁體中文**。只輸出 JSON:
 {
- "showPortfolio":["主打哪 1-2 個作品 + 一句原因(優先用『已證明能力』裡的真實 repo)"],
- "screenshot":"建議附哪一張作品截圖當證據(1句,指名作品/畫面)",
- "recentExperience":"英文段落(3-4句),可直接貼到 Upwork『Describe your recent experience with similar projects』欄:引用 2-3 個真實作品+具體技術,展現端到端能力,語氣專業像真人,禁用 vibe coder/靠AI/10x",
+ "showPortfolio":["主打哪 1-2 個作品 + 一句原因(優先用『已證明能力』真實 repo)"],
+ "screenshot":"建議附哪張作品截圖(1句,指名作品/畫面)",
+ "recentExperience":"英文段落(3-4句),貼進『Describe your recent experience』:引用 2-3 真實作品+技術,專業像真人,禁用 vibe coder/靠AI/10x",
  "githubLink":"${gh}",
- "profileHighlights":["挑 4 個最貼合此案的能力標籤(Upwork Profile highlights 用,每個≤6字)"],
- "bid":"報價建議:給具體時薪/金額數字 + 一句理由。務必比較『客戶預算』vs『我的 profile rate $${p.hourlyRate || 20}』:若客戶預算遠低於我的底價,老實說值不值得接、若為搶首評價/長期建議 bid 多少",
- "angle":"切入角度/差異化(1句)"
+ "profileHighlights":["挑 4 個最貼合的能力標籤(每個≤6字)"],
+ "bid":"報價建議:具體數字+理由,比較客戶預算 vs 我的 $${p.hourlyRate || 20}",
+ "angle":"切入角度/差異化(1句)",
+ "applyRequirements":["這案的特殊投標要求,逐條列(繁中)。例:需錄3段影片回答X/Y/Z、需按指定格式寫一個專案說明、需回答某問題、客戶偏好地點印尼(僅優先非硬性,你台灣時區仍可投)。沒有特殊要求就回空陣列"],
+ "screeningDraft":"若描述要求『按指定格式寫一個專案/回答篩選問題』→ 用英文按它的格式草擬好(引用真實作品,可直接貼);沒有則空字串",
+ "videoScripts":["若要求錄影片 → 每題一個講稿(英文可講內容 + 開頭標該題);沒有則空陣列"]
 }
 
 我的檔案:
 ${profileBrief(p)}
 
 職缺:
-${jobBrief(job)}
+${fullJob}
 只輸出 JSON,不要任何多餘文字。`;
 }
 
