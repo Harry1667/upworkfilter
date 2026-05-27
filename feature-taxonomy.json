@@ -1,0 +1,198 @@
+{
+  "updatedAt": "2026-05-27T08:10:11.580Z",
+  "categories": {
+    "ai驅動業務自動化平台-ai-powered-business-automation-platf": {
+      "id": "ai驅動業務自動化平台-ai-powered-business-automation-platf",
+      "name": "AI驅動業務自動化平台 AI-Powered Business Automation Platform",
+      "query": "full stack",
+      "features": {
+        "ai對話引擎": {
+          "id": "ai對話引擎",
+          "name": "AI對話引擎",
+          "difficulty": "中",
+          "tools": [
+            "OpenAI API",
+            "Claude API",
+            "Gemini API"
+          ],
+          "frequency": 2,
+          "depends": [
+            "提示詞版本管理",
+            "用戶與權限管理"
+          ],
+          "note": "連接多個AI模型的對話接口"
+        },
+        "向量知識庫檢索": {
+          "id": "向量知識庫檢索",
+          "name": "向量知識庫檢索",
+          "difficulty": "高",
+          "tools": [
+            "pgvector",
+            "Pinecone",
+            "Weaviate"
+          ],
+          "frequency": 2,
+          "depends": [
+            "數據庫與ORM層"
+          ],
+          "note": "語義相似度搜尋與知識增強RAG"
+        },
+        "crm與第三方整合": {
+          "id": "crm與第三方整合",
+          "name": "CRM與第三方整合",
+          "difficulty": "中",
+          "tools": [
+            "HubSpot API",
+            "Zoho CRM API"
+          ],
+          "frequency": 2,
+          "depends": [
+            "API統一管理層"
+          ],
+          "note": "同步客戶數據與聯繫人資訊"
+        },
+        "工作流自動化引擎": {
+          "id": "工作流自動化引擎",
+          "name": "工作流自動化引擎",
+          "difficulty": "高",
+          "tools": [
+            "n8n",
+            "Node.js",
+            "Make.com"
+          ],
+          "frequency": 2,
+          "depends": [
+            "API統一管理層"
+          ],
+          "note": "支援條件邏輯的多步驟自動化"
+        },
+        "webhook事件驅動": {
+          "id": "webhook事件驅動",
+          "name": "Webhook事件驅動",
+          "difficulty": "中",
+          "tools": [
+            "Express.js",
+            "Node.js"
+          ],
+          "frequency": 2,
+          "depends": [
+            "API統一管理層"
+          ],
+          "note": "監聽與觸發外部系統事件"
+        },
+        "api統一管理層": {
+          "id": "api統一管理層",
+          "name": "API統一管理層",
+          "difficulty": "中",
+          "tools": [
+            "Node.js",
+            "Express.js"
+          ],
+          "frequency": 2,
+          "depends": [],
+          "note": "標準化異質系統的API調用"
+        },
+        "儀表板與數據展示": {
+          "id": "儀表板與數據展示",
+          "name": "儀表板與數據展示",
+          "difficulty": "中",
+          "tools": [
+            "React",
+            "Next.js",
+            "Chart.js"
+          ],
+          "frequency": 2,
+          "depends": [
+            "API統一管理層"
+          ],
+          "note": "實時展示業務指標與流程進度"
+        },
+        "ai智能代理": {
+          "id": "ai智能代理",
+          "name": "AI智能代理",
+          "difficulty": "高",
+          "tools": [
+            "LangChain",
+            "OpenAI API"
+          ],
+          "frequency": 2,
+          "depends": [
+            "AI對話引擎",
+            "工作流自動化引擎"
+          ],
+          "note": "自主規劃與執行複雜多步任務"
+        },
+        "提示詞版本管理": {
+          "id": "提示詞版本管理",
+          "name": "提示詞版本管理",
+          "difficulty": "低",
+          "tools": [
+            "PostgreSQL",
+            "Git"
+          ],
+          "frequency": 2,
+          "depends": [
+            "數據庫與ORM層"
+          ],
+          "note": "版本控制與AB測試提示詞模板"
+        },
+        "用戶與權限管理": {
+          "id": "用戶與權限管理",
+          "name": "用戶與權限管理",
+          "difficulty": "中",
+          "tools": [
+            "Supabase Auth",
+            "JWT"
+          ],
+          "frequency": 2,
+          "depends": [],
+          "note": "多租戶身份驗證與存取控制"
+        },
+        "數據庫與orm層": {
+          "id": "數據庫與orm層",
+          "name": "數據庫與ORM層",
+          "difficulty": "中",
+          "tools": [
+            "PostgreSQL",
+            "Supabase",
+            "Prisma"
+          ],
+          "frequency": 2,
+          "depends": [],
+          "note": "結構化數據持久化與查詢"
+        },
+        "自動化流程配置ui": {
+          "id": "自動化流程配置ui",
+          "name": "自動化流程配置UI",
+          "difficulty": "中",
+          "tools": [
+            "React",
+            "Next.js"
+          ],
+          "frequency": 1,
+          "depends": [
+            "工作流自動化引擎"
+          ],
+          "note": "無代碼拖拽配置業務流程"
+        }
+      },
+      "jobCount": 2
+    }
+  },
+  "sources": [
+    {
+      "jobId": "022058977914440117486",
+      "title": "Full Stack Developer Consultation AI Integration Experience Required",
+      "url": "https://www.upwork.com/jobs/_~022058977914440117486/",
+      "category": "ai驅動業務自動化平台-ai-powered-business-automation-platf",
+      "scannedAt": "2026-05-27T08:10:11.579Z"
+    },
+    {
+      "jobId": "022059313157182268290",
+      "title": "Full-Stack Developer for CRM, AI Automation & Workflow Systems",
+      "url": "https://www.upwork.com/jobs/span-class-highlight-Full-span-span-class-highlight-Stack-span-span-class-highlight-Developer-span-for-CRM-span-class-highlight-span-Automation-amp-Workflow-Systems_~022059313157182268290/?referrer_url_path=/nx/search/jobs/",
+      "category": "ai驅動業務自動化平台-ai-powered-business-automation-platf",
+      "scannedAt": "2026-05-27T08:10:11.579Z"
+    }
+  ]
+}

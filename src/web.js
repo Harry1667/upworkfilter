@@ -126,19 +126,25 @@ const CSS = `
 
 function trackCls(v) { return v < 34 ? 'track low' : v < 67 ? 'track mid' : 'track'; }
 
-// AI 詳細分析的中文 verdict → 內部 APPLY/MAYBE/SKIP(供徽章/篩選用)
+// AI verdict 可能夾帶說明(如「觀望 - 預算不符…」)→ 用關鍵字判定,不做精確比對
+function aiVerdictShort(v) {
+  v = String(v || '');
+  for (const k of ['強力接', '可接', '觀望', '略過']) if (v.includes(k)) return k;
+  return v.slice(0, 4) || '未知';
+}
 function aiVerdictClass(v) {
-  if (v === '強力接' || v === '可接') return 'APPLY';
-  if (v === '觀望') return 'MAYBE';
-  return 'SKIP'; // 略過 / 其他
+  const k = aiVerdictShort(v);
+  if (k === '強力接' || k === '可接') return 'APPLY';
+  if (k === '觀望') return 'MAYBE';
+  return 'SKIP';
 }
 // 一個案最終要顯示的判斷:有 AI 分析就以 AI 為準,否則用規則
-// 回傳 { score, scoreMax, verdict, cls, isAi }
+// 回傳 { score, scoreMax, verdict(短), note(完整), cls, isAi }
 function effectiveVerdict(j) {
   if (j.ai_score != null && j.ai_verdict) {
-    return { score: j.ai_score, scoreMax: 10, verdict: j.ai_verdict, cls: aiVerdictClass(j.ai_verdict), isAi: true };
+    return { score: j.ai_score, scoreMax: 10, verdict: aiVerdictShort(j.ai_verdict), note: j.ai_verdict, cls: aiVerdictClass(j.ai_verdict), isAi: true };
   }
-  return { score: j.total_score, scoreMax: 100, verdict: j.verdict, cls: j.verdict, isAi: false };
+  return { score: j.total_score, scoreMax: 100, verdict: j.verdict, note: '', cls: j.verdict, isAi: false };
 }
 
 function pageJobs() {
@@ -541,7 +547,9 @@ function pageJob(id) {
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
   <p class="reason">${esc(job.reason)}</p>
-  ${ev.isAi ? '' : '<p class="reason" style="color:#d29922">⚠️ 尚未做 AI 詳細分析。下方分數是規則快篩(可能高估報酬),建議產生 AI 分析取得更準的判斷。</p>'}
+  ${ev.isAi
+    ? `<p class="reason" style="color:#b392f0">🤖 AI 判斷:${esc(ev.note)}</p>`
+    : '<p class="reason" style="color:#d29922">⚠️ 尚未做 AI 詳細分析。下方分數是規則快篩(可能高估報酬),建議產生 AI 分析取得更準的判斷。</p>'}
 
   <h2>🌐 AI 詳細分析</h2>
   <div id="anwrap">${hasAnalysis
