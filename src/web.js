@@ -150,6 +150,64 @@ const CSS = `
   .save:disabled{opacity:.55;cursor:wait;transform:none;box-shadow:none}
 `;
 
+// 右下角浮動聊天 agent — 注入到每個頁面。client 端自動偵測「目前在哪頁、看哪個案」傳給 /api/chat。
+// 注意:此字串內勿用 ${},以免被當模板字面值在 Node 端求值(client JS 一律用字串相加)。
+const CHAT_WIDGET = `
+<style>
+#cwBtn{position:fixed;right:20px;bottom:20px;width:56px;height:56px;border-radius:50%;background:#4493f8;color:#fff;border:0;font-size:24px;cursor:pointer;box-shadow:0 4px 16px #0008;z-index:9999}
+#cwBtn:hover{filter:brightness(1.1)}
+#cwPanel{position:fixed;right:20px;bottom:88px;width:370px;max-width:calc(100vw - 40px);height:540px;max-height:calc(100vh - 130px);background:#161b22;border:1px solid #272e3a;border-radius:14px;display:none;flex-direction:column;z-index:9999;box-shadow:0 10px 40px #000b;overflow:hidden;font:14px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif}
+#cwPanel.open{display:flex}
+#cwHead{padding:12px 14px;border-bottom:1px solid #272e3a;font-weight:600;color:#e6edf3;display:flex;align-items:center;gap:8px}
+#cwHead .c{color:#8b949e;font-size:12px;font-weight:400}
+#cwHead button{margin-left:auto;background:0;border:0;color:#8b949e;font-size:18px;cursor:pointer}
+#cwMsgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+#cwMsgs .m{max-width:88%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.55;white-space:pre-wrap}
+#cwMsgs .u{align-self:flex-end;background:#4493f8;color:#fff;border-bottom-right-radius:3px}
+#cwMsgs .b{align-self:flex-start;background:#0d1117;border:1px solid #272e3a;color:#e6edf3;border-bottom-left-radius:3px}
+#cwInbar{display:flex;gap:6px;padding:10px;border-top:1px solid #272e3a}
+#cwInbar textarea{flex:1;background:#0d1117;color:#e6edf3;border:1px solid #272e3a;border-radius:9px;padding:9px;font:13px/1.4 inherit;resize:none;height:40px;max-height:96px}
+#cwInbar button{background:#2ea043;color:#fff;border:0;border-radius:9px;padding:0 16px;cursor:pointer;font-size:13px}
+</style>
+<button id="cwBtn" title="接案助手">💬</button>
+<div id="cwPanel">
+  <div id="cwHead">🤖 接案助手 <span class="c" id="cwCtx"></span> <button id="cwClose">✕</button></div>
+  <div id="cwMsgs"></div>
+  <div id="cwInbar"><textarea id="cwTa" placeholder="問我任何事… (Enter 送出)"></textarea><button id="cwSend">送</button></div>
+</div>
+<script>
+(function(){
+  if(window.__cw)return;window.__cw=1;
+  var KEY='cw_hist';
+  var panel=document.getElementById('cwPanel'),msgs=document.getElementById('cwMsgs'),ta=document.getElementById('cwTa');
+  var hist=[];try{hist=JSON.parse(sessionStorage.getItem(KEY)||'[]');}catch(e){}
+  function ctx(){var p=location.pathname,id=(new URLSearchParams(location.search)).get('id')||'';
+    var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/features':'功能地圖','/profile':'我的檔案','/scoring':'評分設定','/assistant':'助手'};
+    return {page:(m[p]||p),jobId:id};}
+  function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
+  function bubble(role,text){var d=document.createElement('div');d.className='m '+(role==='user'?'u':'b');d.textContent=text;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
+  function render(){msgs.innerHTML='';if(hist.length===0){bubble('bot','嗨!我是你的接案助手 👋 我知道你現在在哪一頁、看哪個案 — 直接問我這案值不值得投、怎麼報價、幫想切入角度都行。');}else{hist.forEach(function(m){bubble(m.role,m.content);});}}
+  function save(){try{sessionStorage.setItem(KEY,JSON.stringify(hist.slice(-20)));}catch(e){}}
+  document.getElementById('cwBtn').onclick=function(){panel.classList.toggle('open');if(panel.classList.contains('open')){setCtx();ta.focus();}};
+  document.getElementById('cwClose').onclick=function(){panel.classList.remove('open');};
+  document.getElementById('cwSend').onclick=send;
+  ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  function send(){var t=ta.value.trim();if(!t)return;ta.value='';bubble('user',t);hist.push({role:'user',content:t});save();
+    var b=bubble('bot','…');
+    fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:hist,context:ctx()})})
+      .then(function(r){return r.json();}).then(function(j){if(j.ok){b.textContent=j.reply;hist.push({role:'assistant',content:j.reply});save();}else{b.textContent='❌ '+(j.error||'失敗');}})
+      .catch(function(e){b.textContent='❌ '+e.message;});}
+  render();setCtx();
+})();
+</script>`;
+
+// 送出 HTML 頁面並注入浮動聊天 agent(統一入口)
+function serveHtml(res, htmlStr) {
+  const out = String(htmlStr).replace('</body>', CHAT_WIDGET + '</body>');
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(out);
+}
+
 function trackCls(v) { return v < 34 ? 'track low' : v < 67 ? 'track mid' : 'track'; }
 
 // AI verdict 可能夾帶說明(如「觀望 - 預算不符…」)→ 用關鍵字判定,不做精確比對
@@ -411,7 +469,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/assistant', '🤖 助手', active === '/assistant')}${link('/features', '🧩 功能地圖', active === '/features')}${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}</nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}</nav>`;
 }
 
 // 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
@@ -897,11 +955,21 @@ createServer(async (req, res) => {
       return res.end(JSON.stringify({ ok: true, data }));
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const { messages } = JSON.parse(await readBody(req));
+      const { messages, context } = JSON.parse(await readBody(req));
       // 上下文:依分數排序取前 25 筆(AI 分數優先)當案件清單
       const jobs = db.prepare(`SELECT id,title,budget_text,proposals_bucket,total_score,verdict,ai_score,ai_verdict FROM jobs
         ORDER BY COALESCE(ai_score*10, total_score) DESC LIMIT 25`).all();
-      const reply = await askAI(chatPrompt(messages || [], loadProfile(), jobs));
+      // 知道使用者此刻在哪個頁面、看哪個案 → 讓 agent 針對情境回答
+      let note = '';
+      if (context && context.page) note += `頁面:${context.page}。`;
+      if (context && context.jobId) {
+        const j = db.prepare('SELECT * FROM jobs WHERE id = ?').get(context.jobId);
+        if (j) {
+          const ev = effectiveVerdict(j);
+          note += `\n目前正在看這個案:「${j.title}」 | 評分 ${ev.isAi ? ev.score + '/10 ' + ev.verdict : ev.score + '/100 ' + ev.verdict} | 預算 ${j.budget_text || '?'} | 提案 ${j.proposals_bucket || '?'} | 客戶花費 ${j.client_spent_text || '?'}\n描述:${String(j.description || '').slice(0, 1200)}`;
+        }
+      }
+      const reply = await askAI(chatPrompt(messages || [], loadProfile(), jobs, note));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, reply: String(reply).trim() }));
     }
@@ -978,32 +1046,25 @@ createServer(async (req, res) => {
       return res.end(readFileSync(f, 'utf8'));
     }
     if (url.pathname === '/job') { // ② 評估(判斷 + AI 詳細分析)
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageJob((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
+      return serveHtml(res, pageJob((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
     }
     if (url.pathname === '/proposal') { // ③ 提案(生產)
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageProposal((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
+      return serveHtml(res, pageProposal((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
     }
     if (url.pathname === '/profile') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageProfile());
+      return serveHtml(res, pageProfile());
     }
     if (url.pathname === '/scoring' || url.pathname === '/settings' || url.pathname === '/setup') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageScoring()); // /settings、/setup 舊路由導向(back-compat)
+      return serveHtml(res, pageScoring()); // /settings、/setup 舊路由導向(back-compat)
     }
     if (url.pathname === '/reply') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageReply());
+      return serveHtml(res, pageReply());
     }
     if (url.pathname === '/assistant') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageAssistant());
+      return serveHtml(res, pageAssistant());
     }
     if (url.pathname === '/features') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageFeatures());
+      return serveHtml(res, pageFeatures());
     }
     if (url.pathname === '/api/scan-features' && req.method === 'POST') {
       const { queries } = JSON.parse(await readBody(req));
@@ -1014,8 +1075,7 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, categories: view.length }));
     }
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(pageJobs());
+    return serveHtml(res, pageJobs());
   } catch (e) {
     res.writeHead(500, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: false, error: e.message }));

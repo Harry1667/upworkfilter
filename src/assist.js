@@ -96,8 +96,8 @@ ${profileBrief(p)}
 只輸出 JSON。`;
 }
 
-// ④ 接案助手聊天 — 帶入「我的檔案」+「目前案件清單」當上下文,口語繁中回答
-export function chatPrompt(messages, p, jobs) {
+// ④ 接案助手聊天 — 帶入「我的檔案」+「目前案件清單」+「使用者此刻在哪/看哪個案」當上下文
+export function chatPrompt(messages, p, jobs, contextNote = '') {
   const jobLine = (j) => {
     const ai = j.ai_score != null;
     const sv = ai ? `${j.ai_score}/10 ${j.ai_verdict || ''}` : `${j.total_score}/100 ${j.verdict}`;
@@ -106,7 +106,7 @@ export function chatPrompt(messages, p, jobs) {
   const jobsCtx = (jobs || []).map(jobLine).join('\n') || '(目前無案件)';
   const convo = (messages || []).map((m) => `${m.role === 'user' ? '使用者' : '助手'}:${m.content}`).join('\n\n');
   return `你是這位 Upwork 自由工作者的私人接案助手。用**繁體中文**、口語、精簡、條列回答。你可以:解讀案子、給投標/報價/溝通建議、想策略、回答任何問題。需要時引用下面的案件清單(用標題,不要硬背 id)。誠實,不確定就說不確定。
-
+${contextNote ? `\n【使用者此刻的位置 — 優先針對這個情境回答】\n${contextNote}\n` : ''}
 【他的檔案】
 ${profileBrief(p)}
 
