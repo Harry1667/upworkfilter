@@ -815,11 +815,13 @@ const pick = (o, ...keys) => {
 
 const ID_RE = /~([0-9a-f]+)/i;
 
-// 職缺連結 → 用「登入後 app 視圖」路徑(/nx/...),這樣在你已登入的瀏覽器會帶登入狀態、能直接看完整內容/投標
-// (公開格式 /jobs/_~ID/ 常顯示登出版)
+// 職缺連結 → 複製「登入後實際可用」的格式:/jobs/~ID + referrer_url_path 指向 nx 詳情路徑。
+// 這條在已登入瀏覽器會帶登入狀態「且」直接進到該案(公開格式 /jobs/_~ID/ 顯示登出版;只給 /nx/... 會登入但沒進案)。
 function cleanUrl(j) {
   const m = String(j.url || '').match(ID_RE);
-  return m ? `https://www.upwork.com/nx/search/jobs/details/~${m[1]}` : (j.url || '');
+  if (!m) return j.url || '';
+  const id = m[1];
+  return `https://www.upwork.com/jobs/~${id}?referrer_url_path=%2Fnx%2Fsearch%2Fjobs%2Fdetails%2F~${id}`;
 }
 
 // 把外部 webhook 送來的一筆職缺,正規化成我們的 job 物件
