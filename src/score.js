@@ -58,9 +58,18 @@ function scoreReward(j, rate) {
 // 設計原則:能力深度(level)決定上限;命中紅線(不碰)技能 → 超綱、封頂。
 const LEVEL_BASE = { 5: 90, 4: 78, 3: 60, 2: 38, 1: 20 }; // 主力技能 level → 基準分
 
+// 整字比對:關鍵字前後不可緊接英數,避免子字串誤判(community→unity、javascript→java、email→ai)
+function wordHit(text, kw) {
+  if (!kw) return false;
+  const esc = String(kw).toLowerCase().trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!esc) return false;
+  try { return new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, 'i').test(text); }
+  catch { return text.includes(esc); }
+}
+
 function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
   const text = `${j.title || ''} ${j.description || ''}`.toLowerCase();
-  const inText = (kw) => kw && text.includes(String(kw).toLowerCase());
+  const inText = (kw) => wordHit(text, kw);
 
   // 紅線/不碰:命中即超綱(關鍵字寬鬆,故只降分不直接 SKIP,留人工判斷)
   const redHit = [...new Set((capability?.redlines || []).filter(inText))];
@@ -85,7 +94,7 @@ function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
     }
   } else {
     // (B) 舊邏輯:命中幾個口頭技能
-    matched = [...new Set((mySkills || []).filter((s) => text.includes(s.toLowerCase())))];
+    matched = [...new Set((mySkills || []).filter((s) => wordHit(text, s)))];
     const table = [0, 35, 58, 75, 88, 100]; // 命中 0..5+
     score = matched.length >= 5 ? 100 : table[matched.length];
   }
