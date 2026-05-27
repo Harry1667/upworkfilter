@@ -8,6 +8,11 @@ import { loadProfile } from './assist.js';
 const PROVIDER = process.env.AI_TRIAGE_PROVIDER || 'openai';
 const TIER = process.env.AI_TRIAGE_TIER || 'low';
 
+// 受控標籤詞彙 — AI 只能從這裡挑,確保標籤一致(才能篩選/聚合)
+export const TAG_TYPES = ['全端', '前端', '後端', '行動App', 'AI整合', '聊天機器人', '自動化', '爬蟲資料', '電商', 'Bug修復', '部署DevOps', '其他'];
+export const TAG_NEEDS = ['API整合', '付款整合', '認證', '即時同步', 'OCR', 'RAG', 'LLM', '資料庫', 'n8n/Zapier/ClickUp', 'Dashboard', '爬蟲'];
+const TAG_SET = new Set([...TAG_TYPES, ...TAG_NEEDS]);
+
 // 把使用者背景濃縮成一段(讓 AI 知道「對誰而言契合」)
 function userBrief(p) {
   const proven = (p.provenCapabilities || []).slice(0, 12).map((c) => c.capability).join(';');
@@ -36,8 +41,12 @@ ${userBrief(p)}
 職缺(共 ${jobs.length} 筆):
 ${jobs.map(jobLine).join('\n')}
 
+另外為每個案貼「屬性標籤」,**只能從下列清單挑字,不可自創**:
+- 案型(挑 1-2 個):${TAG_TYPES.join('、')}
+- 關鍵需求(挑 0-4 個):${TAG_NEEDS.join('、')}
+
 只輸出一個 JSON 陣列,每個職缺一個物件,不要任何解說或 markdown 圍欄:
-[{"id":"原樣回傳該案 id","score":0到10一位小數(整體值不值得),"win":0到100整數(這位新手實際中標機率,綜合競爭/契合/客戶願不願給新手機會),"verdict":"強力接|可接|觀望|略過","reason":"≤20字繁中,點出關鍵理由"}]`;
+[{"id":"原樣回傳該案 id","score":0到10一位小數(整體值不值得),"win":0到100整數(這位新手實際中標機率,綜合競爭/契合/客戶願不願給新手機會),"verdict":"強力接|可接|觀望|略過","reason":"≤20字繁中,點出關鍵理由","type":["案型,1-2個"],"needs":["關鍵需求,0-4個"]}]`;
 }
 
 function extractArray(s) {
@@ -64,7 +73,9 @@ export async function triageJobs(jobs, { batchSize = 6, onProgress } = {}) {
         if (Number.isNaN(score)) continue;
         let win = Math.round(Number(r.win));
         win = Number.isNaN(win) ? null : Math.max(0, Math.min(100, win));
-        results.push({ id: String(r.id), score, win, verdict: String(r.verdict || '').trim() || '觀望', reason: String(r.reason || '').slice(0, 40) });
+        // 標籤:合併 type+needs,只留受控清單裡的字(去雜訊),去重
+        const tags = [...new Set([...(r.type || []), ...(r.needs || [])].map((t) => String(t).trim()).filter((t) => TAG_SET.has(t)))];
+        results.push({ id: String(r.id), score, win, verdict: String(r.verdict || '').trim() || '觀望', reason: String(r.reason || '').slice(0, 40), tags });
       }
     } catch (e) {
       console.error(`快篩批次 ${i / batchSize + 1} 失敗:${e.message}`);

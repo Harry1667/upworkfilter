@@ -7,6 +7,8 @@ import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome } fro
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
+import { TAG_TYPES } from './triage.js';
+const TYPE_TAGS = new Set(TAG_TYPES); // 哪些屬性標籤是「案型」(著色用)
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -71,7 +73,7 @@ async function autoTriageIngested(ids) {
     const { triageJobs } = await import('./triage.js');
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
     const res = await triageJobs(rows);
-    for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win);
+    for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags);
     console.log(`🤖 自動快篩完成:${res.length} 案`);
   } catch (e) {
     console.error('自動快篩失敗:' + e.message);
@@ -125,6 +127,14 @@ const CSS = `
   .track.low i{background:#da3633}.track.mid i{background:#d29922}
   .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
   .tags span{background:#0d1117;border:1px solid var(--bd);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--mut)}
+  .atags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}
+  .atag{font-size:12px;border-radius:6px;padding:2px 9px;font-weight:500}
+  .atag.type{background:#13233b;color:#79c0ff;border:1px solid #1f3a5f}
+  .atag.need{background:#2d2150;color:#b392f0;border:1px solid #4a3a6a}
+  .fit{font-size:12px;border-radius:6px;padding:2px 9px;font-weight:600}
+  .fit.hit{background:#0d2818;color:#3fb950;border:1px solid #1f5c38}
+  .fit.partial{background:#3a3016;color:#d29922;border:1px solid #5c4a1f}
+  .fit.none{background:#21262d;color:#8b949e;border:1px solid var(--bd)}
   details.dim{margin:8px 0 4px}details.dim>summary{cursor:pointer;color:var(--mut);font-size:12px;list-style:none;user-select:none}
   details.dim>summary::before{content:"▸ ";}details.dim[open]>summary::before{content:"▾ ";}
   details.dim>summary:hover{color:var(--ac)}details.dim .grid7{margin-top:8px}
@@ -248,6 +258,8 @@ function pageJobs() {
   const todayNew = data.filter((j) => (j.first_seen || '').slice(0, 10) === todayStr).length;
   const todo = data.filter((j) => effectiveVerdict(j).cls === 'APPLY' && !j.applied).length;
   const untriaged = data.filter((j) => j.ai_score == null).length;
+  // 收集所有出現過的屬性標籤(給篩選下拉)
+  const allTags = [...new Set(data.flatMap((j) => (j.tags || '').split(',').map((x) => x.trim()).filter(Boolean)))].sort();
   const cards = data
     .map((j) => {
       const tags = [];
@@ -265,8 +277,15 @@ function pageJobs() {
       const scoreHtml = ev.isAi
         ? `<span class="score">${ev.score}<span class="smax">/10</span></span><span class="aitag">AI</span>`
         : `<span class="score">${ev.score}</span>`;
+      // 適配:案子文字命中幾個「有 GitHub 證據」的技術
+      const jtext = `${j.title || ''} ${j.description || ''}`.toLowerCase();
+      const provenHits = (cfg.provenTechs || []).filter((t) => t && jtext.includes(String(t).toLowerCase())).length;
+      const fit = provenHits >= 2 ? { t: '🟢 強項命中', c: 'hit' } : provenHits === 1 ? { t: '🟡 部分符合', c: 'partial' } : { t: '⚪ 需補技能', c: 'none' };
+      // 屬性標籤(AI 受控詞彙)
+      const jtags = (j.tags || '').split(',').map((x) => x.trim()).filter(Boolean);
+      const atagHtml = jtags.map((t) => `<span class="atag ${TYPE_TAGS.has(t) ? 'type' : 'need'}">${esc(t)}</span>`).join('');
       return `
-      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-fit="${fit.c}" data-tags="${esc(jtags.join(','))}">
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
@@ -275,6 +294,7 @@ function pageJobs() {
         </div>
         <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
         <p class="reason">${esc(j.reason)}</p>
+        <div class="atags"><span class="fit ${fit.c}">${fit.t}</span>${atagHtml}</div>
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
         <details class="dim"><summary>展開 7 維評分</summary><div class="grid7">${metrics}</div></details>
         <div class="acts">
@@ -298,14 +318,30 @@ function pageJobs() {
   <div class="filters">
     <button data-f="APPLY" class="on">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
     <button data-f="SKIP">🔴 排除</button><button data-f="applied">已投</button><button data-f="all">全部</button>
+    <select id="tagFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
+      <option value="">🏷️ 全部類型</option>
+      ${allTags.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+    </select>
+    <select id="fitFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
+      <option value="">🎯 全部適配</option><option value="hit">🟢 強項命中</option><option value="partial">🟡 部分符合</option><option value="none">⚪ 需補技能</option>
+    </select>
   </div>
 </header>
 <main>${cards || '<p style="color:var(--mut)">資料庫是空的。擴充套件抓到案子後會出現在這。</p>'}</main>
 <script>
   const cards=[...document.querySelectorAll('.card')];
-  function f(x){document.querySelectorAll('.filters button').forEach(b=>b.classList.toggle('on',b.dataset.f===x));
-    cards.forEach(c=>{let s=x==='all'?1:x==='applied'?c.dataset.applied==='1':c.dataset.verdict===x;c.style.display=s?'':'none';});}
-  document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>f(b.dataset.f));f('APPLY');
+  let verdictF='APPLY';
+  function applyFilters(){const tag=document.getElementById('tagFilter').value,fit=document.getElementById('fitFilter').value;
+    cards.forEach(c=>{
+      let okV=verdictF==='all'?1:verdictF==='applied'?c.dataset.applied==='1':c.dataset.verdict===verdictF;
+      let okT=!tag||(','+c.dataset.tags+',').indexOf(','+tag+',')>=0;
+      let okF=!fit||c.dataset.fit===fit;
+      c.style.display=(okV&&okT&&okF)?'':'none';});}
+  function f(x){verdictF=x;document.querySelectorAll('.filters button').forEach(b=>b.classList.toggle('on',b.dataset.f===x));applyFilters();}
+  document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>f(b.dataset.f));
+  document.getElementById('tagFilter').onchange=applyFilters;
+  document.getElementById('fitFilter').onchange=applyFilters;
+  f('APPLY');
   async function mark(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});
     const card=document.querySelector('input[onchange*="'+id+'"]').closest('.card');
     card.dataset.applied=a?'1':'0';
@@ -1073,7 +1109,7 @@ createServer(async (req, res) => {
       }
       const { triageJobs } = await import('./triage.js');
       const results = await triageJobs(rows);
-      for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win);
+      for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, triaged: results.length, candidates: rows.length }));
     }
