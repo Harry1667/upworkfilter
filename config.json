@@ -96,7 +96,19 @@
       }
     },
     "threshold": 60,
-    "maybeThreshold": 45
+    "maybeThreshold": 45,
+    "mode": "newbie",
+    "newbieWeights": {
+      "reward": 10,
+      "skill": 25,
+      "client": 15,
+      "competition": 25,
+      "longterm": 5,
+      "clarity": 5,
+      "risk": 15
+    },
+    "newbieThreshold": 60,
+    "newbieMaybeThreshold": 45
   },
   "hardExcludes": {
     "skipUnverifiedPayment": true,

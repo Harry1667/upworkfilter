@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { openDb, markApplied, allJobs, upsertJob } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
-import { analyzeJob, askAI } from './analyze.js';
+import { askAI } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, extractJson } from './assist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,10 +32,24 @@ function checkDashAuth(req, res) {
   return false;
 }
 
-const loadConfig = () => {
+// 原始 config(未套用模式)— 寫入時用,避免把模式覆蓋值存回檔案
+const loadConfigRaw = () => {
   const cfg = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
-  // 帶入 Profile Agent 歸納的「有 GitHub 證據」技術,供評分作品契合加成
   try { cfg.provenTechs = loadProfile().provenTechs || []; } catch { cfg.provenTechs = []; }
+  return cfg;
+};
+// 評分用 config:依 scoring.mode(newbie/standard)把對應權重與門檻套進 criteria
+// 新手模式強調勝率(競爭/能力高、報酬低);標準模式用 criteria 原始 weight。
+const loadConfig = () => {
+  const cfg = loadConfigRaw();
+  const s = cfg.scoring || {};
+  if (s.mode === 'newbie' && s.newbieWeights) {
+    for (const k of CRIT_ORDER) {
+      if (s.criteria[k] && s.newbieWeights[k] != null) s.criteria[k].weight = s.newbieWeights[k];
+    }
+    if (s.newbieThreshold != null) s.threshold = s.newbieThreshold;
+    if (s.newbieMaybeThreshold != null) s.maybeThreshold = s.newbieMaybeThreshold;
+  }
   return cfg;
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -138,10 +152,9 @@ function pageJobs() {
         <div class="grid7">${metrics}</div>
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
         <div class="acts">
-          <a class="open primary" href="/job?id=${j.id}">② 評估這個案 →</a>
-          <a class="open" href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">在 Upwork 開啟 ↗</a>
-          <button class="gen" onclick="cover('${j.id}',this)">✍️ 求職信</button>
-          <button class="gen" onclick="advice('${j.id}',this)">💡 建議</button>
+          <a class="open primary" href="/job?id=${j.id}">② 評估 →</a>
+          <a class="open" href="/proposal?id=${j.id}">③ 提案 →</a>
+          <a class="open" href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">Upwork ↗</a>
         </div>
       </article>`;
     })
@@ -159,54 +172,111 @@ function pageJobs() {
   </div>
 </header>
 <main>${cards || '<p style="color:var(--mut)">資料庫是空的。擴充套件抓到案子後會出現在這。</p>'}</main>
-<div id="modal" style="display:none;position:fixed;inset:0;background:#000a;z-index:50;padding:30px;overflow:auto" onclick="if(event.target.id==='modal')this.style.display='none'">
-  <div style="max-width:680px;margin:0 auto;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:20px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <b id="mtitle" style="font-size:16px"></b>
-      <button onclick="document.getElementById('modal').style.display='none'" style="background:none;border:0;color:var(--mut);font-size:20px;cursor:pointer">✕</button>
-    </div>
-    <button id="mcopy" class="save" style="padding:6px 12px;font-size:13px;margin-bottom:10px;display:none" onclick="navigator.clipboard.writeText(document.getElementById('mbody').dataset.copy||document.getElementById('mbody').innerText);this.textContent='✅ 已複製'">📋 複製</button>
-    <div id="mbody" style="white-space:pre-wrap;font-size:14px;line-height:1.7"></div>
-  </div>
-</div>
 <script>
   const cards=[...document.querySelectorAll('.card')];
-  function showModal(title,html,copyText){document.getElementById('mtitle').textContent=title;
-    const b=document.getElementById('mbody');b.innerHTML=html;b.dataset.copy=copyText||'';
-    document.getElementById('mcopy').style.display=copyText?'inline-block':'none';
-    document.getElementById('modal').style.display='block';}
-  async function cover(id,btn){const t=btn.textContent;btn.disabled=true;btn.textContent='寫作中…';
-    try{const r=await fetch('/api/cover-letter',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
-      const j=await r.json();if(j.ok)showModal('✍️ 求職信(英文,可複製)',j.text.replace(/</g,'&lt;'),j.text);else alert(j.error||'失敗');}
-    catch(e){alert(e.message);}btn.disabled=false;btn.textContent=t;}
-  async function advice(id,btn){const t=btn.textContent;btn.disabled=true;btn.textContent='分析中…';
-    try{const r=await fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
-      const j=await r.json();if(j.ok){const d=j.data;
-        const html='<b>該主打作品:</b><br>'+(d.showPortfolio||[]).map(x=>'• '+x).join('<br>')+
-          '<br><br><b>投標應附:</b><br>'+(d.submit||[]).map(x=>'• '+x).join('<br>')+
-          '<br><br><b>報價:</b>'+(d.priceSuggestion||'')+'<br><b>切入角度:</b>'+(d.angle||'');
-        showModal('💡 接案建議',html);}else alert(j.error||'失敗');}
-    catch(e){alert(e.message);}btn.disabled=false;btn.textContent=t;}
   function f(x){document.querySelectorAll('.filters button').forEach(b=>b.classList.toggle('on',b.dataset.f===x));
     cards.forEach(c=>{let s=x==='all'?1:x==='applied'?c.dataset.applied==='1':c.dataset.verdict===x;c.style.display=s?'':'none';});}
   document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>f(b.dataset.f));f('APPLY');
   async function mark(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});
     document.querySelector('input[onchange*="'+id+'"]').closest('.card').dataset.applied=a?'1':'0';}
-  async function gen(id,btn){const t=btn.textContent;btn.disabled=true;btn.textContent='產生中…(約30-60秒,看 gstack 視窗)';
-    try{const r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
-      const j=await r.json();
-      if(j.ok){btn.textContent='✅ 開啟中…';window.open('/analysis?id='+(j.id||id),'_blank');}
-      else btn.textContent='❌ '+(j.error||'失敗');}
-    catch(e){btn.textContent='❌ '+e.message;}
-    setTimeout(()=>{btn.disabled=false;btn.textContent=t;},8000);}
 </script></body></html>`;
 }
 
-// ⚙ 設定:三頁籤合一(我的檔案 / Profile Agent / 評分權重)
-function pageSetup(tab = 'profile') {
+// 👤 我的檔案:友善表單(非 JSON)— 身分 / 技能 / 作品集 / 求職信規則 + Profile Agent
+function pageProfile() {
   const p = loadProfile();
-  const cfg = loadConfig();
+  const v = (x) => esc(x == null ? '' : x);
+  const skills = (p.skills || []).join(', ');
+  const rules = (p.coverLetterStyle?.rules || []).join('\n');
+  const portfolioRows = (p.portfolio || []).map((it, i) => portfolioRow(it, i)).join('');
+  const capList = (p.provenCapabilities || [])
+    .map((c) => `<li><b>${esc(c.repo)}</b> — ${esc(c.capability)}<br><small style="color:var(--mut)">[${esc((c.techs || []).join(' / '))}]</small></li>`)
+    .join('') || '<li class="reason">尚未執行 Profile Agent。</li>';
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的檔案</title><style>${CSS}
+  .form label{display:block;color:var(--mut);font-size:13px;margin:14px 0 4px}
+  .form input,.form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:14px/1.6 inherit}
+  .form textarea{min-height:80px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .port{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin:10px 0}
+  .port input{margin-bottom:6px}.port .x{float:right;background:none;border:0;color:#f85149;cursor:pointer;font-size:16px}
+  .caps li{margin:8px 0}h2{border-left:3px solid var(--grn);padding-left:10px}</style></head><body>
+<header><h1>👤 我的檔案 <span class="sub">「我是誰」— AI 寫求職信/回覆/建議都讀這份</span></h1>${navBar('/profile')}</header>
+<main class="form">
+  <h2>基本資料</h2>
+  <div class="row2">
+    <div><label>姓名</label><input id="f_name" value="${v(p.name)}"></div>
+    <div><label>定位 Title</label><input id="f_title" value="${v(p.title)}"></div>
+  </div>
+  <div class="row2">
+    <div><label>等級 / 階段</label><input id="f_level" value="${v(p.level)}"></div>
+    <div><label>時薪(USD)</label><input id="f_rate" type="number" value="${v(p.hourlyRate)}"></div>
+  </div>
+  <label>自我介紹 Bio</label><textarea id="f_bio">${v(p.bio)}</textarea>
+  <label>報價備註</label><input id="f_rateNote" value="${v(p.rateNote)}">
+
+  <h2>技能(逗號分隔)</h2>
+  <textarea id="f_skills">${esc(skills)}</textarea>
+
+  <h2>作品集</h2>
+  <div id="ports">${portfolioRows}</div>
+  <button class="save" style="background:#30363d" onclick="addPort()">＋ 新增作品</button>
+
+  <h2>求職信規則(一行一條)</h2>
+  <textarea id="f_rules" style="min-height:160px">${esc(rules)}</textarea>
+
+  <p style="margin-top:16px"><button class="save" onclick="save()">💾 儲存檔案</button> <span id="msg" class="reason"></span></p>
+
+  <h2 style="margin-top:30px">🤖 Profile Agent(已證明能力)</h2>
+  <p class="reason">自動抓 GitHub(<b>${esc(p.githubUser || 'Harry1667')}</b>)歸納「已證明能力」,讓有真實 repo 證據的案子適配度加成、求職信引用真實作品。${p.provenUpdatedAt ? `上次更新:${esc(p.provenUpdatedAt.slice(0, 16).replace('T', ' '))},共 ${(p.provenCapabilities || []).length} 項。每週一自動刷新。` : '尚未執行。'}</p>
+  <p><button class="save" onclick="runAgent()">🤖 立即執行(約 1-2 分)</button> <span id="amsg" class="reason"></span></p>
+  <ul class="caps">${capList}</ul>
+</main>
+<script>
+  // 原始 profile(保留表單沒涵蓋的欄位,存檔時合併回去)
+  const BASE=${JSON.stringify(p)};
+  function portTpl(it){it=it||{};return '<div class="port"><button class="x" onclick="this.parentNode.remove()">✕</button>'+
+    '<input class="p_name" placeholder="名稱" value="'+(it.name||'').replace(/"/g,'&quot;')+'">'+
+    '<input class="p_type" placeholder="類型" value="'+(it.type||'').replace(/"/g,'&quot;')+'">'+
+    '<input class="p_desc" placeholder="描述" value="'+(it.desc||'').replace(/"/g,'&quot;')+'">'+
+    '<input class="p_tech" placeholder="技術(逗號分隔)" value="'+((it.tech||[]).join(', ')).replace(/"/g,'&quot;')+'">'+
+    '<input class="p_link" placeholder="連結" value="'+(it.link||'').replace(/"/g,'&quot;')+'"></div>';}
+  function addPort(){document.getElementById('ports').insertAdjacentHTML('beforeend',portTpl({}));}
+  function save(){
+    const ports=[...document.querySelectorAll('.port')].map(p=>({
+      name:p.querySelector('.p_name').value.trim(),type:p.querySelector('.p_type').value.trim(),
+      desc:p.querySelector('.p_desc').value.trim(),
+      tech:p.querySelector('.p_tech').value.split(',').map(s=>s.trim()).filter(Boolean),
+      link:p.querySelector('.p_link').value.trim()})).filter(x=>x.name);
+    const body=Object.assign({},BASE,{
+      name:f_name.value.trim(),title:f_title.value.trim(),level:f_level.value.trim(),
+      hourlyRate:Number(f_rate.value)||BASE.hourlyRate,bio:f_bio.value.trim(),rateNote:f_rateNote.value.trim(),
+      skills:f_skills.value.split(',').map(s=>s.trim()).filter(Boolean),
+      portfolio:ports,
+      coverLetterStyle:Object.assign({},BASE.coverLetterStyle,{rules:f_rules.value.split('\\n').map(s=>s.trim()).filter(Boolean)})});
+    fetch('/api/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
+      .then(r=>r.json()).then(j=>{document.getElementById('msg').textContent=j.ok?'✅ 已儲存':'❌ 失敗';});}
+  async function runAgent(){const m=document.getElementById('amsg');m.textContent='執行中…抓 GitHub + AI 歸納 + 重算分數(約 1-2 分,勿關閉)';
+    try{const r=await fetch('/api/agent/profile',{method:'POST'});const j=await r.json();
+      m.textContent=j.ok?('✅ 完成:'+j.count+' 項已證明能力。重新整理看更新。'):'❌ '+(j.error||'失敗');}
+    catch(e){m.textContent='❌ '+e.message;}}
+</script></body></html>`;
+}
+
+// 作品集單列(伺服器端初始渲染)
+function portfolioRow(it, i) {
+  const a = (s) => esc(s == null ? '' : s);
+  return `<div class="port"><button class="x" onclick="this.parentNode.remove()">✕</button>
+    <input class="p_name" placeholder="名稱" value="${a(it.name)}">
+    <input class="p_type" placeholder="類型" value="${a(it.type)}">
+    <input class="p_desc" placeholder="描述" value="${a(it.desc)}">
+    <input class="p_tech" placeholder="技術(逗號分隔)" value="${a((it.tech || []).join(', '))}">
+    <input class="p_link" placeholder="連結" value="${a(it.link)}"></div>`;
+}
+
+// ⚖️ 評分引擎:新手/標準模式切換 + 權重滑桿 + 門檻
+function pageScoring() {
+  const cfg = loadConfig();        // 已套用啟用模式的權重
   const C = cfg.scoring.criteria;
+  const mode = cfg.scoring.mode === 'newbie' ? 'newbie' : 'standard';
   const rows = CRIT_ORDER.map((k) => {
     const c = C[k];
     return `<div class="srow">
@@ -215,68 +285,46 @@ function pageSetup(tab = 'profile') {
       <span class="val"><b class="w" data-k="${k}">${c.weight}</b>%</span>
     </div>`;
   }).join('');
-  const capList = (p.provenCapabilities || [])
-    .map((c) => `<li><b>${esc(c.repo)}</b> — ${esc(c.capability)}<br><small style="color:var(--mut)">[${esc((c.techs || []).join(' / '))}]</small></li>`)
-    .join('') || '<li class="reason">尚未執行 Profile Agent。</li>';
-  const T = (id, label) => `<button class="tab" data-t="${id}" onclick="tab('${id}')">${label}</button>`;
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>設定</title><style>${CSS}
-  textarea{width:100%;min-height:420px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:14px;font:13px/1.6 ui-monospace,Menlo,monospace}
-  .tabs{display:flex;gap:8px;margin-top:8px}.tab{background:var(--card);color:var(--mut);border:1px solid var(--bd);padding:6px 14px;border-radius:8px 8px 0 0;cursor:pointer;font-size:14px}
-  .tab.on{background:var(--bg);color:var(--tx);border-bottom-color:var(--bg);font-weight:700}
-  .pane{display:none}.pane.on{display:block}
-  .caps li{margin:8px 0}</style></head><body>
-<header><h1>⚙ 設定 <span class="sub">檔案 · Profile Agent · 評分權重</span></h1>${navBar('/setup')}
-  <div class="tabs">${T('profile', '👤 我的檔案')}${T('agent', '🤖 Profile Agent')}${T('scoring', '⚖️ 評分權重')}</div>
-</header>
+  const tag = (m, label, desc) => `<button class="modebtn ${m === mode ? 'on' : ''}" onclick="setMode('${m}')">${label}<small>${desc}</small></button>`;
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>評分引擎</title><style>${CSS}
+  .modes{display:flex;gap:10px;margin:6px 0 18px}
+  .modebtn{flex:1;background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:12px;cursor:pointer;text-align:left}
+  .modebtn small{display:block;color:var(--mut);font-size:12px;margin-top:3px}
+  .modebtn.on{border-color:var(--ac);background:#13233b}</style></head><body>
+<header><h1>⚖️ 評分引擎 <span class="sub">「案子好不好」— 決定哪些案被推到你面前</span></h1>${navBar('/scoring')}</header>
 <main>
-  <section class="pane" id="pane-profile">
-    <p class="reason">JSON 格式,所有 AI 功能(求職信/回覆/建議)都讀這份。技能、作品集、求職信規則都可調。</p>
-    <textarea id="p">${esc(JSON.stringify(p, null, 2))}</textarea>
-    <p><button class="save" onclick="saveProfile()">💾 儲存檔案</button> <span id="pmsg" class="reason"></span></p>
-  </section>
-
-  <section class="pane" id="pane-agent">
-    <p class="reason">🤖 自動抓你的 GitHub(<b>${esc(p.githubUser || 'Harry1667')}</b>)歸納「已證明能力」,寫進 provenCapabilities/provenTechs,讓有真實 repo 證據的案子適配度加成、求職信引用真實作品。${p.provenUpdatedAt ? `<br>上次更新:${esc(p.provenUpdatedAt.slice(0, 16).replace('T', ' '))},共 ${(p.provenCapabilities || []).length} 項。每週一自動刷新。` : '<br>尚未執行。'}</p>
-    <p><button class="save" onclick="runAgent()">🤖 立即執行(抓 GitHub,約 1-2 分)</button> <span id="amsg" class="reason"></span></p>
-    <ul class="caps">${capList}</ul>
-  </section>
-
-  <section class="pane" id="pane-scoring">
-    <p class="reason">每個案子在 7 維各打 0-100,依權重加權成總分。權重不必剛好 100%,系統自動正規化。</p>
-    ${rows}
-    <div id="sum" class="sumbar ok">權重合計:<span id="sumv">100</span>%</div>
-    <div class="thr">
-      <div><label>🟢 APPLY 門檻(≥ 幾分算「值得投」)</label><input id="thr" type="number" min="0" max="100" value="${cfg.scoring.threshold}"></div>
-      <div><label>🟡 MAYBE 門檻(≥ 幾分算「可考慮」)</label><input id="mthr" type="number" min="0" max="100" value="${cfg.scoring.maybeThreshold}"></div>
-    </div>
-    <button class="save" onclick="saveScoring()">💾 儲存並重算所有案子</button>
-    <p id="smsg" class="reason" style="margin-top:12px"></p>
-  </section>
+  <h3 style="margin:4px 0">評分模式</h3>
+  <div class="modes">
+    ${tag('newbie', '🌱 新手模式', '強調勝率:競爭/能力高、報酬低。0 評價衝首單用')}
+    ${tag('standard', '⚖️ 標準模式', '均衡:報酬與能力並重,適合有評價後')}
+  </div>
+  <p class="reason">切換模式會即時重算所有案子。下面滑桿是「<b>${mode === 'newbie' ? '新手' : '標準'}模式</b>」目前的權重,可微調。每維 0-100,依權重加權成總分;權重不必剛好 100%,系統自動正規化。</p>
+  ${rows}
+  <div id="sum" class="sumbar ok">權重合計:<span id="sumv">100</span>%</div>
+  <div class="thr">
+    <div><label>🟢 APPLY 門檻(≥ 幾分算「值得投」)</label><input id="thr" type="number" min="0" max="100" value="${cfg.scoring.threshold}"></div>
+    <div><label>🟡 MAYBE 門檻(≥ 幾分算「可考慮」)</label><input id="mthr" type="number" min="0" max="100" value="${cfg.scoring.maybeThreshold}"></div>
+  </div>
+  <button class="save" onclick="saveScoring()">💾 儲存並重算所有案子</button>
+  <p id="smsg" class="reason" style="margin-top:12px"></p>
 </main>
 <script>
-  function tab(t){['profile','agent','scoring'].forEach(x=>{
-    document.getElementById('pane-'+x).classList.toggle('on',x===t);
-    document.querySelector('.tab[data-t="'+x+'"]').classList.toggle('on',x===t);});
-    history.replaceState(null,'','/setup?tab='+t);}
-  tab(${JSON.stringify(tab)});
-  async function saveProfile(){let body;try{body=JSON.parse(document.getElementById('p').value);}catch(e){document.getElementById('pmsg').textContent='❌ JSON 格式錯誤:'+e.message;return;}
-    const r=await fetch('/api/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-    document.getElementById('pmsg').textContent=(await r.json()).ok?'✅ 已儲存':'❌ 失敗';}
-  async function runAgent(){const m=document.getElementById('amsg');m.textContent='執行中…抓 GitHub + AI 歸納 + 重算分數(約 1-2 分,勿關閉)';
-    try{const r=await fetch('/api/agent/profile',{method:'POST'});const j=await r.json();
-      m.textContent=j.ok?('✅ 完成:'+j.count+' 項已證明能力。重新整理看更新。'):'❌ '+(j.error||'失敗');}
-    catch(e){m.textContent='❌ '+e.message;}}
+  const MODE=${JSON.stringify(mode)};
   function upd(){let s=0;document.querySelectorAll('input[type=range]').forEach(r=>{
     document.querySelector('.w[data-k="'+r.dataset.k+'"]').textContent=r.value;s+=+r.value;});
     document.getElementById('sumv').textContent=s;document.getElementById('sum').className='sumbar '+(s>0?'ok':'bad');}
   upd();
+  async function setMode(m){if(m===MODE)return;
+    document.getElementById('smsg').textContent='切換中…重算所有案子';
+    const r=await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:m})});
+    if((await r.json()).ok)location.reload();}
   async function saveScoring(){
     const weights={};document.querySelectorAll('input[type=range]').forEach(r=>weights[r.dataset.k]=+r.value);
-    const body={weights,threshold:+document.getElementById('thr').value,maybeThreshold:+document.getElementById('mthr').value};
+    const body={mode:MODE,weights,threshold:+document.getElementById('thr').value,maybeThreshold:+document.getElementById('mthr').value};
     document.getElementById('smsg').textContent='重算中…';
     const r=await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
     const j=await r.json();
-    document.getElementById('smsg').innerHTML=j.ok?('✅ 已儲存並重算!→ <a href="/">回探索列表看新結果</a>'):'❌ 失敗:'+j.error;}
+    document.getElementById('smsg').innerHTML=j.ok?('✅ 已儲存並重算!→ <a href="/">回列表看新結果</a>'):'❌ 失敗:'+j.error;}
 </script></body></html>`;
 }
 
@@ -286,12 +334,13 @@ async function readBody(req) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-// 統一導航 — 對齊接案動線:① 探索 → ② 評估 → ③ 溝通 ｜ ⚙ 設定
-// jobId:目前正在看的案(讓「② 評估」連到該案);沒有則連到 /job(提示從列表挑案)
+// 統一導航 — 6 個職責單一的獨立介面。
+// 流程:① 列表 → ② 評估 → ③ 提案 → ④ 溝通 ｜ 設定:👤 檔案 · ⚖️ 評分
+// jobId:目前在看的案(讓「② 評估 / ③ 提案」連到該案);沒有則連到無 id 頁(提示挑案)
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
-  const evalHref = jobId ? `/job?id=${jobId}` : '/job';
-  return `<nav class="zones">${link('/', '① 探索', active === '/')}${link(evalHref, '② 評估', active === '/job')}${link('/reply', '③ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/setup', '⚙ 設定', active === '/setup')}</nav>`;
+  const q = jobId ? `?id=${jobId}` : '';
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}</nav>`;
 }
 
 function pageReply() {
@@ -330,17 +379,44 @@ function pageReply() {
 </script></body></html>`;
 }
 
-// ② 評估:單一案整合頁 — 核心數據 + 7維評分 + 求職信/建議/評估網站,一頁搞定
+// 規則式勝率估計(不花 AI)— 給新手一個「接不接得到」的直覺
+function winRateHint(job) {
+  const comp = job.score_competition ?? 0;     // 競爭越低分越高(提案少)
+  const skill = job.score_skill ?? 0;          // 能力匹配(含作品契合)
+  const client = job.score_client ?? 0;
+  // 加權:競爭 45%、能力 40%、客戶 15%(能不能被看到 + 做不做得來)
+  const pct = Math.round(comp * 0.45 + skill * 0.40 + client * 0.15);
+  let level, color;
+  if (pct >= 70) { level = '高'; color = 'var(--grn)'; }
+  else if (pct >= 45) { level = '中'; color = 'var(--ylw)'; }
+  else { level = '低'; color = '#f85149'; }
+  const bits = [];
+  if (comp >= 75) bits.push('提案數少、容易被看到'); else if (comp <= 30) bits.push('競爭激烈、難出頭');
+  if (skill >= 80) bits.push('能力高度吻合(有作品證據)'); else if (skill < 50) bits.push('技能匹配偏弱');
+  if (client < 40) bits.push('客戶條件普通');
+  return { pct, level, color, note: bits.join('、') || '條件中性' };
+}
+
+// 共用:單一案頂部資訊列(評估/提案頁共用)
+function jobBarHtml(job, active) {
+  const back = active === '/proposal' ? `<a href="/job?id=${job.id}">← 回評估</a>` : `<a href="/">← 回列表</a>`;
+  return `<div class="jobbar">
+    ${back}
+    <a href="${esc(cleanUrl(job))}" target="_blank" rel="noopener">🔗 Upwork 原案 ↗</a>
+    <label class="applied"><input type="checkbox" ${job.applied ? 'checked' : ''} onchange="markJob('${job.id}',this.checked)"> 標記已投</label>
+  </div>`;
+}
+const notFoundPage = (title, active, id) => `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${CSS}</style></head><body>
+<header><h1>${title}</h1>${navBar(active)}</header>
+<main><p class="reason">${id ? '找不到這個案(可能已從資料庫移除)。' : '請從 <a href="/">① 列表</a> 挑一個案。'}</p></main></body></html>`;
+
+// ② 評估:純判斷 — 核心數據 + 7維評分 + 勝率 + 工作內容。不產文案(去 ③ 提案)
 function pageJob(id) {
   const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
-  if (!job) {
-    return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>評估</title><style>${CSS}</style></head><body>
-<header><h1>② 評估</h1>${navBar('/job')}</header>
-<main><p class="reason">${id ? '找不到這個案(可能已從資料庫移除)。' : '請從 <a href="/">① 探索</a> 列表挑一個案進入評估。'}</p></main></body></html>`;
-  }
+  if (!job) return notFoundPage('② 評估', '/job', id);
   const cfg = loadConfig();
   const C = cfg.scoring.criteria;
-  const hasAnalysis = existsSync(path.join(__dirname, '..', `upwork-${String(id).replace(/[^\w-]/g, '')}-analysis.html`));
+  const wr = winRateHint(job);
   const core = [
     ['預算', job.budget_text], ['類型', job.budget_type], ['提案數', job.proposals_bucket],
     ['付款驗證', job.payment_verified ? '✅ 是' : '❌ 否'], ['客戶花費', job.client_spent_text],
@@ -355,70 +431,89 @@ function pageJob(id) {
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>評估:${esc(job.title)}</title><style>${CSS}
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:8px}
   .cards .c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}.c .l{color:var(--mut);font-size:12px}.c .v{font-size:15px;font-weight:600;margin-top:2px}
-  .sect{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0}
-  .sect h2{margin:0 0 10px}.out{white-space:pre-wrap;font-size:14px;line-height:1.7;margin-top:10px}
-  .jobbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
-  .jobbar a,.jobbar label{font-size:13px}</style></head><body>
+  .winbox{display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:8px 0}
+  .winpct{font-size:34px;font-weight:800}.desc{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 16px;white-space:pre-wrap;font-size:14px;line-height:1.7;max-height:340px;overflow:auto}
+  .jobbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}.jobbar a,.jobbar label{font-size:13px}
+  .cta{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;margin:6px 0}</style></head><body>
 <header>
   <h1>② 評估 <span class="sub">總分 ${job.total_score} · ${job.verdict}</span></h1>
   ${navBar('/job', job.id)}
-  <div class="jobbar">
-    <a href="/">← 回探索列表</a>
-    <a href="${esc(cleanUrl(job))}" target="_blank" rel="noopener">🔗 Upwork 原案 ↗</a>
-    <label class="applied"><input type="checkbox" id="ap" ${job.applied ? 'checked' : ''} onchange="mark(this.checked)"> 標記已投</label>
-  </div>
+  ${jobBarHtml(job, '/job')}
 </header>
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
   <p class="reason">${esc(job.reason)}</p>
-  <h2>① 核心數據</h2>
+
+  <h2>核心數據</h2>
   <div class="cards">${coreCards}</div>
-  <h2>② 7 維評分</h2>
+
+  <h2>勝率估計(接不接得到)</h2>
+  <div class="winbox">
+    <div class="winpct" style="color:${wr.color}">${wr.pct}%</div>
+    <div><b style="color:${wr.color}">${wr.level}勝率</b><br><span class="reason">${esc(wr.note)}</span></div>
+  </div>
+
+  <h2>7 維評分(案子好不好)</h2>
   <div class="grid7" style="margin-bottom:8px">${metrics}</div>
 
-  <div class="sect">
-    <h2>✍️ 求職信(英文,引用真實作品)</h2>
-    <button class="save" onclick="cover(this)">產生求職信</button>
-    <button class="save" id="ccopy" style="display:none;background:var(--grn)" onclick="navigator.clipboard.writeText(window._cl||'');this.textContent='✅ 已複製'">📋 複製</button>
+  <h2>工作內容</h2>
+  <div class="desc">${esc(job.description || '(擴充套件未帶描述)')}</div>
+
+  <p style="margin-top:18px"><a class="cta" href="/proposal?id=${job.id}">③ 決定投了 → 去寫提案</a></p>
+</main>
+<script>
+  async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
+</script></body></html>`;
+}
+
+// ③ 提案:生產 — 求職信 + 主打作品 + 建議附截圖 + 投標項 + 報價(AI,只在這裡花 token)
+function pageProposal(id) {
+  const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+  if (!job) return notFoundPage('③ 提案', '/proposal', id);
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>提案:${esc(job.title)}</title><style>${CSS}
+  .sect{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0}
+  .sect h2{margin:0 0 10px;border:0;padding:0}.out{white-space:pre-wrap;font-size:14px;line-height:1.7;margin-top:10px}
+  .jobbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}.jobbar a,.jobbar label{font-size:13px}</style></head><body>
+<header>
+  <h1>③ 提案 <span class="sub">${esc(job.budget_text || '')} · 提案 ${esc(job.proposals_bucket || '?')}</span></h1>
+  ${navBar('/proposal', job.id)}
+  ${jobBarHtml(job, '/proposal')}
+</header>
+<main>
+  <h2 style="margin-top:4px">${esc(job.title)}</h2>
+  <p class="reason">按下方按鈕一次產生:求職信(引用真實作品)+ 投標策略。約 30-60 秒。</p>
+  <p><button class="save" id="go" onclick="gen()">✨ 產生提案</button> <span id="st" class="reason"></span></p>
+
+  <div class="sect" id="clsect" style="display:none">
+    <h2>✍️ 求職信(英文,可複製)</h2>
+    <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._cl||'');this.textContent='✅ 已複製'">📋 複製</button>
     <div class="out" id="clout"></div>
   </div>
 
-  <div class="sect">
-    <h2>💡 投標建議(主打作品 / 附件截圖 / 報價)</h2>
-    <button class="save" onclick="advice(this)">產生建議</button>
+  <div class="sect" id="adsect" style="display:none">
+    <h2>💡 投標策略</h2>
     <div class="out" id="adout"></div>
-  </div>
-
-  <div class="sect">
-    <h2>🌐 完整評估網站</h2>
-    <p class="reason" style="margin:0 0 8px">產生較久(抓取+AI,約30-60秒)。${hasAnalysis ? '已有產生過的版本。' : ''}</p>
-    <button class="save" onclick="gen(this)">${hasAnalysis ? '重新產生' : '產生評估網站'}</button>
-    ${hasAnalysis ? `<a class="save" style="background:var(--grn)" href="/analysis?id=${esc(String(id).replace(/[^\w-]/g, ''))}" target="_blank">開啟現有評估網站 ↗</a>` : ''}
-    <div class="out" id="gnout"></div>
   </div>
 </main>
 <script>
   const ID=${JSON.stringify(job.id)};
-  async function mark(a){await fetch('/api/mark?id='+ID+'&applied='+(a?1:0),{method:'POST'});}
-  async function cover(btn){const t=btn.textContent;btn.disabled=true;btn.textContent='寫作中…(約30秒)';
-    try{const r=await fetch('/api/cover-letter',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})});
-      const j=await r.json();if(j.ok){window._cl=j.text;document.getElementById('clout').textContent=j.text;document.getElementById('ccopy').style.display='inline-block';}
-      else document.getElementById('clout').textContent='❌ '+(j.error||'失敗');}
-    catch(e){document.getElementById('clout').textContent='❌ '+e.message;}btn.disabled=false;btn.textContent=t;}
-  async function advice(btn){const t=btn.textContent;btn.disabled=true;btn.textContent='分析中…';
-    try{const r=await fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})});
-      const j=await r.json();if(j.ok){const d=j.data;
+  async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
+  async function gen(){const btn=document.getElementById('go'),st=document.getElementById('st');
+    btn.disabled=true;st.textContent='產生中…(求職信 + 策略,約30-60秒)';
+    const cover=fetch('/api/cover-letter',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})}).then(r=>r.json());
+    const adv=fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})}).then(r=>r.json());
+    try{
+      const [c,a]=await Promise.all([cover,adv]);
+      if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';}
+      if(a.ok){const d=a.data;
         document.getElementById('adout').innerHTML='<b>該主打作品:</b><br>'+(d.showPortfolio||[]).map(x=>'• '+x).join('<br>')+
           (d.screenshot?'<br><br><b>建議附截圖:</b>'+d.screenshot:'')+
           '<br><br><b>投標應附:</b><br>'+(d.submit||[]).map(x=>'• '+x).join('<br>')+
-          '<br><br><b>報價:</b>'+(d.priceSuggestion||'')+'<br><b>切入角度:</b>'+(d.angle||'');}
-      else document.getElementById('adout').textContent='❌ '+(j.error||'失敗');}
-    catch(e){document.getElementById('adout').textContent='❌ '+e.message;}btn.disabled=false;btn.textContent=t;}
-  async function gen(btn){const t=btn.textContent;btn.disabled=true;btn.textContent='產生中…(30-60秒)';
-    try{const r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})});
-      const j=await r.json();if(j.ok){document.getElementById('gnout').innerHTML='✅ 完成 → <a href="/analysis?id='+(j.id||ID)+'" target="_blank">開啟評估網站 ↗</a>';}
-      else document.getElementById('gnout').textContent='❌ '+(j.error||'失敗');}
-    catch(e){document.getElementById('gnout').textContent='❌ '+e.message;}btn.disabled=false;btn.textContent=t;}
+          '<br><br><b>報價:</b>'+(d.priceSuggestion||'')+'<br><b>切入角度:</b>'+(d.angle||'');
+        document.getElementById('adsect').style.display='block';}
+      st.textContent=(c.ok||a.ok)?'✅ 完成':'❌ '+((c.error||a.error)||'失敗');
+    }catch(e){st.textContent='❌ '+e.message;}
+    btn.disabled=false;}
 </script></body></html>`;
 }
 
@@ -557,17 +652,6 @@ createServer(async (req, res) => {
         return res.end(JSON.stringify({ ok: false, error: e.message }));
       }
     }
-    if (url.pathname === '/api/analyze' && req.method === 'POST') {
-      const { id } = JSON.parse(await readBody(req));
-      const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
-      if (!job) {
-        res.writeHead(404, { 'content-type': 'application/json' });
-        return res.end('{"ok":false,"error":"找不到此案"}');
-      }
-      const r = await analyzeJob(job); // 抓取 + ProxyCLI AI + 產 HTML(較久)
-      res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify(r));
-    }
     if (url.pathname === '/api/cover-letter' && req.method === 'POST') {
       const { id } = JSON.parse(await readBody(req));
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
@@ -599,37 +683,42 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/api/config' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));
-      const cfg = loadConfig();
-      for (const k of CRIT_ORDER) {
-        if (body.weights && body.weights[k] != null) cfg.scoring.criteria[k].weight = Number(body.weights[k]);
+      const cfg = loadConfigRaw(); // 用原始 config,避免把模式覆蓋值寫回
+      const s = cfg.scoring;
+      if (body.mode === 'newbie' || body.mode === 'standard') s.mode = body.mode;
+      // 權重/門檻寫進「目標模式」對應的欄位(預設寫進目前啟用的模式)
+      const target = body.mode || s.mode || 'standard';
+      if (body.weights) {
+        if (target === 'newbie') {
+          s.newbieWeights = s.newbieWeights || {};
+          for (const k of CRIT_ORDER) if (body.weights[k] != null) s.newbieWeights[k] = Number(body.weights[k]);
+        } else {
+          for (const k of CRIT_ORDER) if (body.weights[k] != null && s.criteria[k]) s.criteria[k].weight = Number(body.weights[k]);
+        }
       }
-      if (body.threshold != null) cfg.scoring.threshold = Number(body.threshold);
-      if (body.maybeThreshold != null) cfg.scoring.maybeThreshold = Number(body.maybeThreshold);
+      if (body.threshold != null) { if (target === 'newbie') s.newbieThreshold = Number(body.threshold); else s.threshold = Number(body.threshold); }
+      if (body.maybeThreshold != null) { if (target === 'newbie') s.newbieMaybeThreshold = Number(body.maybeThreshold); else s.maybeThreshold = Number(body.maybeThreshold); }
+      delete cfg.provenTechs; // 不要把衍生欄位寫進檔案
       writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
       rescoreAll();
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
-    if (url.pathname === '/analysis') { // 檢視已產生的評估網站(雲端用)
-      const id = (url.searchParams.get('id') || '').replace(/[^\w-]/g, '');
-      const f = path.join(__dirname, '..', `upwork-${id}-analysis.html`);
-      if (!id || !existsSync(f)) {
-        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-        return res.end('找不到評估網站,請先在案件卡片按「產生評估網站」。');
-      }
+    if (url.pathname === '/job') { // ② 評估(純判斷)
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(readFileSync(f, 'utf8'));
+      return res.end(pageJob((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
     }
-    if (url.pathname === '/job') { // ② 評估整合頁
-      const jid = (url.searchParams.get('id') || '').replace(/[^\w-]/g, '');
+    if (url.pathname === '/proposal') { // ③ 提案(生產)
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageJob(jid));
+      return res.end(pageProposal((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
     }
-    if (url.pathname === '/setup' || url.pathname === '/profile' || url.pathname === '/settings') {
-      // /profile、/settings 為舊路由,導到對應頁籤(back-compat)
-      const tab = url.pathname === '/settings' ? 'scoring' : (url.searchParams.get('tab') || 'profile');
+    if (url.pathname === '/profile') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return res.end(pageSetup(tab));
+      return res.end(pageProfile());
+    }
+    if (url.pathname === '/scoring' || url.pathname === '/settings' || url.pathname === '/setup') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(pageScoring()); // /settings、/setup 舊路由導向(back-compat)
     }
     if (url.pathname === '/reply') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -642,6 +731,6 @@ createServer(async (req, res) => {
     res.end(JSON.stringify({ ok: false, error: e.message }));
   }
 }).listen(PORT, HOST, () => {
-  console.log(`\n🌐 網頁:http://${HOST}:${PORT}   (設定頁:/settings)`);
+  console.log(`\n🌐 網頁:http://${HOST}:${PORT}   (① 列表 / ② 評估 / ③ 提案 / ④ 溝通 ｜ 檔案 · 評分)`);
   console.log(`   登入:${DASH_PASSWORD ? 'ON(需帳密)' : 'OFF(本機開放)'} | ingest 金鑰:${process.env.INGEST_KEY ? 'ON' : 'OFF'}\n   Ctrl+C 關閉。\n`);
 });
