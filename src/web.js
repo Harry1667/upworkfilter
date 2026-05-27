@@ -105,7 +105,7 @@ async function autoTriageIngested(ids) {
   if (_triageBusy || !ids || ids.length === 0) return; // 同時間只跑一輪,避免疊跑
   try {
     const placeholders = ids.map(() => '?').join(',');
-    const rows = db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND id IN (${placeholders})`).all(...ids);
+    const rows = db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND id IN (${placeholders})`).all(...ids);
     if (rows.length === 0) return;
     _triageBusy = true;
     const { triageJobs } = await import('./triage.js');
@@ -328,7 +328,8 @@ function pageJobs() {
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayNew = data.filter((j) => (j.first_seen || '').slice(0, 10) === todayStr).length;
   const todo = data.filter((j) => effectiveVerdict(j).cls === 'APPLY' && !j.applied).length;
-  const untriaged = data.filter((j) => j.ai_score == null).length;
+  const untriaged = data.filter((j) => j.ai_score == null && !j.blocked).length; // 被第二道門擋下的不算待快篩
+  const blockedCount = data.filter((j) => j.blocked).length;
   // 收集母類別 + 子功能(給篩選下拉)
   const allParents = [...new Set(data.map((j) => (j.category || '').trim()).filter(Boolean))].sort();
   const allTags = [...new Set(data.flatMap((j) => (j.tags || '').split(',').map((x) => x.trim()).filter(Boolean)))].sort();
@@ -359,10 +360,11 @@ function pageJobs() {
       const parentHtml = parent ? `<span class="atag parent">📂 ${esc(parent)}</span>` : '';
       const childHtml = jtags.map((t) => `<span class="atag need">${esc(t)}</span>`).join('');
       return `
-      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}">
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
+          ${j.blocked ? '<span class="badge SKIP" title="被第二道門擋下,不進 AI 分析">🚫 超綱</span>' : ''}
           ${j.ai_win != null ? `<span class="winbadge" title="估計中標機率">🎯 ${j.ai_win}%</span>` : ''}
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
@@ -385,13 +387,13 @@ function pageJobs() {
 <header>
   <h1>📋 探索案件 <span class="sub">APPLY ${counts.APPLY || 0} · MAYBE ${counts.MAYBE || 0} · SKIP ${counts.SKIP || 0} · 共 ${data.length} · 門檻 ${cfg.scoring.threshold}</span></h1>
   ${navBar('/')}
-  <div class="flowhint">🆕 今日新案 <b>${todayNew}</b> · ⏳ 待處理(值得投未投) <b>${todo}</b> · 🤖 未 AI 快篩 <b>${untriaged}</b>
+  <div class="flowhint">🆕 今日新案 <b>${todayNew}</b> · ⏳ 待處理(值得投未投) <b>${todo}</b> · 🤖 未 AI 快篩 <b>${untriaged}</b> · 🚫 第二道門擋下 <b>${blockedCount}</b>
     <button class="open" id="triageBtn" style="margin-left:10px" onclick="triage(false)">🤖 AI 快篩${untriaged ? ` (${untriaged})` : ''}</button>
     <span id="trmsg" style="color:var(--mut)"></span>
   </div>
   <div class="filters">
     <button data-f="APPLY" class="on">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
-    <button data-f="SKIP">🔴 排除</button><button data-f="applied">已投</button><button data-f="all">全部</button>
+    <button data-f="SKIP">🔴 排除</button><button data-f="blocked">🚫 超綱</button><button data-f="applied">已投</button><button data-f="all">全部</button>
     <select id="parentFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
       <option value="">📂 全部大類</option>
       ${allParents.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
@@ -411,7 +413,7 @@ function pageJobs() {
   let verdictF='APPLY';
   function applyFilters(){const par=document.getElementById('parentFilter').value,tag=document.getElementById('tagFilter').value,fit=document.getElementById('fitFilter').value;
     cards.forEach(c=>{
-      let okV=verdictF==='all'?1:verdictF==='applied'?c.dataset.applied==='1':c.dataset.verdict===verdictF;
+      let okV=verdictF==='all'?1:verdictF==='applied'?c.dataset.applied==='1':verdictF==='blocked'?c.dataset.blocked==='1':c.dataset.verdict===verdictF;
       let okP=!par||c.dataset.parent===par;
       let okT=!tag||(','+c.dataset.tags+',').indexOf(','+tag+',')>=0;
       let okF=!fit||c.dataset.fit===fit;
@@ -531,7 +533,12 @@ function portfolioRow(it, i) {
 const LEVEL_LABELS = { 5: '5 精通', 4: '4 熟練', 3: '3 能做', 2: '2 勉強', 1: '1 碰過' };
 function pageMe() {
   const p = loadProfile();
-  const cap = p.capability || { skills: [], redlines: [], scaleCeiling: '' };
+  // 線上 profile.json 若還沒有能力資料(剛上線),帶入 profile.example.json 的預設讓你按一次儲存即啟用
+  let cap = p.capability;
+  if (!cap || !(cap.skills || []).length) {
+    try { cap = JSON.parse(readFileSync(path.join(__dirname, '..', 'profile.example.json'), 'utf8')).capability; } catch { /* ignore */ }
+    cap = cap || { skills: [], redlines: [], scaleCeiling: '', searchKeywords: [] };
+  }
   const v = (x) => esc(x == null ? '' : x);
   const lvOptions = (sel) => [5, 4, 3, 2, 1]
     .map((n) => `<option value="${n}"${Number(sel) === n ? ' selected' : ''}>${LEVEL_LABELS[n]}</option>`).join('');
@@ -572,14 +579,42 @@ function pageMe() {
   .reco:hover{border-color:var(--ac)}
   .reco .rs{font-weight:700;font-size:18px;color:var(--grn);min-width:34px;text-align:center}
   .reco .rt{font-weight:600;flex:1}.reco .rr{color:var(--mut);font-size:12px;display:block}
-  .save{background:var(--grn);color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:14px;cursor:pointer;font-weight:600}</style></head><body>
-<header><h1>🎯 我的能力 <span class="sub">「我能做到哪、做得多好」— 決定哪些案在能力圈內、超綱的會被降級標 ⚠️</span></h1>${navBar('/me')}</header>
+  .save{background:var(--grn);color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:14px;cursor:pointer;font-weight:600}
+  .gates{display:flex;align-items:stretch;gap:8px;margin:4px 0 18px}
+  .gate{flex:1;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}
+  .gate.ok{border-color:var(--grn)}.gate b{display:block;font-size:14px}.gate small{color:var(--mut);font-size:12px}
+  .garr{display:flex;align-items:center;color:var(--mut);font-size:20px}</style></head><body>
+<header><h1>🎯 我的能力 <span class="sub">三道門漏斗:① 關鍵字抓源 → ② 能力篩選 → ③ 7維+AI 評分,層層過濾出最適合你的案</span></h1>${navBar('/me')}</header>
 <main class="form">
+  <div class="gates">
+    <div class="gate"><b>🚪 一 · 來源</b><small>關鍵字 → Upwork 搜尋網址 → 貼進擴充功能,只抓進你領域的案</small></div>
+    <div class="garr">→</div>
+    <div class="gate"><b>🎯 二 · 能力</b><small>分級技能 + 紅線,超綱降級標 ⚠️</small></div>
+    <div class="garr">→</div>
+    <div class="gate"><b>📊 三 · 評分+AI</b><small>7 維加權 → AI 快篩 → AI 大分析,最後判 APPLY/MAYBE/SKIP</small></div>
+    <div class="garr">→</div>
+    <div class="gate ok"><b>✅ 到你手上</b><small>完全適合你的案</small></div>
+  </div>
+
+  <h2>🚪 第一道門:案子來源關鍵字</h2>
+  <p class="legend">一行一個關鍵字(英文,Upwork 搜尋用),系統以 OR 串接。建議只放<b>主力(精通/熟練)</b>領域,別太雜。</p>
+  <textarea id="f_kw" style="min-height:150px" oninput="genUrl()">${esc(searchKeywords)}</textarea>
+  <p style="margin:8px 0"><button class="save" style="background:#30363d" onclick="suggestKw()">⚙️ 從分級技能自動建議(level ≥ 4)</button></p>
+  <label>產生的搜尋字串(q)</label>
+  <textarea id="o_q" readonly style="min-height:50px;color:var(--mut)"></textarea>
+  <label>Upwork 搜尋網址 — 複製貼到擴充功能的 <b>Search URL</b> 欄</label>
+  <input id="o_url" readonly style="color:var(--ac)">
+  <p style="margin:8px 0">
+    <button class="save" onclick="copyUrl()">📋 複製搜尋網址</button>
+    <a class="save" id="openUrl" target="_blank" rel="noopener" style="background:#30363d;text-decoration:none;display:inline-block">↗ 在 Upwork 開啟預覽</a>
+    <span id="kwmsg" class="reason"></span>
+  </p>
+
   <h2>🎯 最貼合你能力的案件</h2>
   <p class="legend">依「能力匹配度」分數排序的未投案件(已排除超綱)。點進去評估。</p>
   ${recoHtml}
 
-  <h2>分級技能清單</h2>
+  <h2>🎯 第二道門:分級技能清單</h2>
   <p class="legend">level:<b>5 精通</b>(能在通話辯護每個決策)· <b>4 熟練</b>(獨立交付)· <b>3 能做</b>(需查文件/多點時間)· <b>2 勉強</b>(邊學邊做)· <b>1 碰過</b>。關鍵字用來比對案子文字(小寫)。</p>
   <div id="caps">${skillRows}</div>
   <button class="save" style="background:#30363d" onclick="addCap()">＋ 新增技能</button>
@@ -596,6 +631,31 @@ function pageMe() {
 <script>
   const BASE=${JSON.stringify(p)};
   const LVOPT=${JSON.stringify(lvOptions(4))};
+  const FILTERS=${JSON.stringify(searchFilters)};
+  // 第一道門:關鍵字 → q(OR 串接)→ Upwork 搜尋網址(格式對齊本專案 scraper)
+  function kwList(){return document.getElementById('f_kw').value.split(/[\\n,]/).map(s=>s.trim()).filter(Boolean);}
+  function buildUrl(q){var p=new URLSearchParams();p.set('q',q);
+    if(FILTERS.paymentVerifiedOnly)p.set('payment_verified','1');
+    if(FILTERS.jobType)p.set('t',FILTERS.jobType);
+    if(FILTERS.sort)p.set('sort',FILTERS.sort);
+    return 'https://www.upwork.com/nx/search/jobs/?'+p.toString();}
+  function genUrl(){var q=kwList().join(' OR ');
+    document.getElementById('o_q').value=q;
+    var url=q?buildUrl(q):'';
+    document.getElementById('o_url').value=url;
+    document.getElementById('openUrl').href=url||'#';}
+  function copyUrl(){var u=document.getElementById('o_url').value;
+    if(!u){document.getElementById('kwmsg').textContent='先填關鍵字';return;}
+    navigator.clipboard.writeText(u);document.getElementById('kwmsg').textContent='\\u2705 已複製,貼到擴充功能 Search URL';}
+  // 從分級技能(level>=4)自動建議來源關鍵字:名稱是英文就用名稱,否則用第一個關鍵字
+  function suggestKw(){var out=[];
+    document.querySelectorAll('.cap').forEach(function(c){
+      var lv=Number(c.querySelector('.c_lv').value);if(lv<4)return;
+      var name=c.querySelector('.c_name').value.trim();
+      var kws=c.querySelector('.c_kw').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
+      var term=/^[\\x00-\\x7F]+$/.test(name)?name:(kws[0]||'');
+      if(term)out.push(term);});
+    document.getElementById('f_kw').value=[...new Set(out)].join('\\n');genUrl();}
   function capTpl(){return '<div class="cap"><button class="x" onclick="this.parentNode.remove()">\\u2715</button>'+
     '<input class="c_name" placeholder="技能名稱">'+
     '<select class="c_lv">'+LVOPT+'</select>'+
@@ -608,13 +668,15 @@ function pageMe() {
       keywords:c.querySelector('.c_kw').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)
     })).filter(x=>x.name);
     const redlines=document.getElementById('f_red').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
-    const capability=Object.assign({},BASE.capability||{},{skills:skills,redlines:redlines,scaleCeiling:document.getElementById('f_scale').value.trim()});
+    const searchKeywords=kwList();
+    const capability=Object.assign({},BASE.capability||{},{skills:skills,redlines:redlines,scaleCeiling:document.getElementById('f_scale').value.trim(),searchKeywords:searchKeywords});
     const body=Object.assign({},BASE,{capability:capability});
     const m=document.getElementById('msg');m.textContent='儲存中…重算所有案子(數秒)';
     fetch('/api/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
       .then(r=>r.json()).then(j=>{m.innerHTML=j.ok?'\\u2705 已儲存並重算!→ <a href="/">回列表看新結果</a>':'\\u274c 失敗';
         if(j.ok)setTimeout(()=>location.reload(),900);});
   }
+  genUrl();
 </script></body></html>`;
 }
 
@@ -1302,6 +1364,15 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/profile' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));
       saveProfile(body);
+      // 第一道門:把能力頁的搜尋關鍵字同步寫進 config.searchQueries(本專案 scraper/api-fetch 也用)
+      try {
+        const kws = (body.capability?.searchKeywords || []).filter(Boolean);
+        if (kws.length) {
+          const cfg = loadConfigRaw(); delete cfg.provenTechs; delete cfg.capability;
+          cfg.searchQueries = [kws.join(' OR ')];
+          writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+        }
+      } catch (e) { console.error('同步 searchQueries 失敗:' + e.message); }
       rescoreAll(); // 能力(capability)會影響評分,存檔後重算所有案
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
@@ -1333,6 +1404,11 @@ createServer(async (req, res) => {
       const { id } = JSON.parse(await readBody(req));
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      // 第二道門擋下的案不建議花錢做 AI 大分析(?force=1 可強制)
+      if (job.blocked && url.searchParams.get('force') !== '1') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, blocked: true, error: '此案被第二道門擋下(紅線/能力圈外),不建議花 AI 分析。如確定要分析,加 ?force=1。' }));
+      }
       const r = await analyzeJob(job); // 抓取(雲端用 DB 描述)+ ProxyCLI AI + 產 HTML
       // 以 AI 判斷為準:把 AI 的總分/verdict 存進 DB,卡片/評估頁優先顯示
       if (r.totalScore != null) setAiVerdict(db, id, Number(r.totalScore), r.verdict);
@@ -1342,9 +1418,10 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/triage' && req.method === 'POST') {
       // AI 快篩:便宜模型批次粗評,重排序。預設只篩「還沒 AI 分數」的案;?all=1 重篩全部。
       const body = JSON.parse((await readBody(req)) || '{}');
+      // 第二道門擋下的案(blocked=1)不浪費 AI 快篩
       const rows = body.all
-        ? db.prepare('SELECT * FROM jobs').all()
-        : db.prepare('SELECT * FROM jobs WHERE ai_score IS NULL').all();
+        ? db.prepare('SELECT * FROM jobs WHERE blocked=0').all()
+        : db.prepare('SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0').all();
       if (rows.length === 0) {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end('{"ok":true,"triaged":0,"msg":"沒有待快篩的案"}');

@@ -7,39 +7,84 @@
   "rateNote": "前幾單可略低於客戶習慣價搶第一個評價",
   "bio": "全端工程師,專長 AI 整合與自動化。擅長把商業流程痛點轉成可上線的應用,從 UI 到雲端部署一手包。重視業務邏輯與品質掌控,能在通話中為每個技術決策辯護。",
   "skills": [
-    "React", "Next.js", "Node.js", "TypeScript", "JavaScript", "Express", "FastAPI",
-    "Python", "Flutter", "React Native", "OpenAI API", "Claude API", "Gemini API",
-    "Prompt Engineering", "API Integration", "OCR", "Automation", "Playwright",
-    "PostgreSQL", "Supabase", "Prisma", "SQLite", "Docker", "Nginx", "Oracle Cloud",
-    "OWASP", "Website Security", "n8n", "Webhook"
+    "React",
+    "Next.js",
+    "Node.js",
+    "TypeScript",
+    "JavaScript",
+    "Express",
+    "FastAPI",
+    "Python",
+    "Flutter",
+    "React Native",
+    "OpenAI API",
+    "Claude API",
+    "Gemini API",
+    "Prompt Engineering",
+    "API Integration",
+    "OCR",
+    "Automation",
+    "Playwright",
+    "PostgreSQL",
+    "Supabase",
+    "Prisma",
+    "SQLite",
+    "Docker",
+    "Nginx",
+    "Oracle Cloud",
+    "OWASP",
+    "Website Security",
+    "n8n",
+    "Webhook"
   ],
   "portfolio": [
     {
       "name": "Mentora",
       "type": "Full-Stack AI SaaS",
       "desc": "多角色 AI 導師平台。Next.js + Node.js + PostgreSQL,Clerk 驗證,Docker/Nginx 部署於 Oracle Cloud,含即時邏輯。",
-      "tech": ["Next.js", "Node.js", "PostgreSQL", "Docker", "Clerk"],
+      "tech": [
+        "Next.js",
+        "Node.js",
+        "PostgreSQL",
+        "Docker",
+        "Clerk"
+      ],
       "link": ""
     },
     {
       "name": "CamMenu",
       "type": "AI Mobile App (iOS)",
       "desc": "AI 菜單翻譯 App。Flutter + Gemini 多模態 API 做 OCR,把複雜圖片轉成結構化 JSON,處理 App Store 訂閱上架。",
-      "tech": ["Flutter", "Gemini API", "OCR", "iOS"],
+      "tech": [
+        "Flutter",
+        "Gemini API",
+        "OCR",
+        "iOS"
+      ],
       "link": ""
     },
     {
       "name": "MathBox",
       "type": "Web Tool",
       "desc": "高效能數學視覺化工具。React + Vite + KaTeX,即時 LaTeX 渲染與符號運算。",
-      "tech": ["React", "Vite", "KaTeX"],
+      "tech": [
+        "React",
+        "Vite",
+        "KaTeX"
+      ],
       "link": ""
     },
     {
       "name": "api-dindon (DingDong Call)",
       "type": "Backend / Automation",
       "desc": "醫院叫號通知系統。FastAPI + Celery + Redis,29 家醫院各自爬蟲(共用介面),LINE Bot 推播,Docker Compose 部署。",
-      "tech": ["FastAPI", "Celery", "Redis", "Python", "Docker"],
+      "tech": [
+        "FastAPI",
+        "Celery",
+        "Redis",
+        "Python",
+        "Docker"
+      ],
       "link": ""
     }
   ],
@@ -53,6 +98,268 @@
       "禁用詞:vibe coder、靠 AI、10x speed、做了15個app",
       "強調懂業務邏輯、掌控品質,語氣專業但像真人",
       "長度 70-110 字,精簡"
+    ]
+  },
+  "capability": {
+    "note": "我的能力數值與邊界 — 評分『能力匹配度』與案件推薦用這份。可在 /me 頁編輯。level:5精通/4熟練/3能做/2勉強/1碰過。",
+    "skills": [
+      {
+        "name": "React",
+        "level": 5,
+        "keywords": [
+          "react",
+          "react.js"
+        ]
+      },
+      {
+        "name": "Next.js",
+        "level": 5,
+        "keywords": [
+          "next.js",
+          "nextjs",
+          "next js"
+        ]
+      },
+      {
+        "name": "Node.js",
+        "level": 5,
+        "keywords": [
+          "node.js",
+          "nodejs",
+          "node "
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "level": 5,
+        "keywords": [
+          "typescript"
+        ]
+      },
+      {
+        "name": "JavaScript",
+        "level": 5,
+        "keywords": [
+          "javascript"
+        ]
+      },
+      {
+        "name": "AI 整合 / LLM API",
+        "level": 5,
+        "keywords": [
+          "openai",
+          "claude",
+          "anthropic",
+          "gemini",
+          "llm",
+          "gpt",
+          "prompt"
+        ]
+      },
+      {
+        "name": "自動化 / 爬蟲",
+        "level": 4,
+        "keywords": [
+          "automation",
+          "scraping",
+          "scraper",
+          "playwright",
+          "puppeteer",
+          "n8n",
+          "webhook"
+        ]
+      },
+      {
+        "name": "Express",
+        "level": 4,
+        "keywords": [
+          "express"
+        ]
+      },
+      {
+        "name": "FastAPI / Python",
+        "level": 4,
+        "keywords": [
+          "fastapi",
+          "python",
+          "flask",
+          "django"
+        ]
+      },
+      {
+        "name": "Flutter",
+        "level": 4,
+        "keywords": [
+          "flutter",
+          "dart"
+        ]
+      },
+      {
+        "name": "PostgreSQL / Supabase",
+        "level": 4,
+        "keywords": [
+          "postgresql",
+          "postgres",
+          "supabase",
+          "prisma"
+        ]
+      },
+      {
+        "name": "SQLite",
+        "level": 4,
+        "keywords": [
+          "sqlite"
+        ]
+      },
+      {
+        "name": "Docker / 部署",
+        "level": 4,
+        "keywords": [
+          "docker",
+          "nginx",
+          "deploy",
+          "vps",
+          "oracle cloud"
+        ]
+      },
+      {
+        "name": "OCR / 多模態",
+        "level": 4,
+        "keywords": [
+          "ocr",
+          "vision",
+          "image analysis",
+          "multimodal"
+        ]
+      },
+      {
+        "name": "REST API 整合",
+        "level": 4,
+        "keywords": [
+          "rest api",
+          "api integration",
+          "restful"
+        ]
+      },
+      {
+        "name": "React Native",
+        "level": 3,
+        "keywords": [
+          "react native",
+          "react-native",
+          "expo"
+        ]
+      },
+      {
+        "name": "Redis / MySQL",
+        "level": 3,
+        "keywords": [
+          "redis",
+          "mysql",
+          "celery"
+        ]
+      },
+      {
+        "name": "Firebase",
+        "level": 3,
+        "keywords": [
+          "firebase",
+          "firestore"
+        ]
+      },
+      {
+        "name": "網站安全 / OWASP",
+        "level": 3,
+        "keywords": [
+          "owasp",
+          "security audit",
+          "website security",
+          "penetration"
+        ]
+      },
+      {
+        "name": "Swift / iOS",
+        "level": 3,
+        "keywords": [
+          "swift",
+          "swiftui",
+          "ios native"
+        ]
+      },
+      {
+        "name": "Chrome Extension",
+        "level": 3,
+        "keywords": [
+          "chrome extension",
+          "browser extension"
+        ]
+      },
+      {
+        "name": "Bug 修復 / 小任務",
+        "level": 4,
+        "keywords": [
+          "bug fix",
+          "bug fixing",
+          "fix bug",
+          "small task",
+          "quick fix"
+        ]
+      }
+    ],
+    "redlines": [
+      "wordpress",
+      "woocommerce",
+      "elementor",
+      "shopify",
+      "liquid",
+      "wix",
+      "squarespace",
+      "webflow",
+      "php ",
+      "laravel",
+      "codeigniter",
+      ".net",
+      "c#",
+      "asp.net",
+      "java ",
+      "spring boot",
+      "ruby on rails",
+      "golang",
+      "rust lang",
+      "blockchain",
+      "solidity",
+      "web3",
+      "smart contract",
+      "cryptocurrency",
+      "unity",
+      "unreal",
+      "game development",
+      "3d modeling",
+      "blender",
+      "salesforce",
+      "sap erp",
+      "odoo",
+      "magento",
+      "figma to",
+      "pure design",
+      "logo design",
+      "video editing",
+      "seo only",
+      "social media manager"
+    ],
+    "scaleCeiling": "可獨立承接到中型全棧 SaaS / 行動 App / 自動化系統(MVP 到上線一手包)。不接:需要團隊的大型企業系統、純設計/純行銷/影片案、上述紅線技術棧。",
+    "searchKeywords": [
+      "full stack developer",
+      "Next.js",
+      "React developer",
+      "Node.js",
+      "AI integration",
+      "OpenAI API",
+      "automation",
+      "web scraping",
+      "API integration",
+      "Flutter developer",
+      "bug fix"
     ]
   }
 }

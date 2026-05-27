@@ -66,6 +66,8 @@ export function openDb() {
   try { db.exec('ALTER TABLE jobs ADD COLUMN tags TEXT'); } catch { /* 已存在 */ }
   // 學習迴路:投標結果(applied→ 已回/面試/錄取/未回),供日後校正評分
   try { db.exec('ALTER TABLE jobs ADD COLUMN outcome TEXT'); } catch { /* 已存在 */ }
+  // 🚪 第二道門(能力)硬攔截旗標:1=紅線/能力圈外被擋,AI 快篩/分析會跳過(省成本)
+  try { db.exec('ALTER TABLE jobs ADD COLUMN blocked INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
   return db;
 }
 
@@ -98,7 +100,7 @@ export function upsertJob(db, j) {
       client_spent_text, client_spent_usd, client_hire_rate, client_rating, client_reviews, client_jobs_posted,
       description, matched_skills,
       score_reward, score_skill, score_client, score_competition, score_longterm, score_clarity, score_risk,
-      total_score, verdict, reason,
+      total_score, verdict, reason, blocked,
       enriched, applied, first_seen, last_seen
     ) VALUES (
       $id, $title, $url, $posted_text,
@@ -107,7 +109,7 @@ export function upsertJob(db, j) {
       $client_spent_text, $client_spent_usd, $client_hire_rate, $client_rating, $client_reviews, $client_jobs_posted,
       $description, $matched_skills,
       $sreward, $sskill, $sclient, $scomp, $slong, $sclar, $srisk,
-      $total_score, $verdict, $reason,
+      $total_score, $verdict, $reason, $blocked,
       $enriched, $applied, $first_seen, $last_seen
     )
     ON CONFLICT(id) DO UPDATE SET
@@ -119,7 +121,7 @@ export function upsertJob(db, j) {
       description=$description, matched_skills=$matched_skills,
       score_reward=$sreward, score_skill=$sskill, score_client=$sclient, score_competition=$scomp,
       score_longterm=$slong, score_clarity=$sclar, score_risk=$srisk,
-      total_score=$total_score, verdict=$verdict, reason=$reason,
+      total_score=$total_score, verdict=$verdict, reason=$reason, blocked=$blocked,
       enriched=$enriched, last_seen=$last_seen
   `);
   stmt.run({
@@ -152,6 +154,7 @@ export function upsertJob(db, j) {
     $total_score: j.total_score ?? 0,
     $verdict: j.verdict ?? 'SKIP',
     $reason: j.reason ?? null,
+    $blocked: j.blocked ? 1 : 0,
     $enriched: j.enriched ? 1 : 0,
     $applied: existing ? existing.applied : 0,
     $first_seen: existing ? existing.first_seen : now,

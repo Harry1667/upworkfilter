@@ -50,20 +50,58 @@ function scoreReward(j, rate) {
   return 55; // 預算未知
 }
 
-// ② 能力匹配度:案子文字命中多少你的技能 +「作品契合」加成
+// ② 能力匹配度:案子要求 vs「我的能力(分級)」+ 作品契合加成 + 超綱偵測
+// 兩種模式:
+//  (A) 有 capability.skills(分級技能清單)→ 用「能力數值/邊界」評分(主力 + 紅線)。
+//  (B) 沒有 → 退回舊的關鍵字命中計數(相容)。
 // provenTechs = Profile Agent 從你 GitHub 歸納出的「有真實 repo 證據」技術關鍵字。
-// 設計原則:有真實作品證據 → 適配度↑;只有口頭技能無實作 → 不灌水。
-function scoreSkill(j, mySkills, provenTechs = []) {
+// 設計原則:能力深度(level)決定上限;命中紅線(不碰)技能 → 超綱、封頂。
+const LEVEL_BASE = { 5: 90, 4: 78, 3: 60, 2: 38, 1: 20 }; // 主力技能 level → 基準分
+
+function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
   const text = `${j.title || ''} ${j.description || ''}`.toLowerCase();
-  const matched = [...new Set(mySkills.filter((s) => text.includes(s.toLowerCase())))];
-  const table = [0, 35, 58, 75, 88, 100]; // 命中 0..5+
-  let score = matched.length >= 5 ? 100 : table[matched.length];
+  const inText = (kw) => kw && text.includes(String(kw).toLowerCase());
+
+  // 紅線/不碰:命中即超綱(關鍵字寬鬆,故只降分不直接 SKIP,留人工判斷)
+  const redHit = [...new Set((capability?.redlines || []).filter(inText))];
+
+  const graded = capability?.skills?.length ? capability.skills : null;
+  let score, matched, topLevel = null;
+
+  if (graded) {
+    // (A) 分級能力:命中技能取其 level,最高 level 定基準,其餘深度技能加成
+    const hits = graded
+      .filter((s) => [s.name, ...(s.keywords || [])].some(inText))
+      .map((s) => ({ name: s.name, level: Number(s.level) || 1 }));
+    matched = hits.map((h) => h.name);
+    if (hits.length === 0) {
+      score = 15; // 完全在能力圈外
+    } else {
+      const levels = hits.map((h) => h.level).sort((a, b) => b - a);
+      topLevel = levels[0];
+      const base = LEVEL_BASE[topLevel] ?? 20;
+      const bonus = Math.min(levels.slice(1).filter((l) => l >= 3).length * 8, 20); // 額外夠深技能 +8/項,上限 +20
+      score = Math.min(100, base + bonus);
+    }
+  } else {
+    // (B) 舊邏輯:命中幾個口頭技能
+    matched = [...new Set((mySkills || []).filter((s) => text.includes(s.toLowerCase())))];
+    const table = [0, 35, 58, 75, 88, 100]; // 命中 0..5+
+    score = matched.length >= 5 ? 100 : table[matched.length];
+  }
 
   // 作品契合:案子文字也命中「有 GitHub 證據」的技術 → 每項 +10,最多 +30
-  const proven = [...new Set((provenTechs || []).filter((t) => t && text.includes(String(t).toLowerCase())))];
+  const proven = [...new Set((provenTechs || []).filter(inText))];
   if (proven.length) score = Math.min(100, score + Math.min(proven.length * 10, 30));
 
-  return { score, matched, proven };
+  // 超綱封頂:命中紅線技能 → 能力分大幅降
+  let overscope = false;
+  if (redHit.length) { score = Math.min(score, 22); overscope = true; }
+
+  // 能力圈外:有分級能力清單、但案子文字完全沒命中任何技能 → 不是我的領域
+  const outOfScope = !!(graded && matched.length === 0);
+
+  return { score, matched, proven, overscope, outOfScope, redHit, topLevel };
 }
 
 // ③ 客戶品質:付款驗證 + 花費 + 聘用率 + 評分
@@ -158,7 +196,7 @@ function scoreRisk(j, rate) {
 // 綜合:7 子分 → 加權總分(0-100)→ 依門檻判 APPLY / MAYBE / SKIP
 export function scoreJob(j, config) {
   const C = config.scoring.criteria;
-  const sk = scoreSkill(j, config.mySkills, config.provenTechs);
+  const sk = scoreSkill(j, config.mySkills, config.provenTechs, config.capability);
   const scores = {
     reward: scoreReward(j, config.rate),
     skill: sk.score,
@@ -211,7 +249,18 @@ export function scoreJob(j, config) {
     reason = buildReason(j, sk.matched, '分數不足', scores, sk.proven);
   }
 
-  return { scores, total_score: total, verdict, reason, matched_skills: sk.matched };
+  // 🚪 第二道門(能力)硬攔截:在進 AI 分析前先擋掉。blocked=1 → AI 快篩/分析會跳過(省成本)。
+  // ① 命中紅線(不碰)技能 ② 完全在能力圈外(無任何技能命中)→ 一律 SKIP。
+  let blocked = 0;
+  if (sk.overscope) {
+    verdict = 'SKIP'; blocked = 1;
+    reason = `🚫 第二道門·紅線「${sk.redHit.join('/')}」(不碰)— ${reason}`;
+  } else if (sk.outOfScope) {
+    verdict = 'SKIP'; blocked = 1;
+    reason = `🚫 第二道門·能力圈外(無技能命中,非你的領域)— ${reason}`;
+  }
+
+  return { scores, total_score: total, verdict, reason, blocked, matched_skills: sk.matched };
 }
 
 function buildReason(j, matched, prefix, scores, proven = []) {
