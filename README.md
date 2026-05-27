@@ -149,7 +149,8 @@ Upwork 用 **Cloudflare 互動式 human 檢測**(Turnstile / Managed Challenge)�
 例如搜「chatbot」會歸納出:對話記憶(難度中,Redis/向量DB)、存到 Google Sheet
 (難度低,Sheets API)、下訂單卡片(難度中,Stripe)…並標出每個功能在多少案子出現過。
 
-每個小功能屬性:`難度`(低/中/高)、`常用工具/API`、`出現案數`(頻率)、`相依功能`、`一句話說明`。
+每個小功能屬性:`難度`(低/中/高)、`出現案數`(頻率)、`相依功能`、`一句話說明`,以及工具分兩類:
+**📋 案子點名**(`toolsInJob`,只列描述裡真出現的)與 **💡 AI 建議**(`toolsSuggested`,典型技術棧、AI 推測)。
 
 ```bash
 # CLI:一次可給多個工作類型

@@ -23,7 +23,8 @@
 |---|---|---|
 | `name` | 對話記憶 | 小功能名稱 |
 | `difficulty` | 低 / 中 / 高 | 實作難度（合併時取較高者，保守看待） |
-| `tools` | Redis、pgvector、Stripe | 常用工具 / API / 技術（跨批次聯集） |
+| `toolsInJob` | OpenAI、HubSpot、n8n | **📋 案子點名** — 只列案子描述裡真的出現的工具（忠於原文、grounded） |
+| `toolsSuggested` | pgvector、LangChain | **💡 AI 建議** — 此功能通常會用到、但描述沒提的典型技術（AI 推測，非客戶要求） |
 | `frequency` | 3 | 在掃描過的案子裡出現幾次（頻率，跨批次累加） |
 | `depends` | LLM 整合 | 相依的其他小功能 |
 | `note` | 記住上下文 | 一句話說明 |
@@ -176,12 +177,25 @@ npm run features -- "chatbot" --no-gstack   # 只用 jobs.db，完全不爬
 **解法 / 建議**：主力進案管道是**瀏覽器擴充套件 → `/api/ingest`**（在真實登入瀏覽器抓、CF 不擋、帶完整描述）。
 描述累積越多，功能地圖就長出越多大類。詳見 README「📥 Webhook 接收端點」。
 
-### 問題三：ESM 環境誤用 require
+### 問題三：工具欄混淆「客戶要求」與「AI 推測」
+
+**現象**：第一版 prompt 寫「列出**常用**工具/API」並給範例，等於請 AI 用通用知識填「這功能一般會用什麼」，
+沒限制只能用案子裡的詞。實測 15 個工具只有 5 個真在描述中（Zapier/Make/n8n/HubSpot/Supabase），
+其餘（LangChain/Stripe/pgvector/Salesforce…）是 AI 腦補。結果分不清「客戶點名要」還是「AI 覺得通常用」。
+
+**解法**：工具拆成兩欄、語意分明：
+
+- `toolsInJob`（📋 案子點名）— prompt 嚴格要求「只能放描述裡實際出現的，沒出現就空陣列，絕不腦補」
+- `toolsSuggested`（💡 AI 建議）— AI 的典型技術棧建議，且不得與點名重複
+
+重掃驗證：📋 點名只剩 OpenAI/HubSpot/Zapier/n8n/Make 等真出現的；pgvector/Pinecone/Salesforce/LangChain 正確歸到 💡 建議。
+
+### 問題四：ESM 環境誤用 require
 
 開發中一度在 `gstackReady()` 用了 `require('node:fs')`，但專案是 `"type": "module"`（ESM），`require` 未定義。
 **解法**：改用 `import { existsSync } from 'node:fs'`。
 
-### 問題四：背景伺服器被工作階段回收
+### 問題五：背景伺服器被工作階段回收
 
 用背景工具起的 `npm run web` 會隨工作階段被中止（exit 144）。
 **解法**：改用 `nohup node src/web.js >/tmp/upwork-web.log 2>&1 &` 常駐；關閉用 `lsof -ti:8787 | xargs kill`。

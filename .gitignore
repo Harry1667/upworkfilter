@@ -12,3 +12,6 @@ upwork-*-analysis.html
 last-ingest.json
 deploy-credentials.txt
 profile.json
+
+# 功能地圖掃描結果(執行期資料,各環境獨立累積,勿進版控)
+feature-taxonomy.json
