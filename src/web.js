@@ -1186,8 +1186,8 @@ function pageJob(id) {
     ['預算', job.budget_text], ['類型', job.budget_type], ['提案數', job.proposals_bucket],
     ['付款驗證', job.payment_verified ? '✅ 是' : '❌ 否'], ['客戶花費', job.client_spent_text],
     ['雇用率', job.client_hire_rate != null ? job.client_hire_rate + '%' : null],
-    ['客戶評分', job.client_rating != null ? '★ ' + job.client_rating : null], ['發布', job.posted_text]
-  ].filter(([, v]) => v != null && v !== '');
+    ['客戶評分', job.client_rating != null ? '★ ' + job.client_rating : null], ['發布', formatPosted(job)]
+  ].filter(([, v]) => v != null && v !== '' && v !== '未知');
   const coreCards = core.map(([l, v]) => `<div class="c"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div></div>`).join('');
   const metrics = CRIT_ORDER.map((k) => {
     const v = job[COL[k]] ?? 0;
@@ -1377,7 +1377,9 @@ function normalizeIngest(raw) {
     title: pick(raw, 'title', 'jobTitle', 'name') || '(無標題)',
     url: url || (idm ? `https://www.upwork.com/jobs/_~${idm[1]}/` : ''),
     description: String(desc).slice(0, 8000), // 放寬:長描述的「To Apply/影片題」常在後段,別切掉
-    posted_text: pick(raw, 'posted', 'postedOn', 'publishedDate', 'datePosted', 'createdAt') || null,
+    posted_text: pick(raw, 'datePosted', 'posted', 'postedOn', 'publishedDate', 'createdAt') || null, // 原始相對字串(僅參考,會過期)
+    posted_at: normalizePostedAt(raw), // 絕對時間戳(ISO)— 顯示一律用這個重算,才不會過期
+
     payment_verified: pv === true || /verified|^true$|是/i.test(String(pv ?? '')),
     proposals_bucket: String(pick(raw, 'proposals', 'proposalsBucket', 'applicants', 'totalApplicants') ?? '') || null,
     client_spent_text: spentText ? String(spentText) : null,
@@ -1400,6 +1402,43 @@ function numOrNull(v) {
   if (v == null) return null;
   const n = parseFloat(String(v).replace(/[^\d.]/g, ''));
   return isNaN(n) ? null : n;
+}
+
+// 從 ingest payload 取「發布絕對時間戳」(ISO)。優先用擴充功能算好的 postedAtIso / postedAtMs,
+// 都沒有才從相對字串(Posted N minutes ago)以 scrapedAt(或現在)為錨點回推。
+function normalizePostedAt(raw) {
+  const iso = pick(raw, 'postedAtIso', 'postedAtISO', 'postedAtISOString');
+  if (iso && !isNaN(Date.parse(iso))) return new Date(iso).toISOString();
+  const ms = Number(pick(raw, 'postedAtMs', 'postedAtMS'));
+  if (ms > 0) return new Date(ms).toISOString();
+  const rel = pick(raw, 'datePosted', 'posted', 'postedOn');
+  const anchorRaw = pick(raw, 'scrapedAt', 'scraped_at');
+  const anchor = anchorRaw && !isNaN(Date.parse(anchorRaw)) ? new Date(anchorRaw).getTime() : Date.now();
+  return parseRelativePosted(rel, anchor);
+}
+
+// 把「Posted 8 minutes ago / yesterday / 3 days ago」以錨點時間回推成 ISO
+function parseRelativePosted(str, anchorMs) {
+  if (!str) return null;
+  const s = String(str).toLowerCase();
+  if (/just now|seconds? ago|moments? ago/.test(s)) return new Date(anchorMs).toISOString();
+  if (/yesterday/.test(s)) return new Date(anchorMs - 86400000).toISOString();
+  const m = s.match(/(\d+)\s*(second|minute|hour|day|week|month)s?\s*ago/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  const unit = { second: 1e3, minute: 6e4, hour: 36e5, day: 864e5, week: 6048e5, month: 2592e6 }[m[2]];
+  return new Date(anchorMs - n * unit).toISOString();
+}
+
+// 顯示用:把絕對時間戳依「現在」算成「X 前(台北時間 M/D HH:mm)」;沒有時退回原始字串
+function formatPosted(job) {
+  const iso = job.posted_at;
+  if (!iso || isNaN(Date.parse(iso))) return job.posted_text || '未知';
+  const t = new Date(iso).getTime();
+  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  const rel = min < 1 ? '剛剛' : min < 60 ? `${min} 分鐘前` : min < 1440 ? `${Math.round(min / 60)} 小時前` : `${Math.round(min / 1440)} 天前`;
+  const abs = new Date(t).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${rel}(${abs})`;
 }
 
 function parseBudget(text) {

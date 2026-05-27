@@ -68,6 +68,8 @@ export function openDb() {
   try { db.exec('ALTER TABLE jobs ADD COLUMN outcome TEXT'); } catch { /* 已存在 */ }
   // 🚪 第二道門(能力)硬攔截旗標:1=紅線/能力圈外被擋,AI 快篩/分析會跳過(省成本)
   try { db.exec('ALTER TABLE jobs ADD COLUMN blocked INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
+  // 發布時間「絕對時間戳」(ISO):擴充功能算好的 postedAtIso。posted_text 是會過期的相對字串,顯示一律用這個重算。
+  try { db.exec('ALTER TABLE jobs ADD COLUMN posted_at TEXT'); } catch { /* 已存在 */ }
   return db;
 }
 
@@ -94,7 +96,7 @@ export function upsertJob(db, j) {
   const sc = j.scores || {};
   const stmt = db.prepare(`
     INSERT INTO jobs (
-      id, title, url, posted_text,
+      id, title, url, posted_text, posted_at,
       budget_type, budget_text, hourly_min, hourly_max, fixed_budget,
       proposals_bucket, payment_verified,
       client_spent_text, client_spent_usd, client_hire_rate, client_rating, client_reviews, client_jobs_posted,
@@ -103,7 +105,7 @@ export function upsertJob(db, j) {
       total_score, verdict, reason, blocked,
       enriched, applied, first_seen, last_seen
     ) VALUES (
-      $id, $title, $url, $posted_text,
+      $id, $title, $url, $posted_text, $posted_at,
       $budget_type, $budget_text, $hourly_min, $hourly_max, $fixed_budget,
       $proposals_bucket, $payment_verified,
       $client_spent_text, $client_spent_usd, $client_hire_rate, $client_rating, $client_reviews, $client_jobs_posted,
@@ -113,7 +115,7 @@ export function upsertJob(db, j) {
       $enriched, $applied, $first_seen, $last_seen
     )
     ON CONFLICT(id) DO UPDATE SET
-      title=$title, url=$url, posted_text=$posted_text,
+      title=$title, url=$url, posted_text=$posted_text, posted_at=COALESCE($posted_at, posted_at),
       budget_type=$budget_type, budget_text=$budget_text, hourly_min=$hourly_min, hourly_max=$hourly_max, fixed_budget=$fixed_budget,
       proposals_bucket=$proposals_bucket, payment_verified=$payment_verified,
       client_spent_text=$client_spent_text, client_spent_usd=$client_spent_usd,
@@ -129,6 +131,7 @@ export function upsertJob(db, j) {
     $title: j.title ?? null,
     $url: j.url ?? null,
     $posted_text: j.posted_text ?? null,
+    $posted_at: j.posted_at ?? null,
     $budget_type: j.budget_type ?? 'unknown',
     $budget_text: j.budget_text ?? null,
     $hourly_min: j.hourly_min ?? null,

@@ -231,7 +231,8 @@ export async function analyzeJob(job) {
       `${job.description}\n\n[About the client]\n` +
       `付款驗證:${job.payment_verified ? '是' : '否'} | 評分:${job.client_rating ?? '無'} | ` +
       `聘用率:${job.client_hire_rate ?? '未知'}% | 總花費:${job.client_spent_text ?? '未知'} | ` +
-      `會員/年資:${job.posted_text ?? ''} | 提案數:${job.proposals_bucket ?? '未知'} | 預算:${job.budget_text ?? '未知'}`;
+      `發布時間(絕對,以此為準勿用相對字串):${job.posted_at && !isNaN(Date.parse(job.posted_at)) ? new Date(job.posted_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) : (job.posted_text ?? '未知')} | ` +
+      `提案數:${job.proposals_bucket ?? '未知'} | 預算:${job.budget_text ?? '未知'}`;
   } else {
     snapshot = scrapeJob(job.url); // 本機 fallback(需 gstack)
   }
