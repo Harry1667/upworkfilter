@@ -768,7 +768,10 @@ function pageProposal(id) {
 </header>
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
-  <p class="reason">按下方按鈕一次產生:求職信(引用真實作品)+ 投標策略。約 30-60 秒。</p>
+  <p class="reason">按下方按鈕一次產生:求職信 + 投標策略 + 特殊要求(影片題/指定專案)。約 30-60 秒。</p>
+  <details style="margin:8px 0"><summary style="cursor:pointer;color:var(--mut);font-size:13px">▸ 貼上完整職缺內容(選填,強烈建議)— 抓到影片題/指定專案/篩選問題</summary>
+    <textarea id="descOv" placeholder="從 Upwork 投標頁把完整職缺描述(含 To Apply / 影片題 / 指定專案那段)複製貼進來,提案會更完整準確" style="width:100%;min-height:120px;margin-top:8px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:13px/1.5 inherit"></textarea>
+  </details>
   <p><button class="save" id="go" onclick="gen()">✨ 產生提案</button> <span id="st" class="reason"></span></p>
 
   <div class="sect" id="reqsect" style="display:none;border-color:#bb8009;background:#3a30160d">
@@ -808,9 +811,11 @@ function pageProposal(id) {
   const ID=${JSON.stringify(job.id)};
   async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
   async function gen(){const btn=document.getElementById('go'),st=document.getElementById('st');
+    const descOverride=(document.getElementById('descOv').value||'').trim();
     btn.disabled=true;st.textContent='產生中…(求職信 + 策略,約30-60秒)';
-    const cover=fetch('/api/cover-letter',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})}).then(r=>r.json());
-    const adv=fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})}).then(r=>r.json());
+    const body=JSON.stringify({id:ID,descOverride:descOverride});
+    const cover=fetch('/api/cover-letter',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
+    const adv=fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
     try{
       const [c,a]=await Promise.all([cover,adv]);
       if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';}
@@ -873,7 +878,7 @@ function normalizeIngest(raw) {
     id: String(id).replace(/[^\w-]/g, '').slice(0, 32) || 'j' + Date.now(),
     title: pick(raw, 'title', 'jobTitle', 'name') || '(無標題)',
     url: url || (idm ? `https://www.upwork.com/jobs/_~${idm[1]}/` : ''),
-    description: String(desc).slice(0, 4000),
+    description: String(desc).slice(0, 8000), // 放寬:長描述的「To Apply/影片題」常在後段,別切掉
     posted_text: pick(raw, 'posted', 'postedOn', 'publishedDate', 'datePosted', 'createdAt') || null,
     payment_verified: pv === true || /verified|^true$|是/i.test(String(pv ?? '')),
     proposals_bucket: String(pick(raw, 'proposals', 'proposalsBucket', 'applicants', 'totalApplicants') ?? '') || null,
@@ -982,17 +987,19 @@ createServer(async (req, res) => {
       }
     }
     if (url.pathname === '/api/cover-letter' && req.method === 'POST') {
-      const { id } = JSON.parse(await readBody(req));
+      const { id, descOverride } = JSON.parse(await readBody(req));
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述
       const text = await askAI(coverLetterPrompt(job, loadProfile()));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, text: text.trim() }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {
-      const { id } = JSON.parse(await readBody(req));
+      const { id, descOverride } = JSON.parse(await readBody(req));
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述 → 抓影片題/指定專案
       const data = extractJson(await askAI(advicePrompt(job, loadProfile())));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, data }));
