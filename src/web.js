@@ -240,6 +240,7 @@ const CSS = `
   .save:hover{filter:brightness(1.12);transform:translateY(-1px)}
   .save:active{transform:translateY(0)}
   .save:disabled{opacity:.55;cursor:wait;transform:none;box-shadow:none}
+  .copied{background:var(--grn)!important;color:#fff!important;border-color:var(--grn)!important}
 `;
 
 // 右下角浮動聊天 agent — 注入到每個頁面。client 端自動偵測「目前在哪頁、看哪個案」傳給 /api/chat。
@@ -425,7 +426,7 @@ function pageJobs() {
           ${j.ai_win != null ? `<span class="winbadge ${winCls(j.ai_win)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${j.ai_win}%</span>` : ''}
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
-        <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(j.title)}</a></h2>
+        <h2><a href="/job?id=${j.id}">${esc(j.title)}</a></h2>
         <p class="reason">${esc(j.reason)}</p>
         <div class="atags"><span class="fit ${fit.c}">${fit.t}</span>${parentHtml}${childHtml}</div>
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
@@ -433,7 +434,7 @@ function pageJobs() {
         <div class="acts">
           <a class="open primary" href="/job?id=${j.id}">② 評估 →</a>
           <a class="open" href="/proposal?id=${j.id}">③ 提案 →</a>
-          <a class="open" href="${esc(cleanUrl(j))}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Upwork ↗</a>
+          <a class="open" href="${esc(cleanUrl(j))}" data-url="${esc(cleanUrl(j))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
         </div>
       </article>`;
     })
@@ -681,7 +682,7 @@ function pageMe() {
   <input id="o_url" readonly style="color:var(--ac)">
   <p style="margin:8px 0">
     <button class="save" onclick="copyUrl()">📋 複製搜尋網址</button>
-    <a class="save" id="openUrl" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="background:#30363d;text-decoration:none;display:inline-block">↗ 在 Upwork 開啟預覽</a>
+    <a class="save" id="openUrl" target="_blank" rel="noopener" style="background:#30363d;text-decoration:none;display:inline-block">↗ 在 Upwork 開啟預覽</a>
     <span id="kwmsg" class="reason"></span>
   </p>
 
@@ -966,12 +967,12 @@ function pageFeatures() {
   // 由 jobId 重建「登入後可用」的 Upwork 原案網址(nx 詳情路徑,同 cleanUrl)。
   // sources.url 常被 ingest 汙染(含 span/highlight markup)或是登出版,一律用 jobId 重建。
   const upworkUrl = (id) => `https://www.upwork.com/jobs/~${String(id).replace(/[^\w]/g, '')}`;
-  // 把一組 jobId 渲染成「原案連結清單」:標題 → Upwork 原案,另給內部 ② 評估 連結
+  // 把一組 jobId 渲染成清單:標題 → 站內 ②評估;另給「📋 複製 Upwork」(自己貼開登入版)
   const jobLinks = (ids) => (ids || []).map((id) => {
     const j = srcMap[id] || {};
     const url = upworkUrl(id);
     const title = j.title || id;
-    return `<li><a href="${esc(url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${esc(title)}</a> <a href="/job?id=${esc(id)}" class="ev">②評估</a></li>`;
+    return `<li><a href="/job?id=${esc(id)}">${esc(title)}</a> <a href="${esc(url)}" data-url="${esc(url)}" class="ev" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結">📋複製</a></li>`;
   }).join('') || '<li class="reason">(無紀錄)</li>';
 
   const cats = view.map((c) => {
@@ -1204,7 +1205,7 @@ function jobBarHtml(job, active) {
   const opts = outcomes.map((o) => `<option value="${o}"${(job.outcome || '') === o ? ' selected' : ''}>${o || '— 投標結果 —'}</option>`).join('');
   return `<div class="jobbar">
     ${back}
-    <a href="${esc(cleanUrl(job))}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">🔗 Upwork 原案 ↗</a>
+    <a href="${esc(cleanUrl(job))}" data-url="${esc(cleanUrl(job))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
     <label class="applied"><input type="checkbox" ${job.applied ? 'checked' : ''} onchange="markJob('${job.id}',this.checked)"> 標記已投</label>
     <select onchange="setOutcome('${job.id}',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:13px">${opts}</select>
   </div>
