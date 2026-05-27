@@ -5,9 +5,20 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { openDb, upsertJob } from './db.js';
 import { scoreJob } from './score.js';
+import { loadProfile } from './assist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
+// 套上能力邊界 + 作品證據 + 啟用模式權重,讓 API 抓的案與 web 評分一致(三道門生效)
+try { const p = loadProfile(); config.capability = p.capability || null; config.provenTechs = p.provenTechs || []; } catch { /* 無 profile 時退回舊邏輯 */ }
+{
+  const s = config.scoring || {};
+  if (s.mode === 'newbie' && s.newbieWeights) {
+    for (const k of Object.keys(s.criteria || {})) if (s.newbieWeights[k] != null) s.criteria[k].weight = s.newbieWeights[k];
+    if (s.newbieThreshold != null) s.threshold = s.newbieThreshold;
+    if (s.newbieMaybeThreshold != null) s.maybeThreshold = s.newbieMaybeThreshold;
+  }
+}
 const SESSION_DIR = path.join(__dirname, '..', 'session');
 const CRED_PATH = path.join(SESSION_DIR, 'api-credentials.json');
 const TOKEN_PATH = path.join(SESSION_DIR, 'api-tokens.json');
@@ -15,6 +26,8 @@ const TOKEN_PATH = path.join(SESSION_DIR, 'api-tokens.json');
 const TOKEN_URL = 'https://www.upwork.com/api/v3/oauth2/token';
 const GRAPHQL_URL = 'https://api.upwork.com/graphql';
 const RAW = process.argv.includes('--raw');
+// `--detail <ciphertext>`:抓單一職缺詳情,用來探測 API 有沒有吐「篩選問題」欄位
+const DETAIL = (() => { const i = process.argv.indexOf('--detail'); return i >= 0 ? (process.argv[i + 1] || '').trim() : null; })();
 
 // ── token 管理:過期自動用 refresh_token 換新 ──────────────────────────────
 async function getAccessToken() {
@@ -74,6 +87,23 @@ query SearchJobs($filter: MarketplaceJobPostingsSearchFilter, $pagination: Pagin
   }
 }`;
 
+// 逐案詳情查詢 — 探測 API 是否吐「篩選問題 / 額外問題」。
+// 先用基本欄位確認 detail 端點可用;可用後再逐一加候選欄位(additionalQuestions / questions /
+// preferredQualifications…),用 --raw 對照官方 schema 微調(Upwork schema 偶爾會變)。
+const QUERY_DETAIL = `
+query JobDetail($id: ID!) {
+  marketplaceJobPosting(id: $id) {
+    id
+    title
+    description
+    createdDateTime
+    # ↓ 待 key 到手、確認上面可用後,逐一取消註解測試「篩選問題」是否存在:
+    # additionalQuestions { question }
+    # questions
+    # preferredQualifications
+  }
+}`;
+
 async function gql(token, query, variables) {
   const r = await fetch(GRAPHQL_URL, {
     method: 'POST',
@@ -100,6 +130,9 @@ function mapNode(n) {
     title: n.title,
     url: id ? `https://www.upwork.com/jobs/_~${id}/` : null,
     description: (n.description || '').slice(0, 4000),
+    // 發布時間:API 的 createdDateTime 是「確切時間戳」,直接存 posted_at(顯示時依現在重算)
+    posted_at: n.createdDateTime && !isNaN(Date.parse(n.createdDateTime)) ? new Date(n.createdDateTime).toISOString() : null,
+    posted_text: n.createdDateTime || null,
     payment_verified: /VERIFIED/i.test(n.client?.verificationStatus || ''),
     proposals_bucket: bucketize(n.totalApplicants),
     client_spent_text: spent != null ? `$${spent}` : null,
@@ -135,6 +168,17 @@ function bucketize(n) {
 
 async function main() {
   const token = await getAccessToken();
+
+  // 探針模式:npm run api:fetch -- --detail <ciphertext>  → 印出單案詳情原始回應
+  if (DETAIL) {
+    const id = DETAIL.startsWith('~') ? DETAIL : '~' + DETAIL;
+    console.log('🔎 抓單案詳情(探測篩選問題欄位):', id);
+    const data = await gql(token, QUERY_DETAIL, { id });
+    console.log(JSON.stringify(data, null, 2));
+    console.log('\n提示:若成功,逐一打開 QUERY_DETAIL 裡註解的候選欄位再跑,看哪個能取到篩選問題。');
+    return;
+  }
+
   const db = openDb();
   const seen = new Map();
 
