@@ -15,22 +15,59 @@ const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
 try { if (existsSync(path.join(__dirname, '..', '.env'))) process.loadEnvFile(path.join(__dirname, '..', '.env')); } catch {}
 const PORT = Number(process.env.PORT) || 8787;
 const HOST = process.env.HOST || '127.0.0.1';
-const DASH_USER = process.env.DASH_USER || 'admin';
-const DASH_PASSWORD = process.env.DASH_PASSWORD || ''; // 設了才啟用 dashboard 登入
 const db = openDb();
 
-// dashboard 登入(HTTP Basic Auth)。/api/ingest 不走這個(用 INGEST_KEY)。
-function checkDashAuth(req, res) {
-  if (!DASH_PASSWORD) return true; // 沒設密碼 = 本機開放
-  const h = req.headers.authorization || '';
-  const m = h.match(/^Basic (.+)$/);
-  if (m) {
-    const [u, p] = Buffer.from(m[1], 'base64').toString('utf8').split(':');
-    if (u === DASH_USER && p === DASH_PASSWORD) return true;
-  }
-  res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Upwork Job Finder"', 'content-type': 'text/plain; charset=utf-8' });
-  res.end('需要登入');
-  return false;
+// ── 共用驗證服務 hdw-auth(auth.twloop.com)整合 ──
+// 後端打 /auth/login 拿 JWT → 存 HttpOnly cookie → 每次請求用 /auth/verify 驗(加快取省往返)
+const AUTH_URL = process.env.AUTH_URL || 'https://auth.twloop.com';
+const NO_AUTH = process.env.NO_AUTH === '1'; // 本機開發可關閉登入
+const _verifyCache = new Map(); // token -> { user, until }
+
+function getCookie(req, name) {
+  const m = (req.headers.cookie || '').match(new RegExp('(?:^|; )' + name + '=([^;]+)'));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+async function authLogin(identifier, password) {
+  const r = await fetch(`${AUTH_URL}/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ identifier, password })
+  });
+  const b = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(b.error || '登入失敗');
+  return b; // { token, user }
+}
+async function authVerify(token) {
+  if (!token) return null;
+  const c = _verifyCache.get(token);
+  if (c && c.until > Date.now()) return c.user;
+  try {
+    const r = await fetch(`${AUTH_URL}/auth/verify`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token })
+    });
+    const b = await r.json();
+    const user = b.valid ? b.user : null;
+    if (user) _verifyCache.set(token, { user, until: Date.now() + 5 * 60 * 1000 }); // 快取 5 分
+    return user;
+  } catch { return null; }
+}
+async function authLogout(token) {
+  _verifyCache.delete(token);
+  try { await fetch(`${AUTH_URL}/auth/logout`, { method: 'POST', headers: { authorization: `Bearer ${token}` } }); } catch { /* ignore */ }
+}
+// 設/清 auth cookie(https 才加 Secure;本站目前 http)
+function authCookie(req, token) {
+  const secure = (req.headers['x-forwarded-proto'] === 'https') ? '; Secure' : '';
+  if (token) return `auth=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 7}${secure}`;
+  return `auth=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`;
+}
+// 守衛:登入才放行。未登入 → 頁面導向 /login、API 回 401
+async function requireAuth(req, res, isApi) {
+  if (NO_AUTH) return { id: 'dev', email: 'dev', name: 'dev', isAdmin: true };
+  const user = await authVerify(getCookie(req, 'auth'));
+  if (user) return user;
+  if (isApi) { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"ok":false,"error":"請先登入"}'); }
+  else { res.writeHead(302, { Location: '/login' }); res.end(); }
+  return null;
 }
 
 // 原始 config(未套用模式)— 寫入時用,避免把模式覆蓋值存回檔案
@@ -243,6 +280,39 @@ function effectiveVerdict(j) {
     return { score: j.ai_score, scoreMax: 10, verdict: aiVerdictShort(j.ai_verdict), note: j.ai_verdict, cls: aiVerdictClass(j.ai_verdict), isAi: true };
   }
   return { score: j.total_score, scoreMax: 100, verdict: j.verdict, note: '', cls: j.verdict, isAi: false };
+}
+
+// 登入頁(免登入)— 表單 POST /api/login,成功設 cookie 後進 dashboard
+function pageLogin() {
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登入 — Upwork 接案助手</title><style>${CSS}
+  .box{max-width:360px;margin:12vh auto;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:28px}
+  .box h1{font-size:20px;margin:0 0 4px;display:block}.box p{color:var(--mut);font-size:13px;margin:0 0 18px}
+  .box label{display:block;color:var(--mut);font-size:13px;margin:12px 0 4px}
+  .box input{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:11px;font-size:14px}
+  .box button{width:100%;margin-top:18px;background:var(--ac);color:#fff;border:0;padding:12px;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer}
+  .box .err{color:#f85149;font-size:13px;margin-top:10px;min-height:18px}</style></head><body>
+<div class="box">
+  <h1>🎯 Upwork 接案助手</h1>
+  <p>請登入(共用帳號 · auth.twloop.com)</p>
+  <form onsubmit="return go(event)">
+    <label>帳號(Email 或名稱)</label>
+    <input id="id" autocomplete="username" autofocus>
+    <label>密碼</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <button type="submit" id="btn">登入</button>
+    <div class="err" id="err"></div>
+  </form>
+</div>
+<script>
+  async function go(e){e.preventDefault();const btn=document.getElementById('btn'),err=document.getElementById('err');
+    err.textContent='';btn.disabled=true;btn.textContent='登入中…';
+    try{const r=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({identifier:document.getElementById('id').value.trim(),password:document.getElementById('pw').value})});
+      const j=await r.json();
+      if(j.ok)location.href='/'; else{err.textContent='❌ '+(j.error||'帳號或密碼錯誤');btn.disabled=false;btn.textContent='登入';}}
+    catch(ex){err.textContent='❌ '+ex.message;btn.disabled=false;btn.textContent='登入';}
+    return false;}
+</script></body></html>`;
 }
 
 function pageJobs() {
@@ -523,7 +593,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}</nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}<a href="/logout" style="margin-left:6px">登出</a></nav>`;
 }
 
 // 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
@@ -963,9 +1033,31 @@ createServer(async (req, res) => {
     res.writeHead(204);
     return res.end();
   }
-  // /api/ingest 用 INGEST_KEY 驗證(擴充套件用);其餘頁面/API 用 dashboard 登入
-  if (url.pathname !== '/api/ingest' && !checkDashAuth(req, res)) return;
   try {
+    // ── 公開端點(免登入)──
+    if (url.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"ok":true}'); }
+    if (url.pathname === '/login') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(pageLogin()); }
+    if (url.pathname === '/api/login' && req.method === 'POST') {
+      try {
+        const { identifier, password } = JSON.parse(await readBody(req));
+        const { token } = await authLogin(identifier, password);
+        res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': authCookie(req, token) });
+        return res.end('{"ok":true}');
+      } catch (e) {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: e.message || '登入失敗' }));
+      }
+    }
+    if (url.pathname === '/logout') {
+      await authLogout(getCookie(req, 'auth'));
+      res.writeHead(302, { Location: '/login', 'set-cookie': authCookie(req, '') });
+      return res.end();
+    }
+    // /api/ingest 用 INGEST_KEY(擴充套件);其餘頁面/API 一律要登入(hdw-auth JWT cookie)
+    if (url.pathname !== '/api/ingest') {
+      const user = await requireAuth(req, res, url.pathname.startsWith('/api/'));
+      if (!user) return;
+    }
     if (url.pathname === '/api/mark') {
       markApplied(db, url.searchParams.get('id'), url.searchParams.get('applied') === '1');
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -1176,5 +1268,5 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, HOST, () => {
   console.log(`\n🌐 網頁:http://${HOST}:${PORT}   (① 列表 / ② 評估 / ③ 提案 / ④ 溝通 ｜ 檔案 · 評分)`);
-  console.log(`   登入:${DASH_PASSWORD ? 'ON(需帳密)' : 'OFF(本機開放)'} | ingest 金鑰:${process.env.INGEST_KEY ? 'ON' : 'OFF'}\n   Ctrl+C 關閉。\n`);
+  console.log(`   登入:${NO_AUTH ? 'OFF(NO_AUTH)' : 'hdw-auth ' + AUTH_URL} | ingest 金鑰:${process.env.INGEST_KEY ? 'ON' : 'OFF'}\n   Ctrl+C 關閉。\n`);
 });
