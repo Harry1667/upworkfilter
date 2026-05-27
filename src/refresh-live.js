@@ -44,11 +44,13 @@ function scrape(url) {
 }
 
 // 從即時頁文字解析「會變動的欄位」
-function parseLive(text) {
+// gstack 快照是無障礙樹(含 @eNN 節點 id 與 [type] 標記)→ 先清掉避免 \d+ 誤抓到節點號(@e46→46)
+function parseLive(raw) {
+  const text = String(raw).replace(/@e\d+/g, ' ').replace(/\[[^\]]*\]/g, ' ');
   const live = {};
-  const prop = text.match(/Proposals:?\s*\n?\s*(Less than 5|\d+\s*to\s*\d+|\d+\+|\d+)/i);
+  const prop = text.match(/Proposals:[\s\S]{0,80}?(Less than \d+|Fewer than \d+|\d+\s*to\s*\d+|\d+\+|\d+)/i);
   if (prop) live.proposals_bucket = prop[1].replace(/\s+/g, ' ').trim();
-  const intv = text.match(/Interviewing:?\s*\n?\s*(\d+)/i);
+  const intv = text.match(/Interviewing:?\s*(\d+)/i);
   if (intv) live.interviewing = parseInt(intv[1], 10);
   const hire = text.match(/(\d+)%\s*hire rate/i);
   if (hire) live.client_hire_rate = parseInt(hire[1], 10);
@@ -68,8 +70,8 @@ function parseLive(text) {
 async function main() {
   const arg = process.argv[2];
   if (!arg) { console.error('用法:npm run refresh -- <jobId 或 Upwork 網址>'); process.exit(1); }
-  const idm = String(arg).match(/~?0?(\d{16,})/);
-  const id = (arg.match(/[~_](\d{16,})/) || idm || [])[1] || arg.replace(/[^\d]/g, '');
+  // 取完整數字 id(保留前導 0,Upwork ciphertext 常以 02… 開頭)
+  const id = (String(arg).match(/(\d{15,})/) || [])[1] || String(arg).replace(/[^\d]/g, '');
   const url = /^https?:/.test(arg) ? arg : `https://www.upwork.com/jobs/~${id}/`;
 
   console.log('🌐 gstack 開即時頁:', url);
