@@ -85,17 +85,26 @@ function fetchDescription(url) {
 }
 
 // 主來源:從 jobs.db 撈關鍵字相符、且有描述的案子
+// 從 jobs.db 撈關鍵字相符的案子。
+// 匹配策略(由精到寬):① 完整片語命中 →(不足才)② 全部關鍵字都命中 →(再不足才)③ 任一命中。
+// 用意:多字關鍵字(如「web scraping」)要先抓「真的在講這個」的案子,而不是只命中「web」就一堆泛案進來。
 function jobsFromDb(query, limit) {
   try {
     const db = openDb();
-    const words = query.split(/\s+(?:OR|AND)\s+|\s+/i).map((w) => w.trim()).filter((w) => w.length > 2);
     const rows = db.prepare('SELECT id, title, url, description FROM jobs WHERE description IS NOT NULL AND length(description) > 100').all();
     db.close?.();
-    const hit = rows.filter((r) => {
-      const hay = (r.title + ' ' + r.description).toLowerCase();
-      return words.some((w) => hay.includes(w.toLowerCase()));
-    });
-    return hit.slice(0, limit);
+    const phrase = query.toLowerCase().replace(/\s+(?:OR|AND)\s+/gi, ' ').trim();
+    const words = phrase.split(/\s+/).map((w) => w.trim()).filter((w) => w.length > 2);
+    const hay = (r) => (r.title + ' ' + r.description).toLowerCase();
+
+    const byPhrase = rows.filter((r) => hay(r).includes(phrase));
+    if (byPhrase.length >= 3 || words.length <= 1) return byPhrase.slice(0, limit);
+
+    const byAll = rows.filter((r) => words.every((w) => hay(r).includes(w)));
+    if (byAll.length >= 3) return byAll.slice(0, limit);
+
+    const byAny = rows.filter((r) => words.some((w) => hay(r).includes(w)));
+    return byAny.slice(0, limit);
   } catch {
     return [];
   }
@@ -138,13 +147,18 @@ function supplementWithGstack(query, have, need) {
 }
 
 // 把一個關鍵字的案子分批餵 AI,合併進 taxonomy
+// 🔑 大類名「依關鍵字釘住」:用第一批 AI 命名的大類,強制套用到同關鍵字的後續批次,
+//    避免每批各自命名 → 同一關鍵字裂成多個大類(碎片化)。
 async function scanQuery(tax, query, jobs) {
   if (!jobs.length) { console.log(`   ⚠️ 「${query}」沒有可用描述,略過。`); return; }
   console.log(`   🧠 AI 萃取功能(${jobs.length} 案,分 ${Math.ceil(jobs.length / BATCH)} 批)…`);
+  let pinnedName = null; // 第一批決定大類名,之後全部釘在這個名字
   for (let i = 0; i < jobs.length; i += BATCH) {
     const batch = jobs.slice(i, i + BATCH);
     try {
       const data = extractJson(await askAI(extractPrompt(query, batch)));
+      if (!pinnedName) pinnedName = data?.category?.name?.trim() || query;
+      data.category = { name: pinnedName }; // 釘住:所有批次合進同一大類
       const cat = mergeBatch(tax, query, data, batch);
       saveTaxonomy(tax); // 每批存一次,中途失敗也不白做
       process.stdout.write(`   ✓ ${cat.name}:累積 ${Object.keys(cat.features).length} 個功能\n`);
