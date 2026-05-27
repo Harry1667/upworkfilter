@@ -300,7 +300,8 @@ const CHAT_WIDGET = `
 // 送出 HTML 頁面並注入浮動聊天 agent(統一入口)
 function serveHtml(res, htmlStr) {
   const out = String(htmlStr).replace('</body>', CHAT_WIDGET + '</body>');
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  // no-store:頁面是動態資料(連結/分數會改版),禁止瀏覽器快取 HTML,避免拿到舊連結
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, must-revalidate' });
   res.end(out);
 }
 
@@ -1789,7 +1790,7 @@ createServer(async (req, res) => {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         return res.end('尚未產生 AI 詳細分析。');
       }
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(readFileSync(f, 'utf8'));
     }
     if (url.pathname === '/job') { // ② 評估(判斷 + AI 詳細分析)
