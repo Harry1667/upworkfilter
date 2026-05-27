@@ -1215,11 +1215,14 @@ function pageJob(id) {
     : `規則快篩 ${job.total_score}/100 · ${job.verdict}`;
   const aid = String(id).replace(/[^\w-]/g, '');
   const hasAnalysis = existsSync(path.join(__dirname, '..', `upwork-${aid}-analysis.html`));
+  const age = ageInfo(job.last_seen);
   const core = [
-    ['預算', job.budget_text], ['類型', job.budget_type], ['提案數', job.proposals_bucket],
+    ['預算', job.budget_text], ['類型', job.budget_type],
+    [age.stale ? '提案數(抓取時·恐已增)' : '提案數(抓取時)', job.proposals_bucket],
     ['付款驗證', job.payment_verified ? '✅ 是' : '❌ 否'], ['客戶花費', job.client_spent_text],
     ['雇用率', job.client_hire_rate != null ? job.client_hire_rate + '%' : null],
-    ['客戶評分', job.client_rating != null ? '★ ' + job.client_rating : null], ['發布', formatPosted(job)]
+    ['客戶評分', job.client_rating != null ? '★ ' + job.client_rating : null], ['發布', formatPosted(job)],
+    ['資料抓取', age.text]
   ].filter(([, v]) => v != null && v !== '' && v !== '未知');
   const coreCards = core.map(([l, v]) => `<div class="c"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div></div>`).join('');
   const metrics = CRIT_ORDER.map((k) => {
@@ -1264,6 +1267,7 @@ function pageJob(id) {
   </div>
 
   <h2>核心數據</h2>
+  ${age.stale ? `<div class="worth bad">📸 競爭數據是「${age.text}抓的快照」。提案數/面試數會隨時間暴增(尤其熱門案)— <b>投標前務必到 Upwork 看即時 Proposals / Interviewing</b>,別只信這裡的「${esc(job.proposals_bucket || '?')}」。客戶花費/評分/預算等則穩定可信。</div>` : ''}
   <div class="cards">${coreCards}</div>
 
   <h2>勝率估計(接不接得到)</h2>
@@ -1515,6 +1519,14 @@ function parseRelativePosted(str, anchorMs) {
   const n = parseInt(m[1], 10);
   const unit = { second: 1e3, minute: 6e4, hour: 36e5, day: 864e5, week: 6048e5, month: 2592e6 }[m[2]];
   return new Date(anchorMs - n * unit).toISOString();
+}
+
+// 資料新鮮度:距 last_seen(最後一次抓到)多久。超過 3 小時 → 提案/競爭數據可能已過時。
+function ageInfo(iso) {
+  if (!iso || isNaN(Date.parse(iso))) return { text: '未知', stale: true };
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  const text = min < 60 ? `${min} 分鐘前` : min < 1440 ? `${Math.round(min / 60)} 小時前` : `${Math.round(min / 1440)} 天前`;
+  return { text, stale: min >= 180 };
 }
 
 // 顯示用:把絕對時間戳依「現在」算成「X 前(台北時間 M/D HH:mm)」;沒有時退回原始字串
