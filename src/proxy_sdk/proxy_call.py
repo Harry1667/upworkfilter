@@ -26,9 +26,10 @@ def main():
 
     ch = grpc.secure_channel(host, grpc.ssl_channel_credentials())
     stub = rpc.AIProxyStub(ch)
+    max_tokens = int(os.environ.get("AI_PROXY_MAX_TOKENS", "6000"))
     req = pb.CompletionRequest(
         provider=provider, tier=tier, prompt=prompt,
-        project=project, group=group, max_tokens=2000,
+        project=project, group=group, max_tokens=max_tokens,
     )
     md = [("authorization", "Bearer " + token)]
     # 用串流避開 server 端 unary 60 秒上限(產整頁 HTML 會超過)
