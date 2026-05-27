@@ -769,6 +769,7 @@ function pageProposal(id) {
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
   <p class="reason">按下方按鈕一次產生:求職信 + 投標策略 + 特殊要求(影片題/指定專案)。約 30-60 秒。</p>
+  <p class="reason" style="background:#13233b;border:1px solid var(--ac);border-radius:8px;padding:10px 12px">💬 <b>想要更自然、能來回修改、且自動列出「這個 apply 每一欄要填什麼」的求職信?</b> 點右下角 💬 助手,把 Upwork 投標頁內容貼進去,說「幫我投這個案」—— 它會列出每個欄位 + 各寫一份草稿,你不滿意就叫它改。(下面這個是一次性版本,適合快速參考)</p>
   <details style="margin:8px 0"><summary style="cursor:pointer;color:var(--mut);font-size:13px">▸ 貼上完整職缺內容(選填,強烈建議)— 抓到影片題/指定專案/篩選問題</summary>
     <textarea id="descOv" placeholder="從 Upwork 投標頁把完整職缺描述(含 To Apply / 影片題 / 指定專案那段)複製貼進來,提案會更完整準確" style="width:100%;min-height:120px;margin-top:8px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:13px/1.5 inherit"></textarea>
   </details>
