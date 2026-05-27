@@ -815,10 +815,11 @@ const pick = (o, ...keys) => {
 
 const ID_RE = /~([0-9a-f]+)/i;
 
-// 把職缺連結整理成乾淨的正式網址(去掉 SEO slug 與追蹤參數)
+// 職缺連結 → 用「登入後 app 視圖」路徑(/nx/...),這樣在你已登入的瀏覽器會帶登入狀態、能直接看完整內容/投標
+// (公開格式 /jobs/_~ID/ 常顯示登出版)
 function cleanUrl(j) {
   const m = String(j.url || '').match(ID_RE);
-  return m ? `https://www.upwork.com/jobs/_~${m[1]}/` : (j.url || '');
+  return m ? `https://www.upwork.com/nx/search/jobs/details/~${m[1]}` : (j.url || '');
 }
 
 // 把外部 webhook 送來的一筆職缺,正規化成我們的 job 物件
