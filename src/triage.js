@@ -19,8 +19,10 @@ function userBrief(p) {
 }
 
 function jobLine(j) {
-  return `[id:${j.id}] ${j.title || ''} | 預算:${j.budget_text || '?'} | 提案:${j.proposals_bucket || '?'} | ` +
-    `客戶花費:${j.client_spent_text || '?'} | 內容:${String(j.description || '').replace(/\s+/g, ' ').slice(0, 400)}`;
+  return `[id:${j.id}] ${j.title || ''}\n` +
+    `  預算:${j.budget_text || '?'} | 提案數:${j.proposals_bucket || '?'} | 付款驗證:${j.payment_verified ? '是' : '否'} | ` +
+    `客戶花費:${j.client_spent_text || '?'} | 客戶評分:${j.client_rating ?? '?'} | 雇用率:${j.client_hire_rate ?? '?'}%\n` +
+    `  內容:${String(j.description || '').replace(/\s+/g, ' ').slice(0, 1200)}`;
 }
 
 function buildPrompt(jobs, p) {
@@ -35,7 +37,7 @@ ${userBrief(p)}
 ${jobs.map(jobLine).join('\n')}
 
 只輸出一個 JSON 陣列,每個職缺一個物件,不要任何解說或 markdown 圍欄:
-[{"id":"原樣回傳該案 id","score":0到10一位小數,"verdict":"強力接|可接|觀望|略過","reason":"≤20字繁中,點出關鍵理由"}]`;
+[{"id":"原樣回傳該案 id","score":0到10一位小數(整體值不值得),"win":0到100整數(這位新手實際中標機率,綜合競爭/契合/客戶願不願給新手機會),"verdict":"強力接|可接|觀望|略過","reason":"≤20字繁中,點出關鍵理由"}]`;
 }
 
 function extractArray(s) {
@@ -60,7 +62,9 @@ export async function triageJobs(jobs, { batchSize = 6, onProgress } = {}) {
         if (!r || r.id == null) continue;
         const score = Math.max(0, Math.min(10, Number(r.score)));
         if (Number.isNaN(score)) continue;
-        results.push({ id: String(r.id), score, verdict: String(r.verdict || '').trim() || '觀望', reason: String(r.reason || '').slice(0, 40) });
+        let win = Math.round(Number(r.win));
+        win = Number.isNaN(win) ? null : Math.max(0, Math.min(100, win));
+        results.push({ id: String(r.id), score, win, verdict: String(r.verdict || '').trim() || '觀望', reason: String(r.reason || '').slice(0, 40) });
       }
     } catch (e) {
       console.error(`快篩批次 ${i / batchSize + 1} 失敗:${e.message}`);

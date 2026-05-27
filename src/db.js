@@ -57,15 +57,24 @@ export function openDb() {
   for (const col of [...SCORE_COLS]) {
     try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col} INTEGER`); } catch { /* 已存在 */ }
   }
-  // AI 詳細分析的判斷(0-10 + verdict),產生分析後寫入;規則重算不會覆蓋
+  // AI 判斷(0-10 + verdict + 中標機率),產生分析/快篩後寫入;規則重算不會覆蓋
   try { db.exec('ALTER TABLE jobs ADD COLUMN ai_score REAL'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN ai_verdict TEXT'); } catch { /* 已存在 */ }
+  try { db.exec('ALTER TABLE jobs ADD COLUMN ai_win INTEGER'); } catch { /* 已存在 */ }
+  // 學習迴路:投標結果(applied→ 已回/面試/錄取/未回),供日後校正評分
+  try { db.exec('ALTER TABLE jobs ADD COLUMN outcome TEXT'); } catch { /* 已存在 */ }
   return db;
 }
 
-// 寫入 AI 詳細分析的判斷(供卡片/評估頁優先顯示)
-export function setAiVerdict(db, id, score, verdict) {
-  db.prepare('UPDATE jobs SET ai_score = ?, ai_verdict = ? WHERE id = ?').run(score ?? null, verdict ?? null, id);
+// 寫入 AI 判斷(score 0-10、verdict、win 中標機率 0-100)。供卡片/評估頁優先顯示
+export function setAiVerdict(db, id, score, verdict, win) {
+  db.prepare('UPDATE jobs SET ai_score = ?, ai_verdict = ?, ai_win = ? WHERE id = ?')
+    .run(score ?? null, verdict ?? null, win ?? null, id);
+}
+
+// 學習迴路:標記投標結果
+export function setOutcome(db, id, outcome) {
+  db.prepare('UPDATE jobs SET outcome = ? WHERE id = ?').run(outcome ?? null, id);
 }
 
 // 讀回 job 物件(重算評分用)

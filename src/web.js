@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
@@ -71,7 +71,7 @@ async function autoTriageIngested(ids) {
     const { triageJobs } = await import('./triage.js');
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
     const res = await triageJobs(rows);
-    for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict);
+    for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win);
     console.log(`🤖 自動快篩完成:${res.length} 案`);
   } catch (e) {
     console.error('自動快篩失敗:' + e.message);
@@ -113,6 +113,7 @@ const CSS = `
   .score{font-size:24px;font-weight:700;min-width:40px}.score .smax{font-size:13px;color:var(--mut);font-weight:400}
   .aitag{font-size:10px;font-weight:700;background:#2d2150;color:#b392f0;padding:2px 7px;border-radius:5px;border:1px solid #4a3a6a;letter-spacing:.5px}
   .pill{display:inline-block;background:#0d1117;border:1px solid var(--bd);border-radius:14px;padding:3px 11px;font-size:13px;margin:3px 4px 0 0}
+  .winbadge{font-size:12px;font-weight:600;background:#0d2818;color:#3fb950;border:1px solid #1f5c38;border-radius:6px;padding:2px 8px}
   .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px}
   .badge.APPLY{background:#1a3a26;color:#3fb950}.badge.MAYBE{background:#3a3016;color:#d29922}.badge.SKIP{background:#21262d;color:#8b949e}
   .applied{margin-left:auto;font-size:13px;color:var(--mut);cursor:pointer;user-select:none}
@@ -265,6 +266,7 @@ function pageJobs() {
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
+          ${j.ai_win != null ? `<span class="winbadge" title="估計中標機率">🎯 ${j.ai_win}%</span>` : ''}
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
         <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
@@ -617,8 +619,14 @@ function pageReply() {
 </script></body></html>`;
 }
 
-// 規則式勝率估計(不花 AI)— 給新手一個「接不接得到」的直覺
+// 勝率估計 — 有 AI 中標機率(ai_win)就用它,否則用規則粗估
 function winRateHint(job) {
+  if (job.ai_win != null) {
+    const pct = job.ai_win;
+    const level = pct >= 70 ? '高' : pct >= 45 ? '中' : '低';
+    const color = pct >= 70 ? 'var(--grn)' : pct >= 45 ? 'var(--ylw)' : '#f85149';
+    return { pct, level, color, note: 'AI 估計(綜合競爭/契合/客戶意願)' };
+  }
   const comp = job.score_competition ?? 0;     // 競爭越低分越高(提案少)
   const skill = job.score_skill ?? 0;          // 能力匹配(含作品契合)
   const client = job.score_client ?? 0;
@@ -638,11 +646,15 @@ function winRateHint(job) {
 // 共用:單一案頂部資訊列(評估/提案頁共用)
 function jobBarHtml(job, active) {
   const back = active === '/proposal' ? `<a href="/job?id=${job.id}">← 回評估</a>` : `<a href="/">← 回列表</a>`;
+  const outcomes = ['', '已投待回', '已回覆', '面試中', '已錄取', '沒回/落選'];
+  const opts = outcomes.map((o) => `<option value="${o}"${(job.outcome || '') === o ? ' selected' : ''}>${o || '— 投標結果 —'}</option>`).join('');
   return `<div class="jobbar">
     ${back}
     <a href="${esc(cleanUrl(job))}" target="_blank" rel="noopener">🔗 Upwork 原案 ↗</a>
     <label class="applied"><input type="checkbox" ${job.applied ? 'checked' : ''} onchange="markJob('${job.id}',this.checked)"> 標記已投</label>
-  </div>`;
+    <select onchange="setOutcome('${job.id}',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:13px">${opts}</select>
+  </div>
+  <script>function setOutcome(id,v){fetch('/api/outcome?id='+id+'&outcome='+encodeURIComponent(v),{method:'POST'});}</script>`;
 }
 const notFoundPage = (title, active, id) => `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${CSS}</style></head><body>
 <header><h1>${title}</h1>${navBar(active)}</header>
@@ -899,6 +911,11 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
+    if (url.pathname === '/api/outcome') { // 學習迴路:記投標結果
+      setOutcome(db, url.searchParams.get('id'), url.searchParams.get('outcome') || null);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
     if (url.pathname === '/api/ingest') {
       if (req.method === 'GET') { // 健康檢查 / 測試用
         res.writeHead(200, { 'content-type': 'application/json' });
@@ -1038,7 +1055,7 @@ createServer(async (req, res) => {
       }
       const { triageJobs } = await import('./triage.js');
       const results = await triageJobs(rows);
-      for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict);
+      for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, triaged: results.length, candidates: rows.length }));
     }
