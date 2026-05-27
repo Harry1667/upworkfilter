@@ -6,7 +6,7 @@ import path from 'node:path';
 import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
-import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
+import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, advicePrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1169,7 +1169,8 @@ function pageProposal(id) {
           '<br><br><b>🖼️ 該主打作品:</b><br>'+(d.showPortfolio||[]).map(x=>'• '+x).join('<br>')+
           (d.screenshot?'<br><b>建議附截圖:</b>'+d.screenshot:'')+
           '<br><br><b>📎 投標應附:</b><br>'+(d.submit||[]).map(x=>'• '+x).join('<br>')+
-          '<br><br><b>🎯 切入角度:</b>'+(d.angle||'');
+          '<br><br><b>🎯 切入角度:</b>'+(d.angle||'')+
+          (d.winStrategy?'<br><br><b>🏆 勝率策略:</b>'+d.winStrategy:'');
         document.getElementById('adsect').style.display='block';}
       st.textContent=(c.ok||a.ok)?'✅ 完成':'❌ '+((c.error||a.error)||'失敗');
     }catch(e){st.textContent='❌ '+e.message;}
@@ -1350,9 +1351,13 @@ createServer(async (req, res) => {
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述
-      const text = await askAI(coverLetterPrompt(job, loadProfile()));
+      const prof = loadProfile();
+      const draft = await askAI(coverLetterPrompt(job, prof));        // ① 草稿
+      let text = draft;
+      try { text = await askAI(coverLetterRefinePrompt(draft, job, prof)); } // ② 自我批改改寫(失敗就退回草稿)
+      catch (e) { console.error('求職信批改失敗,用草稿:' + e.message); }
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, text: text.trim() }));
+      return res.end(JSON.stringify({ ok: true, text: (text || draft).trim() }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));

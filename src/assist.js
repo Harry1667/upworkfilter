@@ -82,6 +82,30 @@ ${jobBrief(job)}
 只輸出 cover letter 英文本文,不要任何中文說明、不要標題、不要引號。`;
 }
 
+// ①b 求職信自我批改 — 拿 draft 對照規則挑錯再改寫,輸出更好的最終版
+export function coverLetterRefinePrompt(draft, job, p) {
+  return `你是嚴格的 Upwork 求職信編輯。下面是一封給這個職缺的英文 cover letter 草稿。
+請先在心裡逐項檢查問題,再輸出**改寫後的最終版**(只輸出英文本文,不要中文、不要標題、不要引號、不要列出問題):
+
+檢查清單(發現就修掉):
+- 公式化/套版開頭(如 "Your challenge is...", "I am excited to...", "I came across your job")→ 改成直接點客戶的具體情境。
+- 浮誇/空話(唯一精通、10x、靠 AI、vibe coder、game-changer、passion、I'm confident)→ 刪掉或換成具體事實。
+- 太業務感、像罐頭、沒講到這個客戶的真實細節 → 重寫得像真人資深工程師在聊。
+- 沒有用 1 個最相關的真實作品當證據、沒給具體做法、結尾沒問一個好回答的問題 → 補上。
+- 過長 → 壓到 70-110 字。
+
+職缺:
+${jobBrief(job)}
+
+我的真實作品(引用要真實):
+${(p.provenCapabilities || []).slice(0, 8).map((c) => `- ${c.repo}:${c.capability}`).join('\n') || (p.portfolio || []).map((x) => `- ${x.name}:${x.desc}`).join('\n')}
+
+草稿:
+"""${String(draft).slice(0, 1500)}"""
+
+只輸出改寫後的英文 cover letter 本文。`;
+}
+
 // ② 投標策略 — 對齊 Upwork 提案表單真正要填的欄位 + 偵測「特殊投標要求」
 export function advicePrompt(job, p) {
   const gh = p.githubUser ? `https://github.com/${p.githubUser}` : '';
@@ -92,8 +116,14 @@ export function advicePrompt(job, p) {
     `客戶:花費 ${job.client_spent_text || '?'}、評分 ${job.client_rating ?? '無'}、聘用率 ${job.client_hire_rate ?? '?'}%`,
     `完整描述:\n${(job.description || '').slice(0, 4000)}`
   ].join('\n');
+  const win = job.ai_win != null ? `${job.ai_win}%` : '未估';
   return `你是 Upwork 接案顧問。根據「我的檔案」和「這個職缺的完整描述」,產出投標要填的內容。
 **特別注意**:仔細讀描述裡的「To Apply / Required / 申請方式 / 篩選問題」段落 —— 很多案有特殊投標要求(要錄影片回答、要按指定格式寫一個專案說明、要回答特定問題、地點/資格偏好)。**務必抓出來,別讓使用者漏掉**。
+
+【此案估計中標率:${win}】先用這個務實判斷:
+- 中標率低(<40%)→ winStrategy 要老實說「值不值得燒 Connects」+「唯一可能贏的差異化打法(沒有就建議略過)」。
+- 中標率中(40-60%)→ 給「怎麼提高勝算」的具體一招。
+- 中標率高(≥60%)→ 給「怎麼穩拿、別搞砸」的提醒。
 
 除了 recentExperience / screeningDraft / videoScripts 的可貼內容用**英文**,其餘用**繁體中文**。只輸出 JSON:
 {
@@ -104,6 +134,7 @@ export function advicePrompt(job, p) {
  "profileHighlights":["挑 4 個最貼合的能力標籤(每個≤6字)"],
  "bid":"報價建議,務必分兩段給:(1)『新手搶單價』= 實際該 bid 的數字(關鍵:使用者是 ${p.level || 'Upwork 新手, 0 評價'},就算這活值更多,0 評價新手報太高幾乎贏不了 → 報價要務實、貼近客戶預算或略高,目標是先拿下第一個 5 星;不要建議贏不了的高價)。(2)『有評價後的合理價』= 這活客觀值多少(供日後參考)。比較客戶預算 vs 我的 profile rate $${p.hourlyRate || 20},一句話講清楚為何這樣報",
  "angle":"切入角度/差異化(1句)",
+ "winStrategy":"根據上面中標率的務實建議(1-2句,繁中):低→值不值得投+差異化或略過;中→提高勝算一招;高→穩拿提醒",
  "applyRequirements":["這案的特殊投標要求,逐條短列(繁中,每條≤30字)。例:需錄3段影片回答(自我介紹/如何用Claude/工時)、需按指定格式寫一個專案說明、客戶偏好地點印尼(僅優先非硬性,台灣時區仍可投)。沒有特殊要求就回空陣列。只列出『要求是什麼』,不要寫長篇草稿"]
 }
 
