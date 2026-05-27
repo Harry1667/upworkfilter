@@ -186,7 +186,7 @@ const CHAT_WIDGET = `
     var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/features':'功能地圖','/profile':'我的檔案','/scoring':'評分設定','/assistant':'助手'};
     return {page:(m[p]||p),jobId:id};}
   function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
-  // 安全渲染輕量 markdown(先 escape 防 XSS,再轉粗體/換行;# 與 ` 去掉)
+  // 安全渲染輕量 markdown(先 escape 防 XSS,再轉粗體/換行;移除井號與反引號)
   function md(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>').replace(/\`([^\`]+)\`/g,'$1').replace(/^#+\\s*/gm,'').replace(/\\n/g,'<br>');}
   function setText(el,role,text){if(role==='user')el.textContent=text;else el.innerHTML=md(text);}
