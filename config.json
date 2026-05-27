@@ -122,9 +122,12 @@
     "delayMsBetweenDetails": 2500
   },
   "featureScan": {
-    "note": "功能地圖掃描:每個關鍵字爬幾個案、每批幾案餵一次 AI(算功能出現頻率)",
+    "note": "功能地圖掃描。主來源=jobs.db(CF-safe);DB 不足時才用 gstack 低頻補抓",
     "maxJobsPerQuery": 12,
     "batchSize": 5,
-    "delayMsBetweenDetails": 2000
+    "minDbJobs": 5,
+    "gstackSupplement": true,
+    "gstackFetchLimit": 8,
+    "gstackDelaySeconds": 3
   }
 }

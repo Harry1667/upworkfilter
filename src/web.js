@@ -539,16 +539,25 @@ function pageJob(id) {
 </main>
 <script>
   const ID=${JSON.stringify(job.id)}, AID=${JSON.stringify(aid)};
+  let anTimer;
   async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
   function fit(f){try{f.style.height=(f.contentWindow.document.body.scrollHeight+40)+'px';}catch(e){}}
-  async function genAn(){const m=document.getElementById('anmsg');m.textContent='產生中…抓取+AI(約30-60秒,勿關閉)';
+  function showIframe(){clearInterval(anTimer);document.getElementById('anwrap').innerHTML=
+    '<iframe id="anframe" src="/analysis?id='+AID+'&t='+Date.now()+'" onload="fit(this)"></iframe>'+
+    '<p style="margin-top:8px"><button class="save" style="background:#30363d;padding:7px 14px;font-size:13px" onclick="genAn()">🔄 重新產生</button> <span id="anmsg" class="reason"></span></p>';}
+  // 連線中斷時:後端可能已在背景產生,探測 /analysis 是否已有檔
+  async function probeOrFail(m,btns){
+    try{const c=await fetch('/analysis?id='+AID+'&t='+Date.now(),{method:'HEAD'});if(c.ok){showIframe();return;}}catch(e){}
+    m.textContent='❌ 連線逾時(AI 這次較慢)。請按「重新整理」或再產生一次。';btns.forEach(b=>b.disabled=false);}
+  async function genAn(){const m=document.getElementById('anmsg');
+    const btns=document.querySelectorAll('#anwrap button');btns.forEach(b=>b.disabled=true);
+    let s=0;m.textContent='產生中…抓取+AI(勿關閉) 0s';
+    anTimer=setInterval(()=>{m.textContent='產生中…抓取+AI(勿關閉) '+(++s)+'s';},1000);
     try{const r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})});
-      const j=await r.json();
-      if(j.ok){m.textContent='';document.getElementById('anwrap').innerHTML=
-        '<iframe id="anframe" src="/analysis?id='+AID+'&t='+Date.now()+'" onload="fit(this)"></iframe>'+
-        '<p style="margin-top:8px"><button class="save" style="background:#30363d;padding:7px 14px;font-size:13px" onclick="genAn()">🔄 重新產生</button> <span id="anmsg" class="reason"></span></p>';}
-      else m.textContent='❌ '+(j.error||'失敗');}
-    catch(e){m.textContent='❌ '+e.message;}}
+      clearInterval(anTimer);
+      if(r.ok){const j=await r.json();if(j.ok)showIframe();else{m.textContent='❌ '+(j.error||'失敗');btns.forEach(b=>b.disabled=false);}}
+      else await probeOrFail(m,btns);}
+    catch(e){clearInterval(anTimer);await probeOrFail(m,btns);}}
 </script></body></html>`;
 }
 

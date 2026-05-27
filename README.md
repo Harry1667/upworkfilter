@@ -70,6 +70,8 @@ src/
   score.js         評分引擎(四訊號 + 硬排除)
   report.js        npm run report
   db.js            SQLite 資料層
+  taxonomy.js      功能地圖資料層(feature-taxonomy.json)
+  scan-features.js npm run features
 ```
 
 ## ⚠️ 關於 Cloudflare(務必看)
@@ -141,6 +143,31 @@ Upwork 用 **Cloudflare 互動式 human 檢測**(Turnstile / Managed Challenge)�
 
 > 重點:餵進**完整資料**時評分才準(seed 的薄資料會讓清晰度/報酬維度偏低)。擴充套件抓的是完整職缺,評分最有鑑別度。
 
+## 🧩 功能地圖(feature taxonomy)
+
+把同類型案子彙整成「**大功能類別 → 小功能**」的需求地圖,**只記錄功能、不開發**。
+例如搜「chatbot」會歸納出:對話記憶(難度中,Redis/向量DB)、存到 Google Sheet
+(難度低,Sheets API)、下訂單卡片(難度中,Stripe)…並標出每個功能在多少案子出現過。
+
+每個小功能屬性:`難度`(低/中/高)、`常用工具/API`、`出現案數`(頻率)、`相依功能`、`一句話說明`。
+
+```bash
+# CLI:一次可給多個工作類型
+npm run features -- "chatbot" "voice assistant" "web scraping"
+npm run features -- "chatbot" --no-gstack   # 只用 jobs.db,完全不爬
+
+# 或網頁:npm run web → 開 /features → 輸入關鍵字按「掃描功能」
+```
+
+**資料來源(和本專案「能過 Cloudflare」策略一致,不直爬):**
+1. **主來源 = `jobs.db`** — 擴充套件 ingest / seed 累積的完整描述,CF-safe、零爬取。
+2. **補抓 = gstack 指紋瀏覽器** — 只在 DB 同類案子不足(`featureScan.minDbJobs`)時,
+   低頻、低量抓幾筆(`gstackFetchLimit`),能過 CF。需先在主視窗 `/open-gstack-browser` 並登入。
+3. ❌ **不用 raw Playwright 直爬** — 那條路被 Cloudflare 互動檢測擋、量大會被封。
+
+> 想要功能地圖更準,先讓擴充套件多 feed 幾個同類案子進 `jobs.db`(描述越完整越好)。
+> 設定在 `config.json` 的 `featureScan` 區塊;結果存 `feature-taxonomy.json`(可 git 版控)。
+
 ## 指令總表
 
 ```bash
@@ -150,6 +177,7 @@ npm run seed     # 用已收集的真實案子寫入 DB(CF 擋住時的務實做
 npm run report   # 看值得投的案子
 npm run report -- maybe | all | skip | applied
 npm run report -- mark <id>   # 標記已投
-npm run web      # 開網頁(含評分設定頁 + 「產生評估網站」按鈕)
+npm run web      # 開網頁(含評分設定頁 + 「產生評估網站」按鈕 + 🧩 功能地圖)
 npm run analyze -- <id>   # 對某案產生接案評估網站
+npm run features -- "chatbot" "voice assistant"   # 功能地圖:歸納同類案子需要哪些功能
 ```

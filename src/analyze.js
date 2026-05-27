@@ -1,7 +1,7 @@
 // 把一個 Upwork 職缺做成「接案評估網站」(HTML)
 // 流程:gstack browse 抓職缺 → ProxyCLI(hdw-proxycli)AI 分析 → 產出單一 HTML → 開啟
 // 對應技能:harry-upworkweb(分析架構)+ proxycli(AI 代理)
-import { execFileSync, exec } from 'node:child_process';
+import { execFileSync, execFile, exec } from 'node:child_process';
 import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -178,22 +178,26 @@ function extractJson(s) {
 }
 
 // 呼叫 ProxyCLI(gRPC)— 透過 Python helper(proxy_call.py),prompt 從 stdin 餵入
+// 用「非同步」execFile:不阻塞 Node 事件迴圈(否則 AI 產生時整個伺服器會凍結,連刷新都卡住)
 function callProxy(env, prompt) {
   const helper = path.join(__dirname, 'proxy_sdk', 'proxy_call.py');
-  try {
-    const out = execFileSync('python3', [helper], {
-      input: prompt,
+  return new Promise((resolve, reject) => {
+    const child = execFile('python3', [helper], {
       env: { ...process.env },
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
       timeout: 200000
+    }, (err, stdout, stderr) => {
+      if (err) {
+        const msg = (stderr || err.message || '').toString().trim();
+        return reject(new Error(msg || 'ProxyCLI 呼叫失敗'));
+      }
+      if (!stdout || !stdout.trim()) return reject(new Error('ProxyCLI 回應為空'));
+      resolve(stdout);
     });
-    if (!out || !out.trim()) throw new Error('ProxyCLI 回應為空');
-    return out;
-  } catch (e) {
-    const msg = (e.stderr || e.message || '').toString().trim();
-    throw new Error(msg || 'ProxyCLI 呼叫失敗');
-  }
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
 }
 
 // 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
