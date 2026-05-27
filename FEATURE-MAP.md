@@ -25,7 +25,8 @@
 | `difficulty` | 低 / 中 / 高 | 實作難度（合併時取較高者，保守看待） |
 | `toolsInJob` | OpenAI、HubSpot、n8n | **📋 案子點名** — 只列案子描述裡真的出現的工具（忠於原文、grounded） |
 | `toolsSuggested` | pgvector、LangChain | **💡 AI 建議** — 此功能通常會用到、但描述沒提的典型技術（AI 推測，非客戶要求） |
-| `frequency` | 3 | 在掃描過的案子裡出現幾次（頻率，跨批次累加） |
+| `jobIds` | ["0220…","0220…"] | **溯源** — 哪些案子需要此功能（AI 標出本批案子編號 → 映射成 jobId） |
+| `frequency` | 3 | 需求案數 = `jobIds` 去重後的數量（比 AI 自報更準、自洽） |
 | `depends` | LLM 整合 | 相依的其他小功能 |
 | `note` | 記住上下文 | 一句話說明 |
 
@@ -43,7 +44,7 @@
 | `config.json` | ✏️ 修改 | 加 `featureScan` 設定區塊 |
 | `package.json` | ✏️ 修改 | 加 `npm run features` |
 | `README.md` | ✏️ 修改 | 加「🧩 功能地圖」章節 |
-| `feature-taxonomy.json` | 執行後產生 | 掃描結果（可 git 版控、人類可讀） |
+| `feature-taxonomy.json` | 執行後產生 | 掃描結果（**已 .gitignore** — 執行期資料，各環境獨立累積） |
 
 ### 模組相依
 
@@ -78,8 +79,10 @@ web.js
           "id": "對話記憶",
           "name": "對話記憶",
           "difficulty": "中",
-          "tools": ["Redis", "pgvector"],
-          "frequency": 8,
+          "toolsInJob": ["OpenAI", "HubSpot"],
+          "toolsSuggested": ["pgvector", "Redis"],
+          "jobIds": ["0220…", "0220…", "0220…"],
+          "frequency": 3,
           "depends": ["LLM 整合"],
           "note": "記住上下文"
         }
@@ -99,11 +102,20 @@ web.js
 
 同一功能在不同批次重複出現時：
 
-- `frequency` → **累加**（反映真實出現次數）
-- `tools` / `depends` → **聯集去重**
+- `jobIds` → **聯集去重**；`frequency` = `jobIds` 數量（自洽，不灌水）
+- `toolsInJob` / `toolsSuggested` / `depends` → **聯集去重**
 - `difficulty` → **取較高**（低 < 中 < 高，保守看待風險）
 - `note` → 保留既有，空才補新
 - `sources` → 依 jobId 去重，`jobCount` = 該大類不重複來源數
+
+### 溯源（traceability）
+
+兩層都能從 `/features` 點回 Upwork 原案：
+
+- **大類層級** — 每個大類底部「📄 此大類來源案子」，來自 `sources`（依 category 篩）。
+- **功能層級** — 每個小功能旁「📄 來源 N 案」，來自 `feature.jobIds`。
+- AI 萃取時被要求標出「每個功能對應本批哪些案子（1-based 編號）」，`mergeBatch` 把編號映射回真實 `jobId`。
+- 渲染時由 `jobId` **重建乾淨的 Upwork 網址**（`_~<id>`），不信任可能被 ingest 汙染的 `sources.url`。
 
 ---
 
@@ -200,6 +212,28 @@ npm run features -- "chatbot" --no-gstack   # 只用 jobs.db，完全不爬
 用背景工具起的 `npm run web` 會隨工作階段被中止（exit 144）。
 **解法**：改用 `nohup node src/web.js >/tmp/upwork-web.log 2>&1 &` 常駐；關閉用 `lsof -ti:8787 | xargs kill`。
 
+### 問題六：同一關鍵字裂成多個大類（碎片化）
+
+**現象**：一個關鍵字若命中超過 `batchSize`（5）個案子會分多批餵 AI，而每批讓 AI **各自命名大類**
+→ slug 不同 → 同一關鍵字裂成 3+ 個近似大類（實測 web scraping、CRM 各裂成 3 類）。
+
+**解法**：`scanQuery` 用**第一批**的 AI 大類名「釘住」，強制套用到同關鍵字的後續批次 → 一關鍵字 = 一大類。
+
+### 問題七：寬鬆匹配撈進一堆泛案
+
+**現象**：`jobsFromDb` 原本「任一關鍵字命中即可」，多字關鍵字如「web scraping」只要命中「web」
+就把一堆泛 SaaS 案撈進來，大類被稀釋、命名失焦。
+
+**解法**：匹配改「**片語 → 全字 → 任一**」由精到寬，命中數 ≥ 3 就停在較精的層級。
+
+### 問題八：溯源連結指向壞網址
+
+**現象**：部分案子經擴充套件 ingest 時，`url` 欄被混入搜尋結果的 `span-class-highlight` HTML markup，
+導致溯源連結指向 `…/jobs/span-class-highlight-span-A` 這種壞網址。
+
+**解法**：渲染時不信任 `sources.url`，改由 `jobId` **重建** `https://www.upwork.com/jobs/_~<id>/`；
+僅當 stored url 是乾淨 upwork job 連結時才沿用。純渲染修正，免重掃。
+
 ---
 
 ## 6. 進案數據的 4 個管道（全繞開 CF 直爬）
@@ -215,17 +249,22 @@ npm run features -- "chatbot" --no-gstack   # 只用 jobs.db，完全不爬
 
 ## 7. 驗證紀錄（2026-05-27）
 
-- `node --check` 三個檔案語法通過
-- 合併邏輯 smoke test：frequency 累加、tools 聯集、難度取高、jobCount 去重 ✓
-- 實跑 `npm run features -- "full stack" --no-gstack`：2 案 → **AI 萃取出 1 大類、12 個小功能**
-  （含難度／工具／頻率／相依），整條 `jobs.db → AI → JSON → 功能地圖` 鏈路打通 ✓
-- `/features` 網頁 HTTP 200，正確渲染萃取結果 ✓
+- `node --check` 語法通過；合併 smoke test：jobIds 聯集、frequency=jobIds 數、工具分欄、難度取高 ✓
+- **線上實跑 12 工類**（chatbot / web scraping / CRM / RAG agent / shopify / flutter / whatsapp /
+  n8n / voice / SEO / Next.js SaaS / API integration），`--no-gstack` 純讀伺服器 90 案 DB →
+  **12 個大類、一鍵一類、零裂類** ✓
+- 溯源驗證：功能「互動式聊天評估」→ `jobIds` 3 案、連結重建為乾淨 `…/jobs/_~0220…/` ✓
+- 線上 `/features` 服務健康（302 導 SSO 登入,預期）✓
 
 ---
 
 ## 8. 已知限制與下一步
 
 - **資料量**：功能地圖品質正比於 `jobs.db` 裡同類案子的描述數量。先把擴充套件接上累積資料。
-- **gstack 依賴**：補抓需先在主視窗 `/open-gstack-browser` 並登入 Upwork。
-- **AI 依賴**：萃取走 ProxyCLI（`.env` 的 `AI_PROXY_TOKEN` / `AI_PROXY_PROJECT`），單請求 60 秒上限 → 採分批設計。
-- 後續可考慮：跨大類的「共用功能」彙整、功能 → 我的作品集對照（哪些功能我已有現成方案）、匯出成接案能力清單。
+- **大類偏大/失焦**：某關鍵字字面案子少（如 web scraping）時,片語匹配不足 3 筆會退回寬鬆匹配,
+  撈進較泛的案子 → 大類變大、命名偏泛。對策:針對該類補餵案子進 DB 後,單獨重掃該關鍵字。
+- **線上掃描才會上線**：`/features` 讀伺服器的 `feature-taxonomy.json`(已 gitignore)。
+  掃描要在伺服器跑(`--no-gstack`,純讀 server 的 `jobs.db`);本機掃的不會同步上去。
+- **gstack 依賴**：補抓需先在主視窗 `/open-gstack-browser` 並登入 Upwork(雲端無 gstack,只能讀 DB)。
+- **AI 依賴**:萃取走 ProxyCLI(`.env` 的 `AI_PROXY_TOKEN` / `AI_PROXY_PROJECT`),單請求 60 秒上限 → 採分批設計。
+- 後續可考慮:跨大類的「共用功能」彙整、功能 → 我的作品集對照(哪些功能我已有現成方案)、匯出成接案能力清單。
