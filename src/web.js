@@ -154,6 +154,8 @@ const CSS = `
   .aitag{font-size:10px;font-weight:700;background:#2d2150;color:#b392f0;padding:2px 7px;border-radius:5px;border:1px solid #4a3a6a;letter-spacing:.5px}
   .pill{display:inline-block;background:#0d1117;border:1px solid var(--bd);border-radius:14px;padding:3px 11px;font-size:13px;margin:3px 4px 0 0}
   .winbadge{font-size:12px;font-weight:600;background:#0d2818;color:#3fb950;border:1px solid #1f5c38;border-radius:6px;padding:2px 8px}
+  .winbadge.win-mid{background:#3a3016;color:#d29922;border-color:#5c4a1f}
+  .winbadge.win-lo{background:#3a1d1d;color:#f85149;border-color:#5c2626}
   .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px}
   .badge.APPLY{background:#1a3a26;color:#3fb950}.badge.MAYBE{background:#3a3016;color:#d29922}.badge.SKIP{background:#21262d;color:#8b949e}
   .applied{margin-left:auto;font-size:13px;color:var(--mut);cursor:pointer;user-select:none}
@@ -262,6 +264,8 @@ function serveHtml(res, htmlStr) {
 }
 
 function trackCls(v) { return v < 34 ? 'track low' : v < 67 ? 'track mid' : 'track'; }
+// 中標率配色:<40 低(紅,丟了也沒意義)、40-59 中(黃)、≥60 高(綠)
+function winCls(w) { return w < 40 ? 'win-lo' : w < 60 ? 'win-mid' : ''; }
 
 // AI verdict 可能夾帶說明(如「觀望 - 預算不符…」)→ 用關鍵字判定,不做精確比對
 function aiVerdictShort(v) {
@@ -360,12 +364,12 @@ function pageJobs() {
       const parentHtml = parent ? `<span class="atag parent">📂 ${esc(parent)}</span>` : '';
       const childHtml = jtags.map((t) => `<span class="atag need">${esc(t)}</span>`).join('');
       return `
-      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${j.ai_win ?? -1}" data-sortscore="${ev.isAi ? ev.score * 10 : ev.score}" data-seen="${esc(j.last_seen || '')}">
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
           ${j.blocked ? '<span class="badge SKIP" title="被第二道門擋下,不進 AI 分析">🚫 超綱</span>' : ''}
-          ${j.ai_win != null ? `<span class="winbadge" title="估計中標機率">🎯 ${j.ai_win}%</span>` : ''}
+          ${j.ai_win != null ? `<span class="winbadge ${winCls(j.ai_win)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${j.ai_win}%</span>` : ''}
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
         <h2><a href="${esc(cleanUrl(j))}" target="_blank" rel="noopener">${esc(j.title)}</a></h2>
@@ -405,6 +409,11 @@ function pageJobs() {
     <select id="fitFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
       <option value="">🎯 全部適配</option><option value="hit">🟢 強項命中</option><option value="partial">🟡 部分符合</option><option value="none">⚪ 需補技能</option>
     </select>
+    <select id="sortBy" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px" title="排序方式">
+      <option value="combo">↕ 綜合分數</option>
+      <option value="win">🎯 勝率(中標率)</option>
+      <option value="recent">🆕 最新</option>
+    </select>
   </div>
 </header>
 <main>${cards || '<p style="color:var(--mut)">資料庫是空的。擴充套件抓到案子後會出現在這。</p>'}</main>
@@ -423,6 +432,15 @@ function pageJobs() {
   document.getElementById('parentFilter').onchange=applyFilters;
   document.getElementById('tagFilter').onchange=applyFilters;
   document.getElementById('fitFilter').onchange=applyFilters;
+  // 排序:綜合分數 / 勝率(中標率,沒估過的沉底)/ 最新。已投一律沉到最底。
+  function sortCards(){const key=document.getElementById('sortBy').value,main=document.querySelector('main');
+    cards.slice().sort((a,b)=>{
+      const ap=(a.dataset.applied==='1')-(b.dataset.applied==='1');if(ap)return ap;
+      if(key==='win')return (+b.dataset.win)-(+a.dataset.win);
+      if(key==='recent')return (b.dataset.seen||'').localeCompare(a.dataset.seen||'');
+      return (+b.dataset.sortscore)-(+a.dataset.sortscore);
+    }).forEach(c=>main.appendChild(c));}
+  document.getElementById('sortBy').onchange=sortCards;
   f('APPLY');
   async function mark(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});
     const card=document.querySelector('input[onchange*="'+id+'"]').closest('.card');
