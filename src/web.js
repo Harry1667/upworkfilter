@@ -604,7 +604,20 @@ function pageFeatures() {
   const dCls = { 低: 'ok', 中: 'mid', 高: 'bad' };
   const updated = tax.updatedAt ? esc(tax.updatedAt.slice(0, 16).replace('T', ' ')) : '尚未掃描';
 
+  // 溯源用:jobId → {標題,網址}(來自掃描時記下的 sources)
+  const srcMap = {};
+  for (const s of tax.sources || []) srcMap[s.jobId] = { title: s.title, url: s.url };
+  // 把一組 jobId 渲染成「原案連結清單」:標題 → Upwork 原案,另給內部 ② 評估 連結
+  const jobLinks = (ids) => (ids || []).map((id) => {
+    const j = srcMap[id] || {};
+    const url = j.url || `https://www.upwork.com/jobs/_~${id}/`;
+    const title = j.title || id;
+    return `<li><a href="${esc(url)}" target="_blank" rel="noopener">${esc(title)}</a> <a href="/job?id=${esc(id)}" class="ev">②評估</a></li>`;
+  }).join('') || '<li class="reason">(無紀錄)</li>';
+
   const cats = view.map((c) => {
+    // 該大類所有來源案子(去重)
+    const catJobIds = [...new Set((tax.sources || []).filter((s) => s.category === c.id).map((s) => s.jobId))];
     const rows = c.features.map((f) => {
       // 工具分兩類:📋 案子點名(忠於描述) vs 💡 AI 建議(典型技術棧)。相容舊資料的 f.tools。
       const inJob = f.toolsInJob || f.tools || [];
@@ -616,19 +629,28 @@ function pageFeatures() {
         (ts ? `<div class="tools"><span class="tlbl sg">💡 AI 建議</span><span class="tags">${ts}</span></div>` : '') ||
         '<span class="reason">—</span>';
       const deps = (f.depends || []).length ? `<div class="dep">↳ 需先:${(f.depends).map(esc).join('、')}</div>` : '';
+      // 功能層級溯源:點開看「哪些案子需要這功能」
+      const src = (f.jobIds || []).length
+        ? `<details class="src"><summary>📄 來源 ${f.jobIds.length} 案</summary><ul>${jobLinks(f.jobIds)}</ul></details>`
+        : '';
       return `<tr>
-        <td><b>${esc(f.name)}</b>${f.note ? `<div class="reason">${esc(f.note)}</div>` : ''}${deps}</td>
+        <td><b>${esc(f.name)}</b>${f.note ? `<div class="reason">${esc(f.note)}</div>` : ''}${deps}${src}</td>
         <td class="${dCls[f.difficulty] || ''}" style="text-align:center;white-space:nowrap">${esc(f.difficulty)}</td>
         <td style="text-align:center"><b>${f.frequency}</b></td>
         <td>${toolsCell}</td>
       </tr>`;
     }).join('');
+    // 大類層級溯源
+    const catSrc = catJobIds.length
+      ? `<details class="src catsrc"><summary>📄 此大類來源案子(${catJobIds.length})</summary><ul>${jobLinks(catJobIds)}</ul></details>`
+      : '';
     return `<details class="catbox" open>
       <summary><span class="cn">${esc(c.name)}</span> <span class="reason">${c.jobCount || 0} 個案 · ${c.features.length} 個功能</span></summary>
       <table class="ftab">
-        <tr><th>小功能</th><th>難度</th><th>出現案數</th><th>工具 / 技術棧</th></tr>
+        <tr><th>小功能</th><th>難度</th><th>需求案數</th><th>工具 / 技術棧</th></tr>
         ${rows || '<tr><td colspan="4" class="reason">尚無功能</td></tr>'}
       </table>
+      ${catSrc}
     </details>`;
   }).join('');
 
@@ -646,6 +668,10 @@ function pageFeatures() {
   .tlbl{flex:0 0 72px;font-size:11px;color:#3fb950;padding-top:3px;white-space:nowrap}.tlbl.sg{color:var(--mut)}
   .ftab .tj{background:#0d2a18;border-color:#1f6f3f;color:#7ee2a8}
   .ftab .ts{opacity:.75;font-style:italic}
+  .src{margin-top:5px}.src summary{cursor:pointer;font-size:12px;color:var(--ac);list-style:none}
+  .src ul{margin:5px 0 2px;padding-left:18px}.src li{margin:2px 0;font-size:12px}
+  .src .ev{font-size:11px;color:var(--mut);margin-left:6px}
+  .catsrc{margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)}.catsrc summary{font-size:13px}
   .ok{color:#3fb950}.mid{color:#d29922}.bad{color:#f85149}</style></head><body>
 <header><h1>🧩 功能地圖 <span class="sub">同類案子需要哪些功能 · 更新:${updated}</span></h1>${navBar('/features')}</header>
 <main>

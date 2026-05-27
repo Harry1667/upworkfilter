@@ -62,7 +62,7 @@ ${blocks}
      "difficulty": "低/中/高(實作難度)",
      "toolsInJob": ["**只列上面案子描述裡真的有出現**的工具/API/技術名稱;描述沒提就放空陣列,嚴禁自行補充"],
      "toolsSuggested": ["AI 建議:實作此功能『通常』會用到、但上面描述沒提到的典型工具/技術"],
-     "frequency": 這批案子裡有幾個需要此功能(整數 1~${jobs.length}),
+     "jobs": [本批中**有需要此功能**的案子編號(上面的【案子 N】,1-based 整數),例如 [1,3]],
      "depends": ["相依的其他小功能名稱(沒有就空陣列)"],
      "note": "一句話說明(≤20字)"
    }
@@ -72,6 +72,7 @@ ${blocks}
 - 小功能要具體可辨識(像「對話記憶」「存到 Google Sheet」「下訂單卡片」),不要過度抽象。8~15 個即可。
 - **toolsInJob 一定要忠於原文**:只能放案子描述裡實際出現的工具名稱,沒出現就空陣列,絕不腦補。
 - toolsSuggested 才是你的建議,且不要和 toolsInJob 重複。
+- **jobs 必填且忠於原文**:只列「描述裡真的需要此功能」的案子編號,別硬湊;頻率由它決定。
 只回 JSON。`;
 }
 
@@ -88,16 +89,22 @@ export function mergeBatch(tax, query, extracted, scannedJobs) {
     if (!f?.name) continue;
     const fid = slug(f.name);
     const cur = cat.features[fid];
-    const freq = Number(f.frequency) || 1;
     // 工具分兩類:案子點名(忠於原文) vs AI 建議(典型技術棧)。
     // 相容舊資料:舊欄位 f.tools 視為未分類,併入 toolsInJob。
     const inJob = uniq([...(f.toolsInJob || []), ...(f.tools || [])]);
     const suggested = uniq(f.toolsSuggested).filter((t) => !inJob.includes(t)); // 不和點名重複
+    // 功能層級溯源:AI 回的本批案子編號(1-based)→ 映射成實際 jobId
+    const featJobIds = uniq((f.jobs || [])
+      .map((n) => scannedJobs[Number(n) - 1]?.id)
+      .filter(Boolean));
+    // 沒給 jobs 時退回 frequency 數字(相容);有給就以 jobId 數為準
+    const freqFallback = Number(f.frequency) || featJobIds.length || 1;
     if (cur) {
-      cur.frequency += freq;
       cur.toolsInJob = uniq([...(cur.toolsInJob || cur.tools || []), ...inJob]);
       cur.toolsSuggested = uniq([...(cur.toolsSuggested || []), ...suggested]).filter((t) => !cur.toolsInJob.includes(t));
       delete cur.tools; // 清掉舊的混合欄位
+      cur.jobIds = uniq([...(cur.jobIds || []), ...featJobIds]);
+      cur.frequency = cur.jobIds.length || (cur.frequency || 0) + freqFallback;
       cur.depends = uniq([...(cur.depends || []), ...(f.depends || [])]);
       // 難度取較高者(保守看待風險)
       if ((DIFFICULTY_RANK[f.difficulty] || 0) > (DIFFICULTY_RANK[cur.difficulty] || 0)) cur.difficulty = f.difficulty;
@@ -109,7 +116,8 @@ export function mergeBatch(tax, query, extracted, scannedJobs) {
         difficulty: DIFFICULTY_RANK[f.difficulty] ? f.difficulty : '中',
         toolsInJob: inJob,
         toolsSuggested: suggested,
-        frequency: freq,
+        jobIds: featJobIds,
+        frequency: featJobIds.length || freqFallback,
         depends: uniq(f.depends),
         note: f.note || ''
       };
