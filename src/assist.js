@@ -78,7 +78,7 @@ export function advicePrompt(job, p) {
  "recentExperience":"英文段落(3-4句),貼進『Describe your recent experience』:引用 2-3 真實作品+技術,專業像真人,禁用 vibe coder/靠AI/10x",
  "githubLink":"${gh}",
  "profileHighlights":["挑 4 個最貼合的能力標籤(每個≤6字)"],
- "bid":"報價建議:具體數字+理由,比較客戶預算 vs 我的 $${p.hourlyRate || 20}",
+ "bid":"報價建議,務必分兩段給:(1)『新手搶單價』= 實際該 bid 的數字(關鍵:使用者是 ${p.level || 'Upwork 新手, 0 評價'},就算這活值更多,0 評價新手報太高幾乎贏不了 → 報價要務實、貼近客戶預算或略高,目標是先拿下第一個 5 星;不要建議贏不了的高價)。(2)『有評價後的合理價』= 這活客觀值多少(供日後參考)。比較客戶預算 vs 我的 profile rate $${p.hourlyRate || 20},一句話講清楚為何這樣報",
  "angle":"切入角度/差異化(1句)",
  "applyRequirements":["這案的特殊投標要求,逐條短列(繁中,每條≤30字)。例:需錄3段影片回答(自我介紹/如何用Claude/工時)、需按指定格式寫一個專案說明、客戶偏好地點印尼(僅優先非硬性,台灣時區仍可投)。沒有特殊要求就回空陣列。只列出『要求是什麼』,不要寫長篇草稿"]
 }
