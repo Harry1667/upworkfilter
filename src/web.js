@@ -966,11 +966,11 @@ function pageFeatures() {
   for (const s of tax.sources || []) srcMap[s.jobId] = { title: s.title, url: s.url };
   // 由 jobId 重建「登入後可用」的 Upwork 原案網址(nx 詳情路徑,同 cleanUrl)。
   // sources.url 常被 ingest 汙染(含 span/highlight markup)或是登出版,一律用 jobId 重建。
-  const upworkUrl = (id) => `https://www.upwork.com/jobs/~${String(id).replace(/[^\w]/g, '')}`;
+  const upworkUrl = (id, title) => `https://www.upwork.com/nx/search/jobs/details/~${String(id).replace(/[^\w]/g, '')}?nbs=1${title ? '&q=' + encodeURIComponent(String(title).slice(0, 120)) : ''}`;
   // 把一組 jobId 渲染成清單:標題 → 站內 ②評估;另給「📋 複製 Upwork」(自己貼開登入版)
   const jobLinks = (ids) => (ids || []).map((id) => {
     const j = srcMap[id] || {};
-    const url = upworkUrl(id);
+    const url = upworkUrl(id, j.title);
     const title = j.title || id;
     return `<li><a href="/job?id=${esc(id)}">${esc(title)}</a> <a href="${esc(url)}" data-url="${esc(url)}" class="ev" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結">📋複製</a></li>`;
   }).join('') || '<li class="reason">(無紀錄)</li>';
@@ -1458,14 +1458,18 @@ const pick = (o, ...keys) => {
 
 const ID_RE = /~([0-9a-f]+)/i;
 
-// 職缺連結 → /jobs/~ID(使用者「貼到網址列」會帶登入 session 直接進該案的格式)。
-// 注意:跨站「點擊」跳轉拿不到 Upwork 登入(SameSite/referrer),所以 UI 一律改成「複製連結、自己貼」。
-// id 優先用乾淨的 j.id(數字密文),退回從 url 抓 ~id。
+// 職缺連結 → nx 搜尋詳情頁,且「必須帶 q=標題」才會打開該案的詳情面板。
+// 實證:.../nx/search/jobs/details/~ID?nbs=1&q=<標題> 會在已登入瀏覽器直接進該案(看得到 proposals/client);
+//       光 .../details/~ID(沒 q)會掉到通用搜尋頁。跨站「點擊」拿不到登入,故 UI 改「複製、自己貼」。
+function jobIdOf(j) {
+  return (String(j.id || '').match(/[0-9a-f]{6,}/i) || [])[0]
+      || (String(j.url || '').match(ID_RE) || [])[1] || '';
+}
 function cleanUrl(j) {
-  const id = (String(j.id || '').match(/[0-9a-f]{6,}/i) || [])[0]
-          || (String(j.url || '').match(ID_RE) || [])[1];
+  const id = jobIdOf(j);
   if (!id) return j.url || '';
-  return `https://www.upwork.com/jobs/~${id}`;
+  const q = j.title ? '&q=' + encodeURIComponent(String(j.title).slice(0, 120)) : '';
+  return `https://www.upwork.com/nx/search/jobs/details/~${id}?nbs=1${q}`;
 }
 
 // 把外部 webhook 送來的一筆職缺,正規化成我們的 job 物件
