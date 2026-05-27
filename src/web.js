@@ -1041,9 +1041,10 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       const { messages, context } = JSON.parse(await readBody(req));
-      // 上下文:依分數排序取前 25 筆(AI 分數優先)當案件清單
+      // 省 token:只送最近 10 則對話 + 前 15 筆案件當上下文
+      const recentMsgs = (messages || []).slice(-10);
       const jobs = db.prepare(`SELECT id,title,budget_text,proposals_bucket,total_score,verdict,ai_score,ai_verdict FROM jobs
-        ORDER BY COALESCE(ai_score*10, total_score) DESC LIMIT 25`).all();
+        ORDER BY COALESCE(ai_score*10, total_score) DESC LIMIT 15`).all();
       // 知道使用者此刻在哪個頁面、看哪個案 → 讓 agent 針對情境回答
       let note = '';
       if (context && context.page) note += `頁面:${context.page}。`;
@@ -1054,7 +1055,7 @@ createServer(async (req, res) => {
           note += `\n目前正在看這個案:「${j.title}」 | 評分 ${ev.isAi ? ev.score + '/10 ' + ev.verdict : ev.score + '/100 ' + ev.verdict} | 預算 ${j.budget_text || '?'} | 提案 ${j.proposals_bucket || '?'} | 客戶花費 ${j.client_spent_text || '?'}\n描述:${String(j.description || '').slice(0, 1200)}`;
         }
       }
-      const reply = await askAI(chatPrompt(messages || [], loadProfile(), jobs, note));
+      const reply = await askAI(chatPrompt(recentMsgs, loadProfile(), jobs, note));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, reply: String(reply).trim() }));
     }

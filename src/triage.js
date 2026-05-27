@@ -39,7 +39,7 @@ function jobLine(j) {
   return `[id:${j.id}] ${j.title || ''}\n` +
     `  預算:${j.budget_text || '?'} | 提案數:${j.proposals_bucket || '?'} | 付款驗證:${j.payment_verified ? '是' : '否'} | ` +
     `客戶花費:${j.client_spent_text || '?'} | 客戶評分:${j.client_rating ?? '?'} | 雇用率:${j.client_hire_rate ?? '?'}%\n` +
-    `  內容:${String(j.description || '').replace(/\s+/g, ' ').slice(0, 1200)}`;
+    `  內容:${String(j.description || '').replace(/\s+/g, ' ').slice(0, 700)}`;
 }
 
 function buildPrompt(jobs, p, parents, needs) {
@@ -71,7 +71,7 @@ function extractArray(s) {
 }
 
 // 批次快篩。jobs:DB row 陣列。回 [{id, score, verdict, reason}]
-export async function triageJobs(jobs, { batchSize = 6, onProgress } = {}) {
+export async function triageJobs(jobs, { batchSize = 10, onProgress } = {}) {
   const p = loadProfile();
   const parents = parentVocab(), children = childVocab();
   const parentSet = new Set(parents), childSet = new Set(children);
