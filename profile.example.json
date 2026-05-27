@@ -106,8 +106,8 @@
       {
         "name": "全棧 Web App / SaaS（React/Next/Node）",
         "level": 5,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "規劃架構與資料流、指揮 Claude 做前後台+DB+驗證+部署、通話辯護技術決策、掌控品質交付",
+        "cantDo": "需多人團隊的大型企業系統、高併發/分散式架構調校、大型 legacy 重構",
         "keywords": [
           "react",
           "next.js",
@@ -129,8 +129,8 @@
       {
         "name": "AI 整合 / LLM 應用（OpenAI/Claude/Gemini）",
         "level": 5,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "設計 LLM 應用流程(prompt/RAG/function calling/多模態)、選型與成本控制、串接並實際上線",
+        "cantDo": "自訓練/微調大模型、MLOps pipeline、需 ML 研究的客製模型",
         "keywords": [
           "openai",
           "claude",
@@ -147,8 +147,8 @@
       {
         "name": "OCR / 多模態文件解析",
         "level": 4,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "用多模態 API 把圖片/PDF 轉結構化資料、設計解析流程與容錯",
+        "cantDo": "自建 OCR 模型、醫療/法律級精度保證",
         "keywords": [
           "ocr",
           "vision",
@@ -161,8 +161,8 @@
       {
         "name": "跨平台行動 App（Flutter / React Native）",
         "level": 4,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "規劃並交付含 API 串接、OCR、推播、App Store 訂閱上架的 App",
+        "cantDo": "複雜原生模組(藍牙/AR/相機底層)、手機遊戲、高效能即時繪圖",
         "keywords": [
           "flutter",
           "dart",
@@ -177,8 +177,8 @@
       {
         "name": "自動化 / 爬蟲 / 後端任務佇列",
         "level": 4,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "規劃爬蟲+排程+佇列(Playwright/Celery/n8n/webhook)、設計容錯與通知",
+        "cantDo": "大規模反爬對抗、有法務風險的爬取",
         "keywords": [
           "automation",
           "scraping",
@@ -197,8 +197,8 @@
       {
         "name": "資料庫 / 後端 API（PostgreSQL/Supabase）",
         "level": 4,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "設計 schema、REST API、用 ORM 落地(Postgres/Supabase/Prisma)",
+        "cantDo": "資料倉儲/OLAP 調校、極端高併發 DB 優化",
         "keywords": [
           "postgresql",
           "postgres",
@@ -213,9 +213,9 @@
       },
       {
         "name": "部署 / DevOps（Docker/Nginx/雲端）",
-        "level": 4,
-        "canDo": "",
-        "cantDo": "",
+        "level": 3,
+        "canDo": "Docker+Nginx+雲端(Oracle)單機到中型部署與上線維運",
+        "cantDo": "K8s 叢集、多 region 高可用、企業級 CI/CD pipeline",
         "keywords": [
           "docker",
           "nginx",
@@ -229,8 +229,8 @@
       {
         "name": "網站安全 / 稽核（OWASP）",
         "level": 3,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "基本 OWASP 檢查、常見漏洞修補、加密儲存",
+        "cantDo": "正式滲透測試報告、合規稽核(SOC2/ISO)、需證照背書的安全評估",
         "keywords": [
           "owasp",
           "security audit",
@@ -241,9 +241,9 @@
       },
       {
         "name": "iOS 原生（Swift/SwiftUI）",
-        "level": 3,
-        "canDo": "",
-        "cantDo": "",
+        "level": 2,
+        "canDo": "用 Claude 做中小型 SwiftUI App",
+        "cantDo": "複雜原生功能、需深度 iOS 經驗判斷的疑難雜症(通話會露餡)",
         "keywords": [
           "swift",
           "swiftui",
@@ -253,8 +253,8 @@
       {
         "name": "Chrome 擴充功能",
         "level": 3,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "規劃並交付中小型擴充功能(內容腳本/背景/儲存)",
+        "cantDo": "需逆向或對抗網站偵測的擴充",
         "keywords": [
           "chrome extension",
           "browser extension"
@@ -263,8 +263,8 @@
       {
         "name": "前端工具 / 視覺化（KaTeX/Canvas/PWA）",
         "level": 4,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "KaTeX/Canvas/PWA 類互動工具",
+        "cantDo": "高效能 3D/WebGL、複雜資料視覺化引擎",
         "keywords": [
           "katex",
           "canvas",
@@ -277,8 +277,8 @@
       {
         "name": "Bug 修復 / 小型維護任務",
         "level": 4,
-        "canDo": "",
-        "cantDo": "",
+        "canDo": "讀懂現有碼、指揮 Claude 定位並修 bug、小型功能增修",
+        "cantDo": "不熟技術棧(紅線語言)的 legacy 維護",
         "keywords": [
           "bug fix",
           "bug fixing",
