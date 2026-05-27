@@ -13,6 +13,7 @@
     "api:auth": "node src/api-auth.js",
     "api:fetch": "node src/api-fetch.js",
     "analyze": "node src/analyze.js",
+    "features": "node src/scan-features.js",
     "enrich": "node src/enrich-gstack.js",
     "agent:profile": "node src/agents/profile-agent.js"
   },

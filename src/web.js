@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { openDb, markApplied, allJobs, upsertJob } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
-import { askAI } from './analyze.js';
+import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, advicePrompt, replyPrompt, extractJson } from './assist.js';
+import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
@@ -340,7 +341,71 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}</nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/profile', '👤 檔案', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}</nav>`;
+}
+
+// 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
+// 不開發,只記錄這類案子通常需要哪些功能。資料來自 npm run features 掃描。
+function pageFeatures() {
+  const tax = loadTaxonomy();
+  const view = toView(tax);
+  const dCls = { 低: 'ok', 中: 'mid', 高: 'bad' };
+  const updated = tax.updatedAt ? esc(tax.updatedAt.slice(0, 16).replace('T', ' ')) : '尚未掃描';
+
+  const cats = view.map((c) => {
+    const rows = c.features.map((f) => {
+      const tools = (f.tools || []).map((t) => `<span>${esc(t)}</span>`).join('') || '<span class="reason">—</span>';
+      const deps = (f.depends || []).length ? `<div class="dep">↳ 需先:${(f.depends).map(esc).join('、')}</div>` : '';
+      return `<tr>
+        <td><b>${esc(f.name)}</b>${f.note ? `<div class="reason">${esc(f.note)}</div>` : ''}${deps}</td>
+        <td class="${dCls[f.difficulty] || ''}" style="text-align:center;white-space:nowrap">${esc(f.difficulty)}</td>
+        <td style="text-align:center"><b>${f.frequency}</b></td>
+        <td><div class="tags">${tools}</div></td>
+      </tr>`;
+    }).join('');
+    return `<details class="catbox" open>
+      <summary><span class="cn">${esc(c.name)}</span> <span class="reason">${c.jobCount || 0} 個案 · ${c.features.length} 個功能</span></summary>
+      <table class="ftab">
+        <tr><th>小功能</th><th>難度</th><th>出現案數</th><th>常用工具 / API</th></tr>
+        ${rows || '<tr><td colspan="4" class="reason">尚無功能</td></tr>'}
+      </table>
+    </details>`;
+  }).join('');
+
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>功能地圖</title><style>${CSS}
+  .scan{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 16px}
+  .scan input{flex:1;min-width:200px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px 12px;font-size:14px}
+  .catbox{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:8px 16px 14px;margin-bottom:14px}
+  .catbox summary{cursor:pointer;font-size:16px;padding:8px 0;list-style:none}
+  .catbox summary .cn{font-weight:700}
+  .ftab{width:100%;border-collapse:collapse;margin-top:6px}
+  .ftab th,.ftab td{border:1px solid var(--bd);padding:8px 10px;text-align:left;font-size:13px;vertical-align:top}
+  .ftab th{background:#0d1117;color:var(--mut);font-weight:600}
+  .ftab .tags{margin:0}.dep{font-size:12px;color:var(--ac);margin-top:3px}
+  .ok{color:#3fb950}.mid{color:#d29922}.bad{color:#f85149}</style></head><body>
+<header><h1>🧩 功能地圖 <span class="sub">同類案子需要哪些功能 · 更新:${updated}</span></h1>${navBar('/features')}</header>
+<main>
+  <p class="reason">輸入工作類型(關鍵字),系統去 Upwork 爬同類案子、用 AI 歸納出「這類案子通常需要哪些小功能」並標難度/工具/出現頻率。<b>只記錄功能,不開發</b>。一次可輸入多個,用逗號分隔。</p>
+  <div class="scan">
+    <input id="q" placeholder="例如:chatbot, voice assistant, web scraping">
+    <button class="save" id="go" onclick="scan()">🔍 掃描功能</button>
+  </div>
+  <p id="st" class="reason"></p>
+  ${cats || '<p class="reason">還沒有資料。在上面輸入工作類型按「掃描功能」,或在終端機跑 <code>npm run features -- "chatbot"</code>。</p>'}
+</main>
+<script>
+  async function scan(){
+    const q=document.getElementById('q').value.split(',').map(s=>s.trim()).filter(Boolean);
+    if(!q.length){alert('請先輸入工作類型關鍵字');return;}
+    const btn=document.getElementById('go'),st=document.getElementById('st');
+    btn.disabled=true;st.textContent='掃描中…(爬案子 + AI 歸納,每個關鍵字約 1-3 分,勿關閉)';
+    try{const r=await fetch('/api/scan-features',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({queries:q})});
+      const j=await r.json();
+      if(j.ok){st.textContent='✅ 完成,重新整理中…';location.reload();}
+      else st.textContent='❌ '+(j.error||'失敗');}
+    catch(e){st.textContent='❌ '+e.message;}
+    btn.disabled=false;}
+</script></body></html>`;
 }
 
 function pageReply() {
@@ -417,6 +482,8 @@ function pageJob(id) {
   const cfg = loadConfig();
   const C = cfg.scoring.criteria;
   const wr = winRateHint(job);
+  const aid = String(id).replace(/[^\w-]/g, '');
+  const hasAnalysis = existsSync(path.join(__dirname, '..', `upwork-${aid}-analysis.html`));
   const core = [
     ['預算', job.budget_text], ['類型', job.budget_type], ['提案數', job.proposals_bucket],
     ['付款驗證', job.payment_verified ? '✅ 是' : '❌ 否'], ['客戶花費', job.client_spent_text],
@@ -434,7 +501,8 @@ function pageJob(id) {
   .winbox{display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:8px 0}
   .winpct{font-size:34px;font-weight:800}.desc{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 16px;white-space:pre-wrap;font-size:14px;line-height:1.7;max-height:340px;overflow:auto}
   .jobbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}.jobbar a,.jobbar label{font-size:13px}
-  .cta{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;margin:6px 0}</style></head><body>
+  .cta{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;margin:6px 0}
+  #anframe{width:100%;height:600px;border:1px solid var(--bd);border-radius:12px;background:#0d1117}</style></head><body>
 <header>
   <h1>② 評估 <span class="sub">總分 ${job.total_score} · ${job.verdict}</span></h1>
   ${navBar('/job', job.id)}
@@ -443,6 +511,14 @@ function pageJob(id) {
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
   <p class="reason">${esc(job.reason)}</p>
+
+  <h2>🌐 AI 詳細分析</h2>
+  <div id="anwrap">${hasAnalysis
+    ? `<iframe id="anframe" src="/analysis?id=${aid}" onload="fit(this)"></iframe>
+       <p style="margin-top:8px"><button class="save" style="background:#30363d;padding:7px 14px;font-size:13px" onclick="genAn()">🔄 重新產生</button> <span id="anmsg" class="reason"></span></p>`
+    : `<p class="reason">AI 會抓案子內容做完整評估(摘要 / 工作內容 / 技術 / 客戶 / 競爭 / 求職信 / 勝率 / 加權評分),約 30-60 秒。</p>
+       <p><button class="save" onclick="genAn()">🌐 產生 AI 詳細分析</button> <span id="anmsg" class="reason"></span></p>`}
+  </div>
 
   <h2>核心數據</h2>
   <div class="cards">${coreCards}</div>
@@ -453,7 +529,7 @@ function pageJob(id) {
     <div><b style="color:${wr.color}">${wr.level}勝率</b><br><span class="reason">${esc(wr.note)}</span></div>
   </div>
 
-  <h2>7 維評分(案子好不好)</h2>
+  <h2>7 維評分(規則式)</h2>
   <div class="grid7" style="margin-bottom:8px">${metrics}</div>
 
   <h2>工作內容</h2>
@@ -462,7 +538,17 @@ function pageJob(id) {
   <p style="margin-top:18px"><a class="cta" href="/proposal?id=${job.id}">③ 決定投了 → 去寫提案</a></p>
 </main>
 <script>
+  const ID=${JSON.stringify(job.id)}, AID=${JSON.stringify(aid)};
   async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
+  function fit(f){try{f.style.height=(f.contentWindow.document.body.scrollHeight+40)+'px';}catch(e){}}
+  async function genAn(){const m=document.getElementById('anmsg');m.textContent='產生中…抓取+AI(約30-60秒,勿關閉)';
+    try{const r=await fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})});
+      const j=await r.json();
+      if(j.ok){m.textContent='';document.getElementById('anwrap').innerHTML=
+        '<iframe id="anframe" src="/analysis?id='+AID+'&t='+Date.now()+'" onload="fit(this)"></iframe>'+
+        '<p style="margin-top:8px"><button class="save" style="background:#30363d;padding:7px 14px;font-size:13px" onclick="genAn()">🔄 重新產生</button> <span id="anmsg" class="reason"></span></p>';}
+      else m.textContent='❌ '+(j.error||'失敗');}
+    catch(e){m.textContent='❌ '+e.message;}}
 </script></body></html>`;
 }
 
@@ -704,7 +790,25 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
-    if (url.pathname === '/job') { // ② 評估(純判斷)
+    if (url.pathname === '/api/analyze' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+      if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      const r = await analyzeJob(job); // 抓取(雲端用 DB 描述)+ ProxyCLI AI + 產 HTML
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(r));
+    }
+    if (url.pathname === '/analysis') { // 提供已產生的 AI 詳細分析 HTML(評估頁 iframe 內嵌)
+      const aid = (url.searchParams.get('id') || '').replace(/[^\w-]/g, '');
+      const f = path.join(__dirname, '..', `upwork-${aid}-analysis.html`);
+      if (!aid || !existsSync(f)) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        return res.end('尚未產生 AI 詳細分析。');
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(readFileSync(f, 'utf8'));
+    }
+    if (url.pathname === '/job') { // ② 評估(判斷 + AI 詳細分析)
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(pageJob((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
     }
@@ -723,6 +827,19 @@ createServer(async (req, res) => {
     if (url.pathname === '/reply') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(pageReply());
+    }
+    if (url.pathname === '/features') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(pageFeatures());
+    }
+    if (url.pathname === '/api/scan-features' && req.method === 'POST') {
+      const { queries } = JSON.parse(await readBody(req));
+      const list = (Array.isArray(queries) ? queries : [queries]).map((q) => String(q || '').trim()).filter(Boolean);
+      if (!list.length) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"請提供關鍵字"}'); }
+      const { scanFeatures } = await import('./scan-features.js');
+      const view = await scanFeatures(list);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, categories: view.length }));
     }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(pageJobs());

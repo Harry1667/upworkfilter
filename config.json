@@ -120,5 +120,11 @@
     "maxJobsPerQuery": 30,
     "enrichTopN": 8,
     "delayMsBetweenDetails": 2500
+  },
+  "featureScan": {
+    "note": "功能地圖掃描:每個關鍵字爬幾個案、每批幾案餵一次 AI(算功能出現頻率)",
+    "maxJobsPerQuery": 12,
+    "batchSize": 5,
+    "delayMsBetweenDetails": 2000
   }
 }
