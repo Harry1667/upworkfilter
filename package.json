@@ -15,7 +15,8 @@
     "analyze": "node src/analyze.js",
     "features": "node src/scan-features.js",
     "enrich": "node src/enrich-gstack.js",
-    "agent:profile": "node src/agents/profile-agent.js"
+    "agent:profile": "node src/agents/profile-agent.js",
+    "rescore": "node src/rescore.js"
   },
   "keywords": [],
   "author": "",
