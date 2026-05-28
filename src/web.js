@@ -1979,10 +1979,15 @@ createServer(async (req, res) => {
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述
       const prof = loadProfile();
-      const draft = await askAI(coverLetterPrompt(job, prof));        // ① 草稿
+      // 一次到位:prompt 已內化 SOP,不再跑 refine pass(節省 20-30s)
+      // 如果需要 refine 可由前端 query string ?refine=1 觸發
+      const wantRefine = url.searchParams.get('refine') === '1';
+      const draft = await askAI(coverLetterPrompt(job, prof));
       let text = draft;
-      try { text = await askAI(coverLetterRefinePrompt(draft, job, prof)); } // ② 自我批改改寫(失敗就退回草稿)
-      catch (e) { console.error('求職信批改失敗,用草稿:' + e.message); }
+      if (wantRefine) {
+        try { text = await askAI(coverLetterRefinePrompt(draft, job, prof)); }
+        catch (e) { console.error('求職信批改失敗,用草稿:' + e.message); }
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, text: (text || draft).trim() }));
     }
