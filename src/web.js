@@ -181,10 +181,12 @@ function rescoreAll() {
 
 const CSS = `
   :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#6e7681;--ac:#4493f8}
-  *{box-sizing:border-box}html{overflow-x:hidden}body{margin:0 !important;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;padding-left:210px !important;overflow-x:hidden;min-height:100vh;transition:padding-right .2s}
-  body.chat-open{padding-right:420px !important}
-  /* 🛡️ 雙保險:確保 header/main 不會被 sidebar 覆蓋 */
-  body > header, body > main{max-width:calc(100% - 0px);position:relative;left:0}
+  *{box-sizing:border-box}html{overflow-x:hidden}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;min-height:100vh}
+  /* 🗺️ App 整體 layout: 左 sidebar + 右 #pageroot */
+  .applayout{display:flex;min-height:100vh;width:100%;transition:padding-right .2s}
+  body.chat-open .applayout{padding-right:420px}
+  #pageroot{flex:1 1 0;min-width:0;margin-left:200px}
+  /* sidebar 由 serveHtml 注入,position:fixed left:0;此處保留 #pageroot margin-left 避開 */
   a{color:var(--ac)}
   header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
   h1{font-size:18px;margin:0;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
@@ -421,8 +423,9 @@ window.copyUpwork=function(e,el){if(e)e.preventDefault();
 </script>`;
 
 function serveHtml(res, htmlStr) {
-  const out = String(htmlStr).replace('</body>', COPY_JS + CHAT_WIDGET + '</body>');
-  // no-store:頁面是動態資料(連結/分數會改版),禁止瀏覽器快取 HTML,避免拿到舊連結
+  // 🛡️ 把頁面主體包進 #pageroot,讓 sidebar 用 flex 佈局,杜絕 overlap
+  let out = String(htmlStr).replace('<body>', '<body><div class="applayout"><div id="pageroot">');
+  out = out.replace('</body>', '</div></div>' + COPY_JS + CHAT_WIDGET + '</body>');
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, must-revalidate' });
   res.end(out);
 }
