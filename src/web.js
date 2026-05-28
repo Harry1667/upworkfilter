@@ -17,7 +17,7 @@ function loadProfileWithLessons() {
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
-import { detectHallucinations } from './verify.js';
+import { detectHallucinations, annotateCitations } from './verify.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1749,6 +1749,11 @@ function pageProposal(id) {
       <div id="verifylist" style="font-size:13px;line-height:1.7"></div>
       <div style="margin-top:10px;color:var(--mut);font-size:12px">💡 ⚠️ 不代表錯,可能是 AI 自由發揮 — 自行確認是否屬實。🚨 是 profile 沒列、可能幻覺,建議改掉。</div>
     </div>
+    <div id="citebox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #272e3a;border-radius:10px;padding:14px">
+      <div style="margin-bottom:10px"><b style="color:var(--ac)">📚 Citation · 句句標來源</b><span style="color:var(--mut);font-size:12px;margin-left:8px">每個 claim 的引用來源 — 看 [N] / [?] / [!] 標記找 profile 對應段</span></div>
+      <div id="citeAnno" style="background:#161b22;border:1px solid #272e3a;border-radius:8px;padding:10px;font:13px/1.7 inherit;white-space:pre-wrap;color:var(--tx);margin-bottom:10px"></div>
+      <div id="citeList" style="font-size:13px;line-height:1.7"></div>
+    </div>
   </div>
 
   <div class="sect" id="exsect" style="display:none">
@@ -1811,6 +1816,25 @@ function pageProposal(id) {
           }).join('');
           sum.textContent='✅'+nV+' ⚠️'+nU+' 🚨'+nC+(v.summary?' · '+v.summary:'');
           box.style.display='block';
+        }
+        // 📚 渲染 Citations
+        if(c.citations&&c.citations.annotated){
+          var ct=c.citations,anno=document.getElementById('citeAnno'),lst=document.getElementById('citeList');
+          // 把 [^N] 標記變成彩色 superscript
+          var html=ct.annotated.replace(/</g,'&lt;').replace(/\[\^(\d+|\?|!)\]/g,function(_,n){
+            var col=n==='!'?'#f85149':n==='?'?'#d29922':'#3fb950';
+            return '<sup style="color:'+col+';font-weight:700;background:#0d1117;padding:0 4px;border-radius:3px;margin:0 1px">['+n+']</sup>';
+          });
+          anno.innerHTML=html;
+          var ic={verified:'✅',unverified:'⚠️',contradicted:'🚨'},cc={verified:'#3fb950',unverified:'#d29922',contradicted:'#f85149'};
+          lst.innerHTML=(ct.sources||[]).map(function(s){
+            var col=cc[s.status]||'#8b949e';
+            return '<div style="padding:5px 0;border-bottom:1px dashed #272e3a">'+
+              '<span style="color:'+col+';font-weight:700">['+s.n+']</span> '+
+              '<span style="color:var(--tx)">'+(s.claim||'').replace(/</g,'&lt;')+'</span> '+
+              '<span style="color:var(--mut);font-size:12px">→ '+(s.source||'').replace(/</g,'&lt;')+(s.note?' · '+s.note.replace(/</g,'&lt;'):'')+'</span></div>';
+          }).join('');
+          document.getElementById('citebox').style.display='block';
         }
       }
       if(a.ok){const d=a.data;
@@ -2142,12 +2166,15 @@ createServer(async (req, res) => {
         }
       }
       const finalText = String(text || '').trim();
-      // 🔍 幻覺偵測 — 不阻塞,失敗也回成稿
-      let verify = null;
-      try { verify = await detectHallucinations(finalText, prof); }
-      catch (e) { console.error('verify 失敗:', e.message); }
+      // 🔍 幻覺偵測 + ⑥ Citation 同時跑(平行)
+      const [verifyR, citeR] = await Promise.allSettled([
+        detectHallucinations(finalText, prof),
+        annotateCitations(finalText, prof),
+      ]);
+      const verify = verifyR.status === 'fulfilled' ? verifyR.value : null;
+      const citations = citeR.status === 'fulfilled' ? citeR.value : null;
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, text: finalText, verify }));
+      return res.end(JSON.stringify({ ok: true, text: finalText, verify, citations }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));

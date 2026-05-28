@@ -22,6 +22,44 @@ function profileFacts(p) {
   ].join('\n\n');
 }
 
+// ⑥ Citation 強制:輸入草稿,輸出附引用標記的版本 + 來源清單
+// AI 要在每個可驗證 claim 後面插 [^N] 標記,並列出每個 N 對應的 profile 真實來源
+export async function annotateCitations(text, profile) {
+  if (!text || text.length < 30) return { annotated: text, sources: [] };
+  const prompt = `你是引用標註器。下面是 cover letter,你的工作:
+1) 找出每個可驗證的具體 claim(技術/作品/數字/地區/時薪)
+2) 在每個 claim 後面**直接插入** [^N] 標記(N 從 1 遞增)
+3) 為每個 N 寫一行 source 引用,**精準對到 profile 的哪一段**
+
+profile 真實事實:
+${profileFacts(profile)}
+
+cover letter:
+"""${String(text).slice(0, 3000)}"""
+
+輸出規則:
+- 文章本體不可改字,只加 [^N] 標記
+- 找不到對應 source 的 claim → 標 [^?] 而不是 [^N],並在 sources 用 status "unverified" 警告
+- 主動跟 profile 矛盾的 claim → 標 [^!] (例如 profile 是 Taiwan 但寫 US),sources 用 "contradicted"
+- 結尾簽名 / Hi / "Ready to start" 這種非 claim 句不用標
+
+只輸出 JSON:
+{
+ "annotated":"完整加標記的 cover letter 文本(原文 + [^N]/[^?]/[^!] 標記)",
+ "sources":[
+   {"n":"1 或 ? 或 !","claim":"短句精簡 ≤30 字","status":"verified|unverified|contradicted","source":"profile 哪一段(如 portfolio.AgentsHub / provenCapabilities[3] / location)","note":"額外說明(可空)"}
+ ]
+}`;
+  try {
+    const raw = await askAI(prompt);
+    const data = extractJson(raw);
+    return data;
+  } catch (e) {
+    console.error('Citation 失敗:', e.message);
+    return { annotated: text, sources: [] };
+  }
+}
+
 // 主函式:輸入 cover letter 草稿,輸出 claim 清單
 export async function detectHallucinations(text, profile) {
   if (!text || text.length < 30) return { claims: [], summary: '草稿太短,跳過驗證' };
