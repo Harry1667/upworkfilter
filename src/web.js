@@ -3,21 +3,22 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor } from './db.js';
 
-// 📌 loadProfileWithLessons — profile + 啟用中的 lessons,每個 prompt 都會看到
+// 📌 loadProfileWithLessons — profile + 啟用中的 lessons + anchors,每個 prompt 都會看到
 function loadProfileWithLessons() {
   const p = loadProfile();
   try {
     const db = openDb();
     p.lessons = listLessons(db, true).map((l) => l.content);
-  } catch (e) { p.lessons = []; }
+    p.anchors = listAnchors(db, true).slice(0, 3); // 最多 3 個範本,避免 prompt 爆
+  } catch (e) { p.lessons = []; p.anchors = []; }
   return p;
 }
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
-import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates } from './verify.js';
+import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates, preflightCheck } from './verify.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1068,7 +1069,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}${link('/lessons', '📌 Lessons', active === '/lessons')}${link('/applications', '📊 投案追蹤', active === '/applications')}<a href="/logout">登出</a></nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}${link('/lessons', '📌 Lessons', active === '/lessons')}${link('/anchors', '⭐ 範本', active === '/anchors')}${link('/applications', '📊 投案追蹤', active === '/applications')}<a href="/logout">登出</a></nav>`;
 }
 
 // 📌 Lessons 頁:使用者抓到 AI 錯就存,**所有 AI prompt 自動讀取啟用中的 lessons** 當硬規則
@@ -1131,6 +1132,55 @@ function pageLessons() {
   async function delL(id){
     if(!confirm('確定刪除這條 lesson?'))return;
     await fetch('/api/lessons/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
+    location.reload();
+  }
+</script></body></html>`;
+}
+
+// ⭐ Anchors 頁:你親自審過 OK 的 cover letter 範本,當 voice 校準參考(few-shot 注入)
+function pageAnchors() {
+  const db = openDb();
+  const rows = listAnchors(db, false);
+  const list = rows.map((a) => `
+    <li data-id="${a.id}" style="padding:14px;border:1px solid var(--bd);border-radius:10px;margin:10px 0;background:${a.enabled ? 'var(--card)' : '#0d1117'};opacity:${a.enabled ? 1 : 0.55}">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <input type="checkbox" ${a.enabled ? 'checked' : ''} onchange="toggleA(${a.id}, this.checked)" style="margin-top:4px;width:18px;height:18px">
+        <div style="flex:1">
+          <div style="color:var(--ac);font-weight:600;margin-bottom:4px">${esc(a.job_title || '(未命名)')}</div>
+          <details style="margin-top:6px"><summary style="color:var(--mut);font-size:12px;cursor:pointer">展開內容 (${(a.cover_letter || '').length} 字)</summary>
+          <pre style="background:#0d1117;border:1px solid #272e3a;border-radius:6px;padding:10px;margin-top:6px;color:var(--tx);font:13px/1.55 inherit;white-space:pre-wrap">${esc(a.cover_letter || '')}</pre>
+          </details>
+          ${a.note ? `<div style="color:var(--mut);font-size:12px;margin-top:6px">📝 ${esc(a.note)}</div>` : ''}
+          <div style="color:var(--mut);font-size:12px;margin-top:4px">#${a.id} · ${esc((a.created_at || '').slice(0, 10))}</div>
+        </div>
+        <button onclick="delA(${a.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:18px">🗑</button>
+      </div>
+    </li>`).join('');
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>⭐ Anchors</title><style>${CSS}
+  .help{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
+  ul.ls{list-style:none;margin:0;padding:0}
+  .empty{color:var(--mut);text-align:center;padding:40px;font-size:14px}
+  </style></head><body>
+<header><h1>⭐ Anchors <span class="sub">你親自審過 OK 的 cover letter — 當 voice 校準範本,AI 寫新信會對齊這些</span></h1>${navBar('/anchors')}</header>
+<main>
+  <div class="help">
+    <b>📖 怎麼用</b><br>
+    • 在 ③ 提案頁產出 cover letter,你覺得這封寫得真的好 → 點 <b>⭐ 標為範本</b><br>
+    • 啟用的範本(打勾的)會被注入到 <b>所有未來</b> AI 寫信任務當參考<br>
+    • 最多保留 3 個最新的當 anchor(避免 prompt 太長)<br>
+    • 取消勾選 = 暫停,🗑 = 刪除<br>
+    • <b>新手前 5 案不用急著加</b>,等寫過幾封順的再挑來標,品質才會好
+  </div>
+  <ul class="ls" id="ls">${list || '<div class="empty">還沒有 anchor。在 ③ 提案頁產生 cover letter 後,挑寫得好的點⭐ 標為範本。</div>'}</ul>
+</main>
+<script>
+  async function toggleA(id,enabled){
+    await fetch('/api/anchors/toggle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,enabled})});
+    location.reload();
+  }
+  async function delA(id){
+    if(!confirm('刪除這個 anchor?'))return;
+    await fetch('/api/anchors/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
     location.reload();
   }
 </script></body></html>`;
@@ -1819,7 +1869,11 @@ function pageProposal(id) {
   <details style="margin:8px 0"><summary style="cursor:pointer;color:var(--mut);font-size:13px">▸ 貼上完整職缺內容(選填,強烈建議)— 抓到影片題/指定專案/篩選問題</summary>
     <textarea id="descOv" placeholder="從 Upwork 投標頁把完整職缺描述(含 To Apply / 影片題 / 指定專案那段)複製貼進來,提案會更完整準確" style="width:100%;min-height:120px;margin-top:8px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:13px/1.5 inherit"></textarea>
   </details>
-  <p><button class="save" id="go" onclick="gen()">✨ 產生提案</button> <span id="st" class="reason"></span></p>
+  <p>
+    <button class="save" id="go" onclick="gen()">✨ 產生提案</button>
+    <button class="save" style="background:#6e7681;margin-left:6px" onclick="gen('consensus')" title="3 個 AI 各跑一版,差異標出來。多花 30s 但能看 AI 哪邊不確定">🤝 共識模式</button>
+    <span id="st" class="reason"></span>
+  </p>
 
   <div class="sect" id="reqsect" style="display:none;border-color:#bb8009;background:#3a30160d">
     <h2>⚠️ 這案的特殊投標要求(別漏!)</h2>
@@ -1833,15 +1887,24 @@ function pageProposal(id) {
   </div>
 
   <div class="sect" id="clsect" style="display:none">
+    <div id="consensusbox" style="display:none;margin-bottom:14px;background:#0d1117;border:1px solid #9d7cd8;border-radius:10px;padding:14px">
+      <div style="margin-bottom:10px"><b style="color:#9d7cd8">🤝 多模型共識</b><span style="color:var(--mut);font-size:13px;margin-left:8px">3 個 AI 各跑一版,看哪邊有共識/分歧</span></div>
+      <div id="consensusList"></div>
+    </div>
     <h2>✍️ 求職信(英文,可複製)</h2>
     <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._cl||'');this.textContent='✅ 已複製'">📋 複製</button>
     <button class="save" style="background:#d29922;padding:6px 12px;font-size:13px;margin-left:6px" onclick="markSent()">✅ 我投了(建追蹤)</button>
+    <button class="save" style="background:#9d7cd8;padding:6px 12px;font-size:13px;margin-left:6px" onclick="markAnchor()" title="把這封信存為範本,AI 寫新信會對齊這封 voice">⭐ 標為範本</button>
     <span id="sentmsg" style="color:var(--grn);font-size:13px;margin-left:8px"></span>
     <div class="out" id="clout"></div>
     <div id="verifybox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #272e3a;border-radius:10px;padding:14px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="color:var(--ac)">🔍 幻覺偵測 · 事實核查</b><span id="verifysum" style="color:var(--mut);font-size:13px;flex:1"></span></div>
       <div id="verifylist" style="font-size:13px;line-height:1.7"></div>
       <div style="margin-top:10px;color:var(--mut);font-size:12px">💡 ⚠️ 不代表錯,可能是 AI 自由發揮 — 自行確認是否屬實。🚨 是 profile 沒列、可能幻覺,建議改掉。</div>
+    </div>
+    <div id="pfbox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #3fb950;border-radius:10px;padding:14px">
+      <div style="margin-bottom:10px"><b style="color:#3fb950">✅ 規則檢核 · Pre-flight Checklist</b><span id="pfsum" style="color:var(--mut);font-size:13px;margin-left:8px"></span></div>
+      <div id="pflist" style="font-size:13px;line-height:1.65"></div>
     </div>
     <div id="skbox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #f85149;border-radius:10px;padding:14px">
       <div style="margin-bottom:10px"><b style="color:#f85149">😈 Skeptic · 魔鬼代言人挑刺</b><span id="skverdict" style="color:var(--mut);font-size:13px;margin-left:8px"></span></div>
@@ -1890,17 +1953,26 @@ function pageProposal(id) {
     });
     document.getElementById('scrsect').style.display='block';
   }
-  async function gen(){const btn=document.getElementById('go'),st=document.getElementById('st');
+  async function gen(mode){const btn=document.getElementById('go'),st=document.getElementById('st');
     const descOverride=(document.getElementById('descOv').value||'').trim();
-    btn.disabled=true;st.textContent='產生中…(求職信 + 策略 + 篩選問題作戰區,約30-60秒)';
+    btn.disabled=true;st.textContent='產生中…('+(mode==='consensus'?'🤝 3 模型共識,約 60-90 秒':'求職信 + 策略 + 篩選問題作戰區,約30-60秒')+')';
     const body=JSON.stringify({id:ID,descOverride:descOverride});
-    const cover=fetch('/api/cover-letter',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
+    const clUrl='/api/cover-letter'+(mode?'?mode='+mode:'');
+    const cover=fetch(clUrl,{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
     const adv=fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
     const scr=fetch('/api/screening',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json()).catch(function(){return{ok:false};});
     try{
       const [c,a,sc]=await Promise.all([cover,adv,scr]);
       if(sc&&sc.ok&&sc.data)renderScreening(sc.data);
       if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';
+        // 🤝 渲染共識(若有)
+        if(c.consensus&&(c.consensus.outputs||[]).length){
+          var cb=document.getElementById('consensusbox'),cl=document.getElementById('consensusList');
+          cl.innerHTML=c.consensus.outputs.map(function(o){
+            return '<details style="background:#161b22;border:1px solid #272e3a;border-radius:8px;padding:10px;margin:6px 0"><summary style="cursor:pointer;color:'+(o.ok?'#3fb950':'#f85149')+';font-weight:600">'+(o.ok?'✅':'❌')+' '+o.provider.toUpperCase()+' ('+(o.text||'').length+' 字)</summary><pre style="margin-top:8px;color:var(--tx);white-space:pre-wrap;font:13px/1.6 inherit">'+(o.text||'').replace(/</g,'&lt;')+'</pre></details>';
+          }).join('');
+          cb.style.display='block';
+        }
         // 🔍 渲染幻覺偵測
         if(c.verify&&(c.verify.claims||[]).length){
           var v=c.verify,box=document.getElementById('verifybox'),list=document.getElementById('verifylist'),sum=document.getElementById('verifysum');
@@ -1950,6 +2022,23 @@ function pageProposal(id) {
           document.getElementById('skverdict').textContent=sk.verdict||'';
           document.getElementById('skbox').style.display='block';
         }
+        // ✅ 渲染 Preflight checklist
+        if(c.preflight&&(c.preflight.rules||[]).length){
+          var pf=c.preflight,pflist=document.getElementById('pflist'),pfsum=document.getElementById('pfsum');
+          var nO=0,nB=0,nN=0;
+          pflist.innerHTML=pf.rules.map(function(r){
+            var ic=r.status==='followed'?'✅':r.status==='broken'?'❌':'⚪',col=r.status==='followed'?'#3fb950':r.status==='broken'?'#f85149':'#8b949e';
+            if(r.status==='followed')nO++;else if(r.status==='broken')nB++;else nN++;
+            return '<div style="padding:5px 0;border-bottom:1px dashed #272e3a">'+
+              '<span style="color:'+col+'">'+ic+'</span> <span style="color:var(--mut);font-size:11px">'+(r.id||'')+'</span> '+
+              '<span style="color:var(--tx)">'+(r.desc||'').replace(/</g,'&lt;')+'</span>'+
+              (r.status==='broken'&&r.quote?'<div style="margin-left:24px;margin-top:3px;color:#8b949e;font-size:12px;font-style:italic">原文:「'+r.quote.replace(/</g,'&lt;')+'」</div>':'')+
+              (r.status==='broken'&&r.fix?'<div style="margin-left:24px;margin-top:3px;color:#3fb950;font-size:12px">→ '+r.fix.replace(/</g,'&lt;')+'</div>':'')+
+              '</div>';
+          }).join('');
+          pfsum.textContent='✅'+nO+' ❌'+nB+' ⚪'+nN+(pf.summary?' · '+pf.summary:'');
+          document.getElementById('pfbox').style.display='block';
+        }
       }
       if(a.ok){const d=a.data;
         if((d.applyRequirements||[]).length){
@@ -1992,6 +2081,16 @@ function pageProposal(id) {
       body:JSON.stringify({job_id:ID,job_title:title,cover_letter:cl,rate:rate.trim(),connects_used:parseInt(conn)||0})});
     var j=await r.json();
     document.getElementById('sentmsg').textContent=j.ok?'✅ 已加進投案追蹤,可以到 📊 追蹤頁看':'❌ 失敗';
+  }
+  async function markAnchor(){
+    var cl=window._cl||document.getElementById('clout').textContent||'';
+    if(cl.length<30){alert('沒有 cover letter 內容');return;}
+    var title=document.querySelector('h1 a')?document.querySelector('h1 a').textContent:'';
+    var note=prompt('這封信好在哪?(可空,但寫一句 voice/結構為什麼好,以後比較好挑)','');if(note===null)return;
+    var r=await fetch('/api/anchors',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({job_title:title,cover_letter:cl,note:note.trim()})});
+    var j=await r.json();
+    document.getElementById('sentmsg').textContent=j.ok?'⭐ 已標為範本,以後 AI 寫信會對齊這個 voice':'❌ 失敗';
   }
 </script></body></html>`;
 }
@@ -2272,6 +2371,37 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
+    // ⭐ Anchors CRUD
+    if (url.pathname === '/api/anchors' && req.method === 'GET') {
+      const dbi = openDb();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, anchors: listAnchors(dbi, false) }));
+    }
+    if (url.pathname === '/api/anchors' && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req));
+      if (!body.cover_letter || String(body.cover_letter).trim().length < 30) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        return res.end('{"ok":false,"error":"cover_letter 至少 30 字"}');
+      }
+      const dbi = openDb();
+      addAnchor(dbi, body);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/api/anchors/toggle' && req.method === 'POST') {
+      const { id, enabled } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      setAnchorEnabled(dbi, id, !!enabled);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/api/anchors/delete' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      deleteAnchor(dbi, id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
     // 🧠 從投案 notes 萃取 lesson 候選
     if (url.pathname === '/api/lessons/suggest' && req.method === 'POST') {
       const { notes } = JSON.parse(await readBody(req));
@@ -2294,12 +2424,23 @@ createServer(async (req, res) => {
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述
       const prof = loadProfileWithLessons();
-      // 🤝 多 agent 合議:3 個 writer 平行寫 + 1 個總編合成
-      // mode=single 走舊版單 prompt(快但品質一般);預設走 ensemble
+      // 🤝 多 agent 合議:
+      // mode=single → 單 prompt 快版
+      // mode=ensemble(預設) → 3 writer + 1 總編
+      // mode=consensus → 3 個 provider(claude/openai/gemini)各自跑完整 ensemble,共識比對
       const mode = url.searchParams.get('mode') || 'ensemble';
       let text = '';
+      let consensus = null;
       if (mode === 'single') {
         text = await askAI(coverLetterPrompt(job, prof));
+      } else if (mode === 'consensus') {
+        // 3 個 provider 平行各自跑單版 cover letter,差異越大 = 越不確定 = 風險
+        const providers = ['claude', 'openai', 'gemini'];
+        const results = await Promise.allSettled(providers.map(p => askAI(coverLetterPrompt(job, prof), { provider: p })));
+        const outputs = results.map((r, i) => ({ provider: providers[i], text: r.status === 'fulfilled' ? r.value.trim() : `(${providers[i]} 失敗)`, ok: r.status === 'fulfilled' }));
+        // 預設用 claude 版做主稿,其他 2 個當共識參考
+        text = outputs.find(o => o.provider === 'claude' && o.ok)?.text || outputs.find(o => o.ok)?.text || '';
+        consensus = { outputs };
       } else {
         // 3 個 writer 平行(失敗的不算)
         const [a, b, c] = await Promise.allSettled([
@@ -2330,17 +2471,19 @@ createServer(async (req, res) => {
         }
       }
       const finalText = String(text || '').trim();
-      // 🔍 verify + ⑥ citations + ⑩ skeptic 三路平行(不阻塞 cover letter)
-      const [verifyR, citeR, skR] = await Promise.allSettled([
+      // 🔍 verify + ⑥ citations + ⑩ skeptic + ② preflight 四路平行(不阻塞)
+      const [verifyR, citeR, skR, pfR] = await Promise.allSettled([
         detectHallucinations(finalText, prof),
         annotateCitations(finalText, prof),
         skepticCritique(finalText, job, prof),
+        preflightCheck(finalText, prof, prof.lessons || []),
       ]);
       const verify = verifyR.status === 'fulfilled' ? verifyR.value : null;
       const citations = citeR.status === 'fulfilled' ? citeR.value : null;
       const skeptic = skR.status === 'fulfilled' ? skR.value : null;
+      const preflight = pfR.status === 'fulfilled' ? pfR.value : null;
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, text: finalText, verify, citations, skeptic }));
+      return res.end(JSON.stringify({ ok: true, text: finalText, verify, citations, skeptic, preflight, consensus }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));
@@ -2528,6 +2671,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/applications') {
       return serveHtml(res, pageApplications());
+    }
+    if (url.pathname === '/anchors') {
+      return serveHtml(res, pageAnchors());
     }
     if (url.pathname === '/scoring' || url.pathname === '/settings' || url.pathname === '/setup') {
       return serveHtml(res, pageScoring()); // /settings、/setup 舊路由導向(back-compat)

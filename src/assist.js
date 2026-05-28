@@ -53,7 +53,9 @@ function profileBrief(p) {
     proven ? `已證明能力(GitHub 真實 repo,優先當證據):\n${proven}` : '',
     `求職信規則:${(p.coverLetterStyle?.rules || []).join(';')}`,
     // 📌 Lessons — 使用者抓過 AI 錯而存的學習,**強制遵守**,違反 = 嚴重錯誤
-    (p.lessons || []).length ? `\n⚠️ Lessons(使用者從過去錯誤累積的硬規則,違反任何一條 = 嚴重錯誤,必須照做):\n${(p.lessons).map((l, i) => `[${i + 1}] ${l}`).join('\n')}` : ''
+    (p.lessons || []).length ? `\n⚠️ Lessons(使用者從過去錯誤累積的硬規則,違反任何一條 = 嚴重錯誤,必須照做):\n${(p.lessons).map((l, i) => `[${i + 1}] ${l}`).join('\n')}` : '',
+    // ⭐ Anchors — 使用者人工驗證過的好範例,寫新信時當 voice 校準參考
+    (p.anchors || []).length ? `\n⭐ 已驗證範本(這是使用者親自審過 OK 的 cover letter,**新信的 voice / 風格 / 長度感** 要對齊這幾封,別偏離太遠):\n${(p.anchors).slice(0, 3).map((a, i) => `[範本 ${i + 1}${a.job_title ? ' / ' + a.job_title : ''}]\n"""${a.cover_letter}"""`).join('\n\n')}` : ''
   ].filter(Boolean).join('\n');
 }
 

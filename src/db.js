@@ -96,6 +96,18 @@ export function openDb() {
     );
   `);
 
+  // ── ⑧ Anchors(已驗證 cover letter 範本)— Few-shot 注入,確保 AI 不偏離你的 voice ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS anchors (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_title    TEXT,
+      cover_letter TEXT,
+      note         TEXT,
+      created_at   TEXT,
+      enabled      INTEGER DEFAULT 1
+    );
+  `);
+
   // ── 案件追蹤(applications)— 投案後狀態追蹤、回應率學習 ──
   db.exec(`
     CREATE TABLE IF NOT EXISTS applications (
@@ -150,6 +162,26 @@ export function setLessonEnabled(db, id, enabled) {
 export function deleteLesson(db, id) {
   db.prepare('DELETE FROM lessons WHERE id=?').run(id);
 }
+// ── anchors helpers ──
+export function addAnchor(db, a) {
+  return db.prepare('INSERT INTO anchors (job_title, cover_letter, note, created_at) VALUES (?, ?, ?, ?)').run(
+    a.job_title || '',
+    String(a.cover_letter || '').slice(0, 5000),
+    a.note || '',
+    new Date().toISOString(),
+  );
+}
+export function listAnchors(db, onlyEnabled = false) {
+  const q = onlyEnabled ? 'SELECT * FROM anchors WHERE enabled=1 ORDER BY id DESC' : 'SELECT * FROM anchors ORDER BY id DESC';
+  return db.prepare(q).all();
+}
+export function setAnchorEnabled(db, id, enabled) {
+  db.prepare('UPDATE anchors SET enabled=? WHERE id=?').run(enabled ? 1 : 0, id);
+}
+export function deleteAnchor(db, id) {
+  db.prepare('DELETE FROM anchors WHERE id=?').run(id);
+}
+
 // ── applications helpers ──
 export function addApplication(db, a) {
   const now = new Date().toISOString();

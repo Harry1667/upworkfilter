@@ -60,6 +60,49 @@ cover letter:
   }
 }
 
+// ② 雙清單檢核 — 拿成稿 + lessons + SOP 規則,逐條核對是否遵守
+export async function preflightCheck(text, profile, lessons = []) {
+  if (!text || text.length < 30) return { rules: [], summary: 'skipped' };
+  const lessonsText = (lessons || []).slice(0, 20).map((l, i) => `L${i + 1}. ${l}`).join('\n') || '(無)';
+  const prompt = `你是品質檢驗員。下面是 cover letter 成稿,還有使用者累積的 lessons 硬規則。
+你的工作:逐條核對成稿是否真的遵守每條 lesson + SOP 通用守則,輸出檢核表。
+
+【cover letter】
+"""${String(text).slice(0, 3000)}"""
+
+【使用者 Lessons】
+${lessonsText}
+
+【SOP 通用守則(都要查)】
+S1. 開頭 hook (5 秒內讓客戶想看下去,不是「I am writing to express」)
+S2. 真實 GitHub URL / live URL,沒有 [PLACEHOLDER]
+S3. 沒撒謊(沒做過的技術不寫做過)
+S4. JD 有 To Apply / 清單 → 逐條對應
+S5. 結尾推進對話(具體選擇題 / 技術問題,不是 "Ready to start")
+S6. 沒浮誇詞(10x / cutting-edge / vibe coder / passion / I'm confident)
+S7. 提弱點時同時提解法,不只是承認
+
+對每條 lesson + SOP 守則,**精準**判斷:
+- ✅ followed: 成稿真的有遵守
+- ❌ broken: 違反了(必須指出原文哪句違反 + 怎麼修)
+- ⚪ n/a: 這條對這封信不適用
+
+只輸出 JSON:
+{
+ "rules":[
+   {"id":"L1 或 S2","desc":"規則精簡 ≤30 字","status":"followed|broken|na","quote":"如果 broken,原文哪句","fix":"如果 broken,怎麼改 1 句"}
+ ],
+ "summary":"繁中 1 句:有幾條 broken,整體 OK 不 OK"
+}`;
+  try {
+    const raw = await askAI(prompt);
+    return extractJson(raw);
+  } catch (e) {
+    console.error('Preflight 失敗:', e.message);
+    return { rules: [], summary: 'check failed' };
+  }
+}
+
 // ⑩ Skeptic — 魔鬼代言人:扮演挑剔雇主挑 cover letter 的刺
 export async function skepticCritique(text, job, profile) {
   if (!text || text.length < 30) return { issues: [], verdict: 'too short' };
