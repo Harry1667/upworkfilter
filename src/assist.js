@@ -291,6 +291,20 @@ export function advicePrompt(job, p) {
   return `你是 Upwork 接案顧問。根據「我的檔案」和「這個職缺的完整描述」,產出投標要填的內容。
 **特別注意**:仔細讀描述裡的「To Apply / Required / 申請方式 / 篩選問題」段落 —— 很多案有特殊投標要求(要錄影片回答、要按指定格式寫一個專案說明、要回答特定問題、地點/資格偏好)。**務必抓出來,別讓使用者漏掉**。
 
+【🚦 新手能見度評分(關鍵)— 從職缺描述抓 Activity 段算】
+這是 0 評價新手最關鍵的判斷,因為投了沒人看 = 燒 Connects 等於白燒。從描述找:
+- "Proposals" 數(<10 / 10-30 / 30-50 / 50+)
+- "Interviewing" 數(0 / 1-5 / 6-10 / 11+)  ← 11+ 等於客戶已選候選,新手投幾乎不被看到
+- "Invites sent" 數
+- Boost bid 排行(1st 名要多少 Connects?如果 >100 表示對手願燒錢)
+- "Last viewed by client" 時間
+
+對 0 評價新手的硬規則:
+- Interviewing ≥ 6 → 可見度「極低」,新手不投除非 cover letter 超強差異化
+- Proposals 50+ AND Boost 1st ≥ 100 Connects → 紅海,新手別燒
+- Proposals < 10 AND Interviewing 0 → 可見度「高」,優先投
+- 沒提到 Activity 資訊 → 可見度「中,建議在 Upwork 補看」
+
 【此案估計中標率:${win}】先用這個務實判斷:
 - 中標率低(<40%)→ winStrategy 要老實說「值不值得燒 Connects」+「唯一可能贏的差異化打法(沒有就建議略過)」。
 - 中標率中(40-60%)→ 給「怎麼提高勝算」的具體一招。
@@ -307,6 +321,7 @@ export function advicePrompt(job, p) {
  "connectsBid":"Upwork Connects 競標建議(繁中 1 句):查 JD 旁的 bid 表 — 1st 位通常 50+ Connects 太貴新手不投;**建議 12-15 Connects 搶 2nd 位**(CP 最高);競爭少的爛單可 0 boost。例如:『建議 12 Connects 搶 2nd 名,1st 名 51 太貴』",
  "angle":"切入角度/差異化(1句)",
  "winStrategy":"根據上面中標率的務實建議(1-2句,繁中):低→值不值得投+差異化或略過;中→提高勝算一招;高→穩拿提醒",
+ "visibility":"從 Activity 段抓出 4 個數字並評可見度(繁中):格式『Proposals X · Interviewing Y · Boost 1st Z Connects · 評級:極低/低/中/高』。如果 Interviewing ≥ 6 或 Boost 1st ≥ 100 → 加一句『新手不建議投,燒 Connects 無回報』。沒抓到資料就回『未提供,建議去 Upwork 查 Activity』",
  "applyRequirements":["這案的特殊投標要求,逐條短列(繁中,每條≤30字)。**重點偵測**:Required Video Questions(幾題、各題大綱)、Required Project + 多少 bullet(常見 12 點)、地區/經驗等級偏好、其他客戶自訂 screening。沒特殊要求回空陣列"],
  "videoScripts":["如果 JD 要錄影,**每題各給一段英文講稿大綱**(每段 30-100 字),套 SOP 標準回答模板:Q1 自我介紹用『Taiwan / CS background / Claude Code daily / 29 repos / new on Upwork → overdeliver』。Q2 依問題客製,但講具體做法+數字。Q3 工時用『30-40 hrs/week sustained / UTC+8 flexible / priority list』。沒影片題回空陣列"],
  "requiredProjectAnswer":"如果 JD 要求『describe one project』類的 Required Project 答案(尤其列 12 點細節),**回 1 段繁中告訴使用者**:『建議獨立寫一份 .md 當附件,主打 AgentsHub(最強全端 + Claude 範例)。12 點是:short desc / what built / frontend / backend / complexity / UI strength / Claude tools / how used / AI-assisted / your reviews / time / time with Claude Code』。沒要求回空字串"

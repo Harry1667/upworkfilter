@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats } from './db.js';
 
 // 📌 loadProfileWithLessons — profile + 啟用中的 lessons,每個 prompt 都會看到
 function loadProfileWithLessons() {
@@ -1068,7 +1068,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}${link('/lessons', '📌 Lessons', active === '/lessons')}<a href="/logout">登出</a></nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}${link('/lessons', '📌 Lessons', active === '/lessons')}${link('/applications', '📊 投案追蹤', active === '/applications')}<a href="/logout">登出</a></nav>`;
 }
 
 // 📌 Lessons 頁:使用者抓到 AI 錯就存,**所有 AI prompt 自動讀取啟用中的 lessons** 當硬規則
@@ -1131,6 +1131,77 @@ function pageLessons() {
   async function delL(id){
     if(!confirm('確定刪除這條 lesson?'))return;
     await fetch('/api/lessons/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
+    location.reload();
+  }
+</script></body></html>`;
+}
+
+// 📊 投案追蹤頁:每案狀態 (sent → viewed → replied → interview → hired/rejected)、回應率統計
+function pageApplications() {
+  const db = openDb();
+  const apps = listApplications(db);
+  const stats = applicationStats(db);
+  const statusOpts = ['sent', 'viewed', 'replied', 'interview', 'hired', 'rejected', 'no_response'];
+  const statusLabel = { sent: '✉️ 已投', viewed: '👁 已閱', replied: '💬 有回', interview: '🎤 面試', hired: '🎉 中標', rejected: '❌ 拒絕', no_response: '🕳 沒回' };
+  const statusColor = { sent: '#8b949e', viewed: '#79c0ff', replied: '#3fb950', interview: '#d29922', hired: '#56d364', rejected: '#f85149', no_response: '#6e7681' };
+  const rows = apps.map((a) => {
+    const opts = statusOpts.map((s) => `<option value="${s}" ${a.status === s ? 'selected' : ''}>${statusLabel[s]}</option>`).join('');
+    const fmtDate = (d) => (d || '').slice(0, 16).replace('T', ' ');
+    return `
+    <tr data-id="${a.id}">
+      <td style="white-space:nowrap">${esc(fmtDate(a.applied_at))}</td>
+      <td><div style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.job_title || a.job_id || '?')}</div></td>
+      <td>${esc(a.rate || '')}</td>
+      <td style="text-align:center">${a.connects_used || 0}</td>
+      <td><select onchange="upd(${a.id},'status',this.value,this)" style="background:#0d1117;color:${statusColor[a.status] || '#8b949e'};border:1px solid #272e3a;border-radius:6px;padding:5px 8px;font-weight:600">${opts}</select></td>
+      <td>${esc(fmtDate(a.response_at))}</td>
+      <td><input type="text" value="${esc(a.notes || '')}" onblur="upd(${a.id},'notes',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid #272e3a;border-radius:6px;padding:5px 8px;width:160px"></td>
+      <td><button onclick="delA(${a.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:16px">🗑</button></td>
+    </tr>`;
+  }).join('');
+  const byStatus = (s) => stats.by[s] || 0;
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>📊 投案追蹤</title><style>${CSS}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
+  .stat{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;text-align:center}
+  .stat .n{font-size:22px;font-weight:700;color:var(--ac)}
+  .stat .l{color:var(--mut);font-size:12px;margin-top:4px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #272e3a;font-size:13px;vertical-align:middle}
+  th{background:#0d1117;color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase}
+  tr:hover{background:#0d1117}
+  .empty{color:var(--mut);text-align:center;padding:40px}
+  .help{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
+  </style></head><body>
+<header><h1>📊 投案追蹤 <span class="sub">每案狀態、回應率、Connects 燒了多少 — 練手後看哪些 pattern 有效</span></h1>${navBar('/applications')}</header>
+<main>
+  <div class="help">
+    <b>📖 怎麼用</b><br>
+    • 投出去後在 ③ 提案頁按「✅ 我投了」會自動建紀錄,或來這手動加<br>
+    • 收到客戶回覆 → 點下拉改 <b>💬 有回</b>;進面試 → 改 <b>🎤 面試</b>;成交 → <b>🎉 中標</b><br>
+    • 收到拒信或 30 天沒回 → 改 <b>❌ 拒絕</b> 或 <b>🕳 沒回</b><br>
+    • Notes 欄寫「為什麼這案沒中?」可以累積 lessons
+  </div>
+  <div class="grid">
+    <div class="stat"><div class="n">${stats.total}</div><div class="l">總投案</div></div>
+    <div class="stat"><div class="n" style="color:#79c0ff">${byStatus('viewed') + byStatus('replied') + byStatus('interview') + byStatus('hired') + byStatus('rejected')}</div><div class="l">有反應 (${stats.responseRate}%)</div></div>
+    <div class="stat"><div class="n" style="color:#d29922">${byStatus('interview') + byStatus('hired')}</div><div class="l">面試 (${stats.interviewRate}%)</div></div>
+    <div class="stat"><div class="n" style="color:#56d364">${byStatus('hired')}</div><div class="l">中標 (${stats.hireRate}%)</div></div>
+    <div class="stat"><div class="n" style="color:#f85149">${byStatus('rejected') + byStatus('no_response')}</div><div class="l">拒絕/沒回</div></div>
+    <div class="stat"><div class="n" style="color:#8b949e">${stats.totalConnects}</div><div class="l">Connects 燒</div></div>
+  </div>
+  ${apps.length ? `<table>
+    <thead><tr><th>投案日</th><th>案名</th><th>報價</th><th style="text-align:center">Conn</th><th>狀態</th><th>回應日</th><th>備註</th><th></th></tr></thead>
+    <tbody id="tb">${rows}</tbody>
+  </table>` : '<div class="empty">還沒投過案。投完一個案來這加一筆紀錄。</div>'}
+</main>
+<script>
+  async function upd(id,field,value,el){
+    const r=await fetch('/api/applications/update',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,[field]:value})});
+    if(r.ok&&el)el.style.outline='2px solid #3fb950',setTimeout(function(){el.style.outline='';},800);
+  }
+  async function delA(id){
+    if(!confirm('刪除這筆投案紀錄?'))return;
+    await fetch('/api/applications/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
     location.reload();
   }
 </script></body></html>`;
@@ -1743,6 +1814,8 @@ function pageProposal(id) {
   <div class="sect" id="clsect" style="display:none">
     <h2>✍️ 求職信(英文,可複製)</h2>
     <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._cl||'');this.textContent='✅ 已複製'">📋 複製</button>
+    <button class="save" style="background:#d29922;padding:6px 12px;font-size:13px;margin-left:6px" onclick="markSent()">✅ 我投了(建追蹤)</button>
+    <span id="sentmsg" style="color:var(--grn);font-size:13px;margin-left:8px"></span>
     <div class="out" id="clout"></div>
     <div id="verifybox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #272e3a;border-radius:10px;padding:14px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="color:var(--ac)">🔍 幻覺偵測 · 事實核查</b><span id="verifysum" style="color:var(--mut);font-size:13px;flex:1"></span></div>
@@ -1854,6 +1927,7 @@ function pageProposal(id) {
         if(d.recentExperience){window._ex=d.recentExperience;document.getElementById('exout').textContent=d.recentExperience;document.getElementById('exsect').style.display='block';}
         const hl=(d.profileHighlights||[]).map(x=>'<span class="pill">'+x+'</span>').join(' ');
         document.getElementById('adout').innerHTML=
+          (d.visibility?'<div style="background:#1f2630;border-left:3px solid #d29922;padding:10px 12px;border-radius:6px;margin-bottom:14px"><b>🚦 能見度 (新手關鍵):</b> '+d.visibility+'</div>':'')+
           '<b>💲 報價:</b>'+(d.bid||d.priceSuggestion||'')+
           (d.connectsBid?'<br><br><b>🎯 Connects 競標:</b>'+d.connectsBid:'')+
           '<br><br><b>🔗 GitHub:</b>'+(d.githubLink?'<a href=\"'+d.githubLink+'\" target=\"_blank\">'+d.githubLink+'</a>':'(未設)')+
@@ -1867,6 +1941,17 @@ function pageProposal(id) {
       st.textContent=(c.ok||a.ok)?'✅ 完成':'❌ '+((c.error||a.error)||'失敗');
     }catch(e){st.textContent='❌ '+e.message;}
     btn.disabled=false;}
+  // ✅ 一鍵建追蹤紀錄 — cover letter / 案標題自動帶入,使用者只要填 rate + connects
+  async function markSent(){
+    var cl=window._cl||document.getElementById('clout').textContent||'';
+    var title=document.querySelector('h1 a')?document.querySelector('h1 a').textContent:(document.title||'');
+    var rate=prompt('報價? (例 $25/hr 或 $5500 fixed)','');if(rate===null)return;
+    var conn=prompt('總共燒了幾個 Connects? (含 boost,例 21 或 33)','21');if(conn===null)return;
+    var r=await fetch('/api/applications',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({job_id:ID,job_title:title,cover_letter:cl,rate:rate.trim(),connects_used:parseInt(conn)||0})});
+    var j=await r.json();
+    document.getElementById('sentmsg').textContent=j.ok?'✅ 已加進投案追蹤,可以到 📊 追蹤頁看':'❌ 失敗';
+  }
 </script></body></html>`;
 }
 
@@ -2124,6 +2209,35 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
+    // 📊 Applications CRUD
+    if (url.pathname === '/api/applications' && req.method === 'GET') {
+      const dbi = openDb();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, applications: listApplications(dbi), stats: applicationStats(dbi) }));
+    }
+    if (url.pathname === '/api/applications' && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      addApplication(dbi, body);
+      // 同步把 jobs.applied = 1
+      if (body.job_id) try { markApplied(dbi, body.job_id, 1); } catch {}
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/api/applications/update' && req.method === 'POST') {
+      const { id, ...patch } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      updateApplication(dbi, id, patch);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/api/applications/delete' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      deleteApplication(dbi, id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
     if (url.pathname === '/api/cover-letter' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
@@ -2359,6 +2473,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/lessons') {
       return serveHtml(res, pageLessons());
+    }
+    if (url.pathname === '/applications') {
+      return serveHtml(res, pageApplications());
     }
     if (url.pathname === '/scoring' || url.pathname === '/settings' || url.pathname === '/setup') {
       return serveHtml(res, pageScoring()); // /settings、/setup 舊路由導向(back-compat)

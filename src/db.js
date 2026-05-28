@@ -96,6 +96,27 @@ export function openDb() {
     );
   `);
 
+  // ── 案件追蹤(applications)— 投案後狀態追蹤、回應率學習 ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS applications (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id          TEXT,
+      job_title       TEXT,
+      applied_at      TEXT,
+      cover_letter    TEXT,
+      rate            TEXT,
+      connects_used   INTEGER DEFAULT 0,
+      boost_connects  INTEGER DEFAULT 0,
+      status          TEXT DEFAULT 'sent',
+      status_updated_at TEXT,
+      response_at     TEXT,
+      hired_at        TEXT,
+      lessons_learned TEXT,
+      notes           TEXT
+    );
+  `);
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_app_job ON applications(job_id)'); } catch {}
+
   // ── ④ Lessons(學習日誌)— 使用者抓到 AI 錯就存,自動注入未來 prompt ──
   db.exec(`
     CREATE TABLE IF NOT EXISTS lessons (
@@ -129,6 +150,77 @@ export function setLessonEnabled(db, id, enabled) {
 export function deleteLesson(db, id) {
   db.prepare('DELETE FROM lessons WHERE id=?').run(id);
 }
+// ── applications helpers ──
+export function addApplication(db, a) {
+  const now = new Date().toISOString();
+  return db.prepare(`INSERT INTO applications
+    (job_id, job_title, applied_at, cover_letter, rate, connects_used, boost_connects, status, status_updated_at, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?, ?)`).run(
+    a.job_id || null,
+    a.job_title || '',
+    a.applied_at || now,
+    a.cover_letter || '',
+    a.rate || '',
+    a.connects_used || 0,
+    a.boost_connects || 0,
+    now,
+    a.notes || '',
+  );
+}
+export function listApplications(db) {
+  return db.prepare('SELECT * FROM applications ORDER BY applied_at DESC').all();
+}
+export function getApplication(db, id) {
+  return db.prepare('SELECT * FROM applications WHERE id=?').get(id);
+}
+export function updateApplication(db, id, patch) {
+  const now = new Date().toISOString();
+  const fields = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (['status', 'response_at', 'hired_at', 'lessons_learned', 'notes', 'rate'].includes(k)) {
+      fields.push(`${k}=?`);
+      vals.push(v);
+    }
+  }
+  if (patch.status) {
+    fields.push('status_updated_at=?');
+    vals.push(now);
+    // 自動補 response_at / hired_at
+    if (['replied', 'interview', 'hired'].includes(patch.status) && !patch.response_at) {
+      const cur = getApplication(db, id);
+      if (cur && !cur.response_at) {
+        fields.push('response_at=?'); vals.push(now);
+      }
+    }
+    if (patch.status === 'hired' && !patch.hired_at) {
+      fields.push('hired_at=?'); vals.push(now);
+    }
+  }
+  if (!fields.length) return;
+  vals.push(id);
+  db.prepare(`UPDATE applications SET ${fields.join(', ')} WHERE id=?`).run(...vals);
+}
+export function deleteApplication(db, id) {
+  db.prepare('DELETE FROM applications WHERE id=?').run(id);
+}
+export function applicationStats(db) {
+  const rows = db.prepare('SELECT status, COUNT(*) as n FROM applications GROUP BY status').all();
+  const total = db.prepare('SELECT COUNT(*) as n FROM applications').get().n || 0;
+  const by = {};
+  for (const r of rows) by[r.status] = r.n;
+  const responded = (by.viewed || 0) + (by.replied || 0) + (by.interview || 0) + (by.hired || 0) + (by.rejected || 0);
+  const interview = (by.interview || 0) + (by.hired || 0);
+  const hired = by.hired || 0;
+  return {
+    total, by,
+    responseRate: total ? (responded / total * 100).toFixed(1) : '0',
+    interviewRate: total ? (interview / total * 100).toFixed(1) : '0',
+    hireRate: total ? (hired / total * 100).toFixed(1) : '0',
+    totalConnects: db.prepare('SELECT COALESCE(SUM(connects_used),0) as n FROM applications').get().n || 0,
+  };
+}
+
 export function incrementLessonHit(db, ids) {
   if (!ids || !ids.length) return;
   const stmt = db.prepare('UPDATE lessons SET hit_count=hit_count+1 WHERE id=?');
