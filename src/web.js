@@ -183,10 +183,8 @@ const CSS = `
   :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#6e7681;--ac:#4493f8}
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
-  body{background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;display:grid;grid-template-columns:200px 1fr;min-height:100vh;transition:grid-template-columns .2s}
-  body.chat-open{grid-template-columns:200px 1fr 420px}
-  body.chat-open #cwPanel{display:flex !important;position:relative;right:auto;width:auto;height:auto;border-left:1px solid #272e3a}
-  body.chat-open::after{content:""}
+  body{background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;display:grid;grid-template-columns:200px 1fr;min-height:100vh}
+  body.chat-open #pagecontent{margin-right:420px;transition:margin-right .2s}
   #pagecontent{min-width:0;overflow-x:hidden}
   a{color:var(--ac)}
   header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
@@ -279,9 +277,10 @@ const CHAT_WIDGET = `
 #cwBtn:hover{filter:brightness(1.1);transform:translateY(-2px)}
 body.chat-open #cwBtn{display:none}
 /* 🆕 IDE 風格右側 panel — 推開主內容,不浮在上面 */
-#cwPanel{position:fixed;right:0;top:0;width:420px;height:100vh;background:#161b22;border-left:1px solid #272e3a;display:none;flex-direction:column;z-index:9998;font:14px/1.6 -apple-system,"PingFang TC",Segoe UI,sans-serif}
+#cwPanel{position:fixed;right:0;top:0;width:420px;height:100vh;background:#161b22;border-left:1px solid #272e3a;display:none;flex-direction:column;z-index:9998;font:14px/1.6 -apple-system,"PingFang TC",Segoe UI,sans-serif;box-shadow:-4px 0 16px #0008}
 #cwPanel.open{display:flex}
 #cwPanel.big{width:min(720px,50vw)}
+body.chat-open #cwPanel.big ~ * #pagecontent,body.chat-open.big-chat #pagecontent{margin-right:720px}
 #cwHead{padding:14px 16px;border-bottom:1px solid #272e3a;font-weight:600;color:#e6edf3;display:flex;align-items:center;gap:10px;font-size:15px}
 #cwHead .c{color:#8b949e;font-size:12px;font-weight:400}
 #cwHead .hbtns{margin-left:auto;display:flex;gap:4px}
@@ -556,12 +555,13 @@ function pageJobs() {
       const skillScore = j.score_skill ?? -1;
       const postedAt = j.posted_at || j.last_seen || '';
       return `
-      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${j.ai_win ?? -1}" data-sortscore="${ev.isAi ? ev.score * 10 : ev.score}" data-seen="${esc(j.last_seen || '')}" data-pay="${pay}" data-comp="${compNum}" data-spent="${spent}" data-skill="${skillScore}" data-posted="${esc(postedAt)}" data-pv="${j.payment_verified ? 1 : 0}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-favorited="${j.favorited ? 1 : 0}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${j.ai_win ?? -1}" data-sortscore="${ev.isAi ? ev.score * 10 : ev.score}" data-seen="${esc(j.last_seen || '')}" data-pay="${pay}" data-comp="${compNum}" data-spent="${spent}" data-skill="${skillScore}" data-posted="${esc(postedAt)}" data-pv="${j.payment_verified ? 1 : 0}">
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
           ${j.blocked ? '<span class="badge SKIP" title="被第二道門擋下,不進 AI 分析">🚫 超綱</span>' : ''}
           ${j.ai_win != null ? `<span class="winbadge ${winCls(j.ai_win)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${j.ai_win}%</span>` : ''}
+          <button class="favbtn ${j.favorited ? 'on' : ''}" onclick="favJob('${j.id}',this)" title="收藏" style="background:none;border:0;cursor:pointer;font-size:18px;padding:0 4px">${j.favorited ? '❤️' : '🤍'}</button>
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
         <h2><a href="/job?id=${j.id}">${esc(j.title)}</a></h2>
@@ -589,7 +589,7 @@ function pageJobs() {
   </div>
   <div class="filters">
     <button data-f="APPLY" class="on">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
-    <button data-f="SKIP">🔴 排除</button><button data-f="blocked">🚫 超綱</button><button data-f="junk" title="低提案+小預算+付款驗證,新手撿漏拿 5★">🦴 撿漏</button><button data-f="applied">已投</button><button data-f="all">全部</button>
+    <button data-f="SKIP">🔴 排除</button><button data-f="blocked">🚫 超綱</button><button data-f="junk" title="低提案+小預算+付款驗證,新手撿漏拿 5★">🦴 撿漏</button><button data-f="favorited" title="❤️ 標記過的案子">❤️ 收藏</button><button data-f="applied">已投</button><button data-f="all">全部</button>
     <select id="parentFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
       <option value="">📂 全部大類</option>
       ${allParents.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
@@ -624,6 +624,7 @@ function pageJobs() {
       if(verdictF==='all')okV=1;
       else if(verdictF==='applied')okV=c.dataset.applied==='1';
       else if(verdictF==='blocked')okV=c.dataset.blocked==='1';
+      else if(verdictF==='favorited')okV=c.dataset.favorited==='1';
       else if(verdictF==='junk'){
         // 🦴 撿漏:低競爭(≤10 提案) + 付款驗證 + 未投 + (預算 20-200 或未知)
         const comp=+c.dataset.comp,pay=+c.dataset.pay,pv=c.dataset.pv==='1',ap=c.dataset.applied==='1';
@@ -662,7 +663,13 @@ function pageJobs() {
       return (+b.dataset.sortscore)-(+a.dataset.sortscore);
     }).forEach(c=>main.appendChild(c));}
   document.getElementById('sortBy').onchange=sortCards;
-  f('APPLY');
+  // 預設 APPLY,但 URL ?fav=1 來的切到收藏
+  f(new URLSearchParams(location.search).get('fav')==='1'?'favorited':'APPLY');
+  async function favJob(id,btn){
+    var card=btn.closest('.card');var on=card.dataset.favorited==='1';var newVal=on?0:1;
+    await fetch('/api/job/favorite?id='+id+'&fav='+newVal,{method:'POST'});
+    card.dataset.favorited=String(newVal);btn.textContent=newVal?'❤️':'🤍';btn.classList.toggle('on',!!newVal);
+  }
   async function mark(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});
     const card=document.querySelector('input[onchange*="'+id+'"]').closest('.card');
     card.dataset.applied=a?'1':'0';
@@ -1127,6 +1134,7 @@ function navBar(active, jobId) {
     ${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}
     <div class="group">每日</div>
     ${link('/today', '🌅 今日', active === '/today')}
+    ${link('/?fav=1', '❤️ 收藏', false)}
     ${link('/applications', '📊 投案追蹤', active === '/applications')}
     <div class="group">設定</div>
     ${link('/me', '🎯 能力', active === '/me')}
@@ -2657,6 +2665,16 @@ createServer(async (req, res) => {
       }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, added }));
+    }
+    // ❤️ 切換收藏狀態
+    if (url.pathname === '/api/job/favorite' && req.method === 'POST') {
+      const id = url.searchParams.get('id');
+      const fav = url.searchParams.get('fav') === '1' ? 1 : 0;
+      if (!id) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false}'); }
+      const dbi = openDb();
+      dbi.prepare('UPDATE jobs SET favorited=? WHERE id=?').run(fav, id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
     }
     // 🔒 標為私案 / 已關閉 — 點進去發現 Access denied 直接 SKIP
     if (url.pathname === '/api/job/mark-private' && req.method === 'POST') {
