@@ -88,11 +88,17 @@ ${jobBrief(job)}
 【5 段結構(複雜案才用)】
 ${hasVideo ? '[第 1 行] 📹 Video answers (3 questions, ~3 min): [LOOM_LINK_HERE]  ← 留 placeholder,使用者自己換\n\n' : ''}[第 1 段] 開場 hook (2-3 句):為什麼這案 = 我的真實工作流。**避免**「I am writing to express...」這類罐頭。
 
-[第 2 段] 4 個 bullet 誠實清單:
-  1. 地區 / 時區 (如果客戶有偏好地區但你不是,主動翻成優勢如 Asia 覆蓋)
-  2. 我強的技術棧 (精準對應 JD)
-  3. **我弱的(誠實承認 + 提替代經驗)** — 例如沒做過 React Native 但有 4 個 Flutter app
-  4. Upwork 新手 / 評價現況 + 用 "overdeliver on first clients" 應對
+[第 2 段] 2-4 個 bullet 「選擇性誠實」清單(**寧少勿多**):
+  ✅ **一定要提的**(只有以下 3 種):
+    (a) 客戶會自己發現的差異 — 地區 / 時區不符 / 0 評價(profile 看得到)
+    (b) JD 在 **Required** 區塊明確列、但你沒做過的核心技能 — 進面試會穿幫
+    (c) JD 提到的陌生產品名 — 主動問「Cowork / Claude Design 是什麼?」= 顯得專業誠實
+  ❌ **絕對不要提的**:
+    (i) JD 寫 "Preferred" / "Nice to have" 但你沒有的 — 別主動降低自己
+    (ii) 你只是經驗短於某數字 — 用作品完整度蓋過,別主動講數字
+    (iii) 任何讓客戶懷疑你能不能交差的話(英文不好、還在學…)
+  原則:「這個弱點他會自己發現嗎? 會就提,不會就閉嘴。」
+  誠實是建立信任,不是自爆把對方推走。
 
 [第 3 段] 2-3 個專案 highlights (• bullet 換行):
   • 名字 — 一句話描述 — 關鍵技術 — live URL (如果有)
@@ -127,9 +133,13 @@ export function coverLetterRefinePrompt(draft, job, p) {
 - 浮誇詞(唯一精通、10x、靠 AI、vibe coder、game-changer、passion、I am confident、cutting-edge)→ 刪或換成具體事實
 - 業務 tone、罐頭感、沒講到客戶真實細節 → 重寫得像真人工程師在聊
 
-誠實度問題:
-- **沒主動提弱點** → 加一段「I haven't shipped X yet, but I have Y...」這種誠實 bullet。雇主更信任會承認的人
-- 假裝會 JD 列的技術但實際沒做過 → 改成誠實版
+誠實度問題(**選擇性誠實**,不是全提):
+- **絕不能藏的 3 種** → 必須加 bullet:
+  (a) 客戶會自己發現的(地區 / 時區 / 0 評價) (b) JD Required 區塊列了但你沒做過的核心技能 (c) JD 提的陌生產品名(主動問)
+- **絕不該自爆的** → 草稿如果寫了 *Preferred* 等級的弱點要刪掉:
+  例如「I don't have RAG experience」「我只是經驗 1 年」「我英文不好」這種主動降低自己的話
+- 假裝會 JD Required 列的技術但實際沒做過 → 改成誠實版「I haven't shipped X, but I have Y(替代經驗)」
+- 但 JD 沒列的弱點絕對不要主動講
 
 證據問題:
 - 沒引用具體真實作品(repo / live URL) → 補
@@ -354,7 +364,10 @@ Step 9 提交後:截圖存證、馬上投下一案、別刷 Upwork 等通知。
 【文案風格守則】
 - 像「真人資深工程師在跟客戶聊」,自然、具體、講客戶的問題與你的做法
 - **嚴禁**:套版開頭("Your challenge is...", "I am writing to express...")、浮誇詞(唯一精通、10x、靠 AI、vibe coder、game-changer、passion、I am confident、cutting-edge)
-- **誠實 ≫ 自吹** — 主動講弱點 = 雇主更信任。例如「I haven't shipped React Native, but I've shipped 4 Flutter apps...」
+- **選擇性誠實 ≫ 自吹也 ≫ 自爆**:
+  必提:(a) 客戶會自己發現的(地區/0 評價) (b) JD Required 列但你沒做過的 (c) 陌生產品名主動問
+  禁提:Preferred 等級的弱點、經驗年數短、英文不好、還在學
+  原則:「他會自己發現嗎? 會就提,不會就閉嘴」誠實是建信任,不是把對方推走
 - 真實細節 ≫ 抽象描述。「26 READMEs in one afternoon」勝過「I use AI efficiently」
 - 影片磕絆 ≫ 業務 tone — 真人感是新手優勢
 - 第一個 5★ ≫ 高單價 — 前 2 單 overdeliver 換 rating
