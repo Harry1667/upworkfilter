@@ -1069,7 +1069,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}${link('/lessons', '📌 Lessons', active === '/lessons')}${link('/anchors', '⭐ 範本', active === '/anchors')}${link('/applications', '📊 投案追蹤', active === '/applications')}<a href="/logout">登出</a></nav>`;
+  return `<nav class="zones">${link('/today', '🌅 今日', active === '/today')}${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}${link('/lessons', '📌 Lessons', active === '/lessons')}${link('/anchors', '⭐ 範本', active === '/anchors')}${link('/applications', '📊 投案追蹤', active === '/applications')}<a href="/logout">登出</a></nav>`;
 }
 
 // 📌 Lessons 頁:使用者抓到 AI 錯就存,**所有 AI prompt 自動讀取啟用中的 lessons** 當硬規則
@@ -1133,6 +1133,126 @@ function pageLessons() {
     if(!confirm('確定刪除這條 lesson?'))return;
     await fetch('/api/lessons/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
     location.reload();
+  }
+</script></body></html>`;
+}
+
+// 🌅 每日 Briefing — 開站第一眼看「今天該做什麼」+ 真實成功率
+function pageToday() {
+  const db = openDb();
+  const stats = applicationStats(db);
+  const apps = listApplications(db);
+  const now = Date.now();
+  const daysSince = (d) => d ? Math.floor((now - new Date(d).getTime()) / 86400000) : 999;
+  // 待處理:已投 7+ 天還是 sent 狀態(可能被閱了你沒更新,或該標 no_response)
+  const pending = apps.filter((a) => a.status === 'sent' && daysSince(a.applied_at) >= 7);
+  // 該標沒回:已投 14+ 天還是 sent(預設算 no_response)
+  const ghosted = apps.filter((a) => a.status === 'sent' && daysSince(a.applied_at) >= 14);
+  // 有回但沒進展:replied 3+ 天沒動
+  const stalled = apps.filter((a) => a.status === 'replied' && daysSince(a.status_updated_at) >= 3);
+  // 今日新案 + 撿漏單
+  const today = new Date().toISOString().slice(0, 10);
+  const newToday = db.prepare(`SELECT COUNT(*) as n FROM jobs WHERE substr(first_seen,1,10)=?`).get(today)?.n || 0;
+  const junkAvail = db.prepare(`SELECT COUNT(*) as n FROM jobs WHERE applied=0 AND payment_verified=1 AND proposals_bucket IN ('Fewer than 5','5 to 10') AND (fixed_budget BETWEEN 20 AND 200 OR hourly_max BETWEEN 5 AND 20 OR (fixed_budget IS NULL AND hourly_max IS NULL))`).get()?.n || 0;
+  // 最近 7 天投案
+  const week = db.prepare(`SELECT COUNT(*) as n FROM applications WHERE applied_at >= date('now','-7 days')`).get()?.n || 0;
+  const weekResponded = db.prepare(`SELECT COUNT(*) as n FROM applications WHERE applied_at >= date('now','-7 days') AND status NOT IN ('sent','no_response')`).get()?.n || 0;
+  // Lessons / Anchors 狀態
+  const lessons = listLessons(db, true);
+  const anchors = listAnchors(db, true);
+
+  const apList = (rows) => rows.length ? rows.slice(0, 10).map((a) => `
+    <li style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;margin:6px 0;background:#0d1117">
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="flex:1"><b style="color:var(--tx)">${esc((a.job_title || '?').slice(0, 70))}</b><br>
+        <span style="color:var(--mut);font-size:12px">投了 ${daysSince(a.applied_at)} 天 · ${esc(a.rate || '')}</span></span>
+        <a href="/applications" style="color:var(--ac);text-decoration:none;font-size:13px">處理 →</a>
+      </div>
+    </li>`).join('') : '<div style="color:var(--mut);padding:10px">無</div>';
+
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>🌅 今日</title><style>${CSS}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
+  .stat{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;text-align:center}
+  .stat .n{font-size:24px;font-weight:700}
+  .stat .l{color:var(--mut);font-size:12px;margin-top:4px}
+  .section{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:14px}
+  .section h2{margin:0 0 10px 0;font-size:15px}
+  .cta{display:block;background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:14px;color:var(--tx);text-decoration:none;margin-bottom:10px;font-size:14px}
+  .cta:hover{background:#1f2630}
+  .cta b{color:var(--ac)}
+  .empty{color:var(--mut);padding:10px;font-size:13px}
+  </style></head><body>
+<header><h1>🌅 今日 <span class="sub">${new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', weekday: 'long', month: 'long', day: 'numeric' })} · 開站第一眼看這頁</span></h1>${navBar('/today')}</header>
+<main>
+
+  <h2 style="margin-top:0">📊 真實數據(取代 AI 猜測)</h2>
+  <div class="grid">
+    <div class="stat"><div class="n" style="color:var(--ac)">${stats.total}</div><div class="l">總投案</div></div>
+    <div class="stat"><div class="n" style="color:#79c0ff">${stats.responseRate}%</div><div class="l">回應率</div></div>
+    <div class="stat"><div class="n" style="color:#d29922">${stats.interviewRate}%</div><div class="l">面試率</div></div>
+    <div class="stat"><div class="n" style="color:#56d364">${stats.hireRate}%</div><div class="l">中標率</div></div>
+    <div class="stat"><div class="n" style="color:#8b949e">${week}</div><div class="l">本週投 (${weekResponded}有回)</div></div>
+  </div>
+
+  <h2>⚡ 今天該做的</h2>
+  ${pending.length ? `<div class="section"><h2>📬 待跟進 (投了 7+ 天還在 sent 狀態,${pending.length} 個)</h2><ul style="list-style:none;margin:0;padding:0">${apList(pending)}</ul></div>` : ''}
+  ${ghosted.length ? `<div class="section"><h2>🕳 該標沒回 (14+ 天無音訊,${ghosted.length} 個 — 建議改 no_response 釋出心理空間)</h2><ul style="list-style:none;margin:0;padding:0">${apList(ghosted)}</ul></div>` : ''}
+  ${stalled.length ? `<div class="section"><h2>💬 有回但卡 3+ 天 (${stalled.length} 個 — 該主動推進對話)</h2><ul style="list-style:none;margin:0;padding:0">${apList(stalled)}</ul></div>` : ''}
+
+  <h2>🦴 今日撿漏池</h2>
+  <a href="/" class="cta">
+    <b>${junkAvail}</b> 個符合撿漏條件(付款驗證 + 提案 < 10 + 預算 $20-200) · 今日新進 <b>${newToday}</b> 個案 →
+  </a>
+
+  <h2>🧠 學習狀態</h2>
+  <a href="/lessons" class="cta">📌 啟用中 Lessons:<b>${lessons.length}</b> 條 → ${lessons.length < 5 ? '建議 5 條起跳,每次抓到 AI 寫錯就加' : '繼續累積'}</a>
+  <a href="/anchors" class="cta">⭐ 啟用中 Anchors:<b>${anchors.length}</b> 個 → ${anchors.length < 1 ? '寫過順的信去 ③ 提案頁點 ⭐ 標為範本' : '繼續累積'}</a>
+
+  ${stats.total === 0 ? '<div style="background:#13233b;border-left:3px solid #d29922;border-radius:8px;padding:14px;color:var(--tx);font-size:14px;line-height:1.65;margin-top:20px"><b>💡 還沒投過案?</b><br>系統再強,沒投案 = 沒資料 = 沒學習。<br>建議:今天去 <a href="/" style="color:var(--ac)">① 列表</a> 點 🦴 撿漏 → 投 1-3 個爛單。第一個 5★ 比第 10 個功能重要。</div>' : ''}
+
+</main></body></html>`;
+}
+
+// 💾 備份 / 還原頁
+function pageBackup() {
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>💾 備份</title><style>${CSS}
+  .section{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:14px}
+  .btn{background:var(--grn);color:#fff;border:0;border-radius:8px;padding:10px 20px;cursor:pointer;font-size:14px;font-weight:600;text-decoration:none;display:inline-block}
+  .btn:hover{filter:brightness(1.1)}
+  .btn.warn{background:#d29922}
+  .help{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
+  </style></head><body>
+<header><h1>💾 備份 / 還原 <span class="sub">DB 壞掉 / 換電腦時的保險</span></h1>${navBar('/backup')}</header>
+<main>
+  <div class="help">
+    <b>📖 內容</b>:lessons + anchors + applications。<br>
+    profile.json / jobs 不在這份備份(profile 自己 git 管,jobs 隨時可從擴充功能重抓)。<br>
+    <b>還原策略</b>:append(不刪現有),不會覆蓋。
+  </div>
+
+  <div class="section">
+    <h2>📤 匯出</h2>
+    <p style="color:var(--mut);font-size:13px">把所有 lessons / anchors / applications 下載成 JSON 檔。建議每週備份一次。</p>
+    <a href="/api/backup/export" class="btn">⬇ 下載備份檔</a>
+  </div>
+
+  <div class="section">
+    <h2>📥 還原</h2>
+    <p style="color:var(--mut);font-size:13px">把備份檔丟回來,會 append 進去(不會清掉現有)。</p>
+    <input type="file" id="f" accept=".json" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px"><br><br>
+    <button class="btn warn" onclick="restore()">📥 還原</button>
+    <span id="msg" style="margin-left:10px;color:var(--grn)"></span>
+  </div>
+
+</main>
+<script>
+  async function restore(){
+    var f=document.getElementById('f').files[0];if(!f){alert('選個檔');return;}
+    var txt=await f.text();
+    try{var body=JSON.parse(txt);}catch(e){alert('JSON 解析失敗');return;}
+    var r=await fetch('/api/backup/restore',{method:'POST',headers:{'content-type':'application/json'},body:txt});
+    var j=await r.json();
+    document.getElementById('msg').textContent=j.ok?('✅ 加 lessons '+j.added.lessons+' / anchors '+j.added.anchors+' / applications '+j.added.applications):('❌ '+j.error);
   }
 </script></body></html>`;
 }
@@ -2419,6 +2539,47 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, candidates: result.candidates || [] }));
     }
+    // 💾 備份匯出 — 下載所有 lessons/anchors/applications 為 JSON
+    if (url.pathname === '/api/backup/export' && req.method === 'GET') {
+      const dbi = openDb();
+      const data = {
+        version: 1,
+        exported_at: new Date().toISOString(),
+        lessons: listLessons(dbi, false),
+        anchors: listAnchors(dbi, false),
+        applications: listApplications(dbi),
+      };
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-disposition': `attachment; filename="upworkfilter-backup-${new Date().toISOString().slice(0, 10)}.json"`,
+      });
+      return res.end(JSON.stringify(data, null, 2));
+    }
+    // 💾 還原備份(策略:append 不刪,避免覆蓋掉現有資料;用 ON CONFLICT 跳過重複)
+    if (url.pathname === '/api/backup/restore' && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      let added = { lessons: 0, anchors: 0, applications: 0 };
+      try {
+        for (const l of (body.lessons || [])) {
+          addLesson(dbi, l.content, l.category || 'general'); added.lessons++;
+        }
+        for (const a of (body.anchors || [])) {
+          if (a.cover_letter && a.cover_letter.length >= 30) {
+            addAnchor(dbi, { job_title: a.job_title, cover_letter: a.cover_letter, note: a.note });
+            added.anchors++;
+          }
+        }
+        for (const ap of (body.applications || [])) {
+          addApplication(dbi, ap); added.applications++;
+        }
+      } catch (e) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: e.message, added }));
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, added }));
+    }
     // 🔄 從 jobs.applied=1 匯入 — 把列表頁勾過「已投」但 applications 表還沒紀錄的案子補上
     if (url.pathname === '/api/applications/import-applied' && req.method === 'POST') {
       const dbi = openDb();
@@ -2724,6 +2885,12 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/anchors') {
       return serveHtml(res, pageAnchors());
+    }
+    if (url.pathname === '/today') {
+      return serveHtml(res, pageToday());
+    }
+    if (url.pathname === '/backup') {
+      return serveHtml(res, pageBackup());
     }
     if (url.pathname === '/scoring' || url.pathname === '/settings' || url.pathname === '/setup') {
       return serveHtml(res, pageScoring()); // /settings、/setup 舊路由導向(back-compat)
