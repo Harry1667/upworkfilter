@@ -181,7 +181,8 @@ function rescoreAll() {
 
 const CSS = `
   :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#6e7681;--ac:#4493f8}
-  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;padding-left:200px}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;padding-left:210px;overflow-x:hidden;min-height:100vh;transition:padding-right .2s}
+  body.chat-open{padding-right:420px}
   a{color:var(--ac)}
   header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
   h1{font-size:18px;margin:0;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
@@ -269,11 +270,13 @@ const CSS = `
 // 注意:此字串內勿用 ${},以免被當模板字面值在 Node 端求值(client JS 一律用字串相加)。
 const CHAT_WIDGET = `
 <style>
-#cwBtn{position:fixed;right:24px;bottom:24px;width:56px;height:56px;border-radius:50%;background:#4493f8;color:#fff;border:0;font-size:24px;cursor:pointer;box-shadow:0 4px 16px #0008;z-index:9999}
-#cwBtn:hover{filter:brightness(1.1)}
-#cwPanel{position:fixed;right:24px;bottom:92px;width:460px;max-width:calc(100vw - 48px);height:640px;max-height:calc(100vh - 140px);background:#161b22;border:1px solid #272e3a;border-radius:14px;display:none;flex-direction:column;z-index:9999;box-shadow:0 12px 48px #000c;overflow:hidden;font:15px/1.6 -apple-system,"PingFang TC",Segoe UI,sans-serif;transition:width .2s,height .2s}
+#cwBtn{position:fixed;right:18px;bottom:18px;width:48px;height:48px;border-radius:12px;background:#4493f8;color:#fff;border:0;font-size:22px;cursor:pointer;box-shadow:0 4px 16px #0008;z-index:9999;transition:.15s}
+#cwBtn:hover{filter:brightness(1.1);transform:translateY(-2px)}
+body.chat-open #cwBtn{display:none}
+/* 🆕 IDE 風格右側 panel — 推開主內容,不浮在上面 */
+#cwPanel{position:fixed;right:0;top:0;width:420px;height:100vh;background:#161b22;border-left:1px solid #272e3a;display:none;flex-direction:column;z-index:9998;font:14px/1.6 -apple-system,"PingFang TC",Segoe UI,sans-serif}
 #cwPanel.open{display:flex}
-#cwPanel.big{width:min(900px,calc(100vw - 48px));height:calc(100vh - 140px)}
+#cwPanel.big{width:min(720px,50vw)}
 #cwHead{padding:14px 16px;border-bottom:1px solid #272e3a;font-weight:600;color:#e6edf3;display:flex;align-items:center;gap:10px;font-size:15px}
 #cwHead .c{color:#8b949e;font-size:12px;font-weight:400}
 #cwHead .hbtns{margin-left:auto;display:flex;gap:4px}
@@ -351,8 +354,9 @@ const CHAT_WIDGET = `
       li.querySelector('.del').onclick=function(e){e.stopPropagation();if(!confirm('刪除這個對話?'))return;convos=convos.filter(function(x){return x.id!==c.id;});if(curId===c.id)curId=convos[0]?convos[0].id:'';saveConvos();render();renderHist();};
       histList.appendChild(li);});}
   function toggleHist(show){if(show==null)show=!histPanel.classList.contains('show');histPanel.classList.toggle('show',show);if(show)renderHist();}
-  document.getElementById('cwBtn').onclick=function(){panel.classList.toggle('open');if(panel.classList.contains('open')){setCtx();ta.focus();}};
-  document.getElementById('cwClose').onclick=function(){panel.classList.remove('open');};
+  function setOpen(open){panel.classList.toggle('open',open);document.body.classList.toggle('chat-open',open);if(open){setCtx();ta.focus();}}
+  document.getElementById('cwBtn').onclick=function(){setOpen(!panel.classList.contains('open'));};
+  document.getElementById('cwClose').onclick=function(){setOpen(false);};
   document.getElementById('cwBig').onclick=function(){panel.classList.toggle('big');try{localStorage.setItem('cw_big',panel.classList.contains('big')?'1':'0');}catch(e){}};
   try{if(localStorage.getItem('cw_big')==='1')panel.classList.add('big');}catch(e){}
   document.getElementById('cwHistBtn').onclick=function(){toggleHist();};
