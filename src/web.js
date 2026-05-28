@@ -391,7 +391,7 @@ body.chat-open #cwPanel.big ~ * #pagecontent,body.chat-open.big-chat #pageconten
   ta.addEventListener('paste',function(){setTimeout(function(){ta.style.height='44px';ta.style.height=Math.min(ta.scrollHeight,300)+'px';},10);});
   function send(){var t=ta.value.trim();if(!t)return;
     var c=curConvo();if(!c){c=newConvo();}
-    ta.value='';bubble('user',t);c.msgs.push({role:'user',content:t});
+    ta.value='';ta.style.height='44px';bubble('user',t);c.msgs.push({role:'user',content:t});
     if(c.title==='新對話'||!c.title)c.title=titleFrom(t);
     c.ts=Date.now();saveConvos();
     var b=bubble('bot','…');
