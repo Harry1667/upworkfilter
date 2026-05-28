@@ -423,8 +423,24 @@ function pageJobs() {
       const jtags = (j.tags || '').split(',').map((x) => x.trim()).filter(Boolean);
       const parentHtml = parent ? `<span class="atag parent">📂 ${esc(parent)}</span>` : '';
       const childHtml = jtags.map((t) => `<span class="atag need">${esc(t)}</span>`).join('');
+      // 排序用衍生數值:
+      // pay = 取 fixed_budget 或 hourly_max(誰高用誰);沒值 → -1 沉底
+      const pay = Math.max(j.fixed_budget || 0, j.hourly_max || 0) || -1;
+      // comp = 把 proposals_bucket 字串轉成「估計提案數中位數」(數字越小越好,沒值給 999 沉底)
+      const propStr = String(j.proposals_bucket || '').toLowerCase();
+      let compNum = 999;
+      if (/fewer than 5|less than 5|0\s*to\s*5|<\s*5/.test(propStr)) compNum = 2;
+      else if (/5\s*to\s*10/.test(propStr)) compNum = 7;
+      else if (/10\s*to\s*15/.test(propStr)) compNum = 12;
+      else if (/15\s*to\s*20/.test(propStr)) compNum = 17;
+      else if (/20\s*to\s*50/.test(propStr)) compNum = 35;
+      else if (/50\+|over\s*50/.test(propStr)) compNum = 80;
+      else { const m = propStr.match(/(\d+)/); if (m) compNum = Number(m[1]); }
+      const spent = j.client_spent_usd || -1;
+      const skillScore = j.score_skill ?? -1;
+      const postedAt = j.posted_at || j.last_seen || '';
       return `
-      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${j.ai_win ?? -1}" data-sortscore="${ev.isAi ? ev.score * 10 : ev.score}" data-seen="${esc(j.last_seen || '')}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${j.ai_win ?? -1}" data-sortscore="${ev.isAi ? ev.score * 10 : ev.score}" data-seen="${esc(j.last_seen || '')}" data-pay="${pay}" data-comp="${compNum}" data-spent="${spent}" data-skill="${skillScore}" data-posted="${esc(postedAt)}">
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
@@ -472,7 +488,13 @@ function pageJobs() {
     <select id="sortBy" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px" title="排序方式">
       <option value="combo">↕ 綜合分數</option>
       <option value="win">🎯 勝率(中標率)</option>
-      <option value="recent">🆕 最新</option>
+      <option value="cp">💎 CP 值(分數÷競爭)</option>
+      <option value="pay">💰 報酬高低</option>
+      <option value="comp">🥶 競爭最少</option>
+      <option value="spent">🏦 客戶花費</option>
+      <option value="skill">📈 能力契合度</option>
+      <option value="posted">⏰ 發布最近</option>
+      <option value="recent">🆕 最新看到</option>
     </select>
   </div>
 </header>
@@ -492,12 +514,23 @@ function pageJobs() {
   document.getElementById('parentFilter').onchange=applyFilters;
   document.getElementById('tagFilter').onchange=applyFilters;
   document.getElementById('fitFilter').onchange=applyFilters;
-  // 排序:綜合分數 / 勝率(中標率,沒估過的沉底)/ 最新。已投一律沉到最底。
+  // 排序:多種策略。已投一律沉到最底。沒值的(-1 / 999)也自動沉底。
   function sortCards(){const key=document.getElementById('sortBy').value,main=document.querySelector('main');
     cards.slice().sort((a,b)=>{
       const ap=(a.dataset.applied==='1')-(b.dataset.applied==='1');if(ap)return ap;
       if(key==='win')return (+b.dataset.win)-(+a.dataset.win);
       if(key==='recent')return (b.dataset.seen||'').localeCompare(a.dataset.seen||'');
+      if(key==='posted')return (b.dataset.posted||'').localeCompare(a.dataset.posted||'');
+      if(key==='pay'){const pa=+a.dataset.pay,pb=+b.dataset.pay;if(pa<0&&pb>=0)return 1;if(pb<0&&pa>=0)return -1;return pb-pa;}
+      if(key==='spent'){const sa=+a.dataset.spent,sb=+b.dataset.spent;if(sa<0&&sb>=0)return 1;if(sb<0&&sa>=0)return -1;return sb-sa;}
+      if(key==='skill'){const sa=+a.dataset.skill,sb=+b.dataset.skill;if(sa<0&&sb>=0)return 1;if(sb<0&&sa>=0)return -1;return sb-sa;}
+      if(key==='comp')return (+a.dataset.comp)-(+b.dataset.comp); // 升序(競爭越少越前)
+      if(key==='cp'){
+        // CP 值 = 綜合分數 ÷ max(競爭, 1) — 競爭少 + 分數高的浮上來
+        const ca=(+a.dataset.sortscore)/Math.max(+a.dataset.comp,1);
+        const cb=(+b.dataset.sortscore)/Math.max(+b.dataset.comp,1);
+        return cb-ca;
+      }
       return (+b.dataset.sortscore)-(+a.dataset.sortscore);
     }).forEach(c=>main.appendChild(c));}
   document.getElementById('sortBy').onchange=sortCards;
