@@ -70,7 +70,96 @@ export function openDb() {
   try { db.exec('ALTER TABLE jobs ADD COLUMN blocked INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
   // 發布時間「絕對時間戳」(ISO):擴充功能算好的 postedAtIso。posted_text 是會過期的相對字串,顯示一律用這個重算。
   try { db.exec('ALTER TABLE jobs ADD COLUMN posted_at TEXT'); } catch { /* 已存在 */ }
+
+  // ── ⑤ 邀請(Invites from clients)— 客戶主動邀請,跟 jobs 分開存(欄位、流程都不同) ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS invites (
+      id                TEXT PRIMARY KEY,
+      title             TEXT,
+      url               TEXT,
+      job_id            TEXT,
+      received_at       TEXT,
+      received_text     TEXT,
+      client_spent_text TEXT,
+      client_spent_usd  REAL,
+      client_hires      INTEGER,
+      client_payment_verified INTEGER,
+      client_invites_sent INTEGER,
+      raw_text          TEXT,
+      ai_score          REAL,
+      ai_verdict        TEXT,
+      ai_recommendation TEXT,
+      ai_analysis_json  TEXT,
+      status            TEXT DEFAULT 'new',
+      first_seen        TEXT,
+      last_seen         TEXT
+    );
+  `);
   return db;
+}
+
+// ── invites helpers ──
+export function upsertInvite(db, inv) {
+  const now = new Date().toISOString();
+  const existing = db.prepare('SELECT status, first_seen FROM invites WHERE id = ?').get(inv.id);
+  db.prepare(`
+    INSERT INTO invites (
+      id, title, url, job_id, received_at, received_text,
+      client_spent_text, client_spent_usd, client_hires, client_payment_verified, client_invites_sent,
+      raw_text, status, first_seen, last_seen
+    ) VALUES (
+      $id, $title, $url, $job_id, $received_at, $received_text,
+      $client_spent_text, $client_spent_usd, $client_hires, $client_payment_verified, $client_invites_sent,
+      $raw_text, $status, $first_seen, $last_seen
+    )
+    ON CONFLICT(id) DO UPDATE SET
+      title=COALESCE($title, title),
+      url=COALESCE($url, url),
+      job_id=COALESCE($job_id, job_id),
+      received_at=COALESCE($received_at, received_at),
+      received_text=COALESCE($received_text, received_text),
+      client_spent_text=COALESCE($client_spent_text, client_spent_text),
+      client_spent_usd=COALESCE($client_spent_usd, client_spent_usd),
+      client_hires=COALESCE($client_hires, client_hires),
+      client_payment_verified=COALESCE($client_payment_verified, client_payment_verified),
+      client_invites_sent=COALESCE($client_invites_sent, client_invites_sent),
+      raw_text=COALESCE($raw_text, raw_text),
+      last_seen=$last_seen
+  `).run({
+    $id: inv.id,
+    $title: inv.title ?? null,
+    $url: inv.url ?? null,
+    $job_id: inv.job_id ?? null,
+    $received_at: inv.received_at ?? null,
+    $received_text: inv.received_text ?? null,
+    $client_spent_text: inv.client_spent_text ?? null,
+    $client_spent_usd: inv.client_spent_usd ?? null,
+    $client_hires: inv.client_hires ?? null,
+    $client_payment_verified: inv.client_payment_verified == null ? null : (inv.client_payment_verified ? 1 : 0),
+    $client_invites_sent: inv.client_invites_sent ?? null,
+    $raw_text: inv.raw_text ?? null,
+    $status: existing ? existing.status : (inv.status ?? 'new'),
+    $first_seen: existing ? existing.first_seen : now,
+    $last_seen: now
+  });
+}
+
+export function allInvites(db) {
+  return db.prepare('SELECT * FROM invites ORDER BY COALESCE(received_at, first_seen) DESC').all();
+}
+
+export function getInvite(db, id) {
+  return db.prepare('SELECT * FROM invites WHERE id = ?').get(id);
+}
+
+export function setInviteAi(db, id, score, verdict, recommendation, analysisJson) {
+  db.prepare('UPDATE invites SET ai_score=?, ai_verdict=?, ai_recommendation=?, ai_analysis_json=? WHERE id=?')
+    .run(score ?? null, verdict ?? null, recommendation ?? null, analysisJson ?? null, id);
+}
+
+export function setInviteStatus(db, id, status) {
+  const r = db.prepare('UPDATE invites SET status=? WHERE id=?').run(status, id);
+  return r.changes > 0;
 }
 
 // 寫入 AI 判斷(score、verdict、win、tags 子功能陣列、category 母類別)

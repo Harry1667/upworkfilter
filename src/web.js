@@ -3,10 +3,10 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
-import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, extractJson } from './assist.js';
+import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -275,7 +275,7 @@ const CHAT_WIDGET = `
   var panel=document.getElementById('cwPanel'),msgs=document.getElementById('cwMsgs'),ta=document.getElementById('cwTa');
   var hist=[];try{hist=JSON.parse(sessionStorage.getItem(KEY)||'[]');}catch(e){}
   function ctx(){var p=location.pathname,id=(new URLSearchParams(location.search)).get('id')||'';
-    var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/features':'功能地圖','/me':'我的能力','/profile':'Upwork Profile','/scoring':'評分設定','/agents':'Agents 中控台','/assistant':'助手'};
+    var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/invites':'邀請列表','/invite':'邀請評估','/features':'功能地圖','/me':'我的能力','/profile':'Upwork Profile','/scoring':'評分設定','/agents':'Agents 中控台','/assistant':'助手'};
     return {page:(m[p]||p),jobId:id};}
   function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
   // 安全渲染輕量 markdown(先 escape 防 XSS,再轉粗體/換行;移除井號與反引號)
@@ -956,7 +956,7 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}<a href="/logout">登出</a></nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}<a href="/logout">登出</a></nav>`;
 }
 
 // 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
@@ -1138,6 +1138,189 @@ function pageReply() {
         document.getElementById('result').style.display='block';}
       else document.getElementById('st').textContent='❌ '+(j.error||'失敗');}
     catch(e){document.getElementById('st').textContent='❌ '+e.message;}}
+</script></body></html>`;
+}
+
+// ⑤ 邀請列表 — 客戶主動邀請(invites from clients),跟 jobs 分流
+function pageInvites() {
+  const invites = allInvites(db);
+  const recBadge = (rec) => {
+    if (!rec) return '<span class="reason">未分析</span>';
+    if (rec.includes('認真')) return '<span style="color:var(--grn);font-weight:600">🟢 ' + esc(rec) + '</span>';
+    if (rec.includes('可投')) return '<span style="color:var(--ylw);font-weight:600">🟡 ' + esc(rec) + '</span>';
+    if (rec.includes('decline')) return '<span style="color:#ff9580;font-weight:600">🟠 ' + esc(rec) + '</span>';
+    return '<span style="color:#f85149;font-weight:600">🔴 ' + esc(rec) + '</span>';
+  };
+  const rows = invites.length === 0
+    ? `<tr><td colspan="6" style="text-align:center;color:var(--mut);padding:32px">尚無邀請。把 Upwork 邀請貼進右側「手動新增」表單即可分析。</td></tr>`
+    : invites.map((i) => {
+        const archived = i.status === 'archived';
+        return `<tr${archived ? ' style="opacity:.5"' : ''}>
+          <td>${i.received_text ? esc(i.received_text) : (i.received_at ? esc(i.received_at.slice(0, 16).replace('T', ' ')) : '-')}</td>
+          <td><a href="/invite?id=${esc(i.id)}">${esc((i.title || '(未命名)').slice(0, 70))}</a></td>
+          <td>${i.client_spent_text ? esc(i.client_spent_text) : '-'} ${i.client_payment_verified ? '✅' : ''}</td>
+          <td>${i.client_hires != null ? esc(String(i.client_hires)) + ' hires' : '-'}</td>
+          <td>${i.ai_score != null ? '<b>' + i.ai_score + '</b>/10' : '-'}<br>${recBadge(i.ai_recommendation)}</td>
+          <td><a class="open" href="/invite?id=${esc(i.id)}">查看 →</a></td>
+        </tr>`;
+      }).join('');
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>⑤ 邀請</title><style>${CSS}
+  table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:10px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}th{color:var(--mut);font-weight:500}
+  .layout{display:grid;grid-template-columns:1fr 380px;gap:20px}@media(max-width:1000px){.layout{grid-template-columns:1fr}}
+  textarea,input{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font-size:13px;box-sizing:border-box}
+  textarea{min-height:140px;font-family:inherit}
+  label{display:block;color:var(--mut);font-size:12px;margin:10px 0 4px}
+  .panel{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px}
+  </style></head><body>
+<header><h1>⑤ 邀請 <span class="sub">客戶主動發來的 invitation — 套你的能力邊界判斷值不值得寫提案</span></h1>${navBar('/invites')}</header>
+<main>
+  <div class="layout">
+    <div>
+      <table>
+        <thead><tr><th>收到</th><th>標題</th><th>客戶花費</th><th>Hires</th><th>AI 評分</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <h3 style="margin:0 0 8px">➕ 手動新增邀請</h3>
+      <p class="reason" style="margin:0 0 12px">把 Upwork 邀請的標題、案件描述、客戶數據貼進來。AI 會套你的 capability 紅線給三層評判。</p>
+      <label>案件標題</label>
+      <input id="iv_title" placeholder="例:Taiwanese Mandarin & Hokkien Speakers Needed">
+      <label>案件 URL(選填)</label>
+      <input id="iv_url" placeholder="https://www.upwork.com/jobs/~xxx">
+      <label>客戶花費(選填,例 $59K spent)</label>
+      <input id="iv_spent" placeholder="$59K spent">
+      <label>客戶 Hires(選填,只填數字)</label>
+      <input id="iv_hires" type="number" placeholder="4722">
+      <label>付款已驗證?</label>
+      <select id="iv_pv" style="width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px">
+        <option value="">未知</option><option value="1">是</option><option value="0">否</option>
+      </select>
+      <label>邀請/案件原文(必填)</label>
+      <textarea id="iv_raw" placeholder="貼整段案件描述 + 邀請訊息(越完整越準)…"></textarea>
+      <p style="margin-top:14px"><button class="save" onclick="add()">✨ 新增並立刻分析</button> <span id="st" class="reason"></span></p>
+    </div>
+  </div>
+</main>
+<script>
+async function add(){
+  const raw=document.getElementById('iv_raw').value.trim();
+  if(!raw){alert('請貼上邀請/案件原文');return;}
+  const body={
+    title:document.getElementById('iv_title').value.trim(),
+    url:document.getElementById('iv_url').value.trim(),
+    client_spent_text:document.getElementById('iv_spent').value.trim(),
+    client_hires:document.getElementById('iv_hires').value?Number(document.getElementById('iv_hires').value):null,
+    client_payment_verified:document.getElementById('iv_pv').value===''?null:document.getElementById('iv_pv').value==='1',
+    raw_text:raw
+  };
+  document.getElementById('st').textContent='新增中…';
+  try{
+    const r=await fetch('/api/invites/ingest',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    const j=await r.json();
+    if(!j.ok){document.getElementById('st').textContent='❌ '+(j.error||'失敗');return;}
+    document.getElementById('st').textContent='✅ 已新增,跳轉中…';
+    location.href='/invite?id='+encodeURIComponent(j.id)+'&autoanalyze=1';
+  }catch(e){document.getElementById('st').textContent='❌ '+e.message;}
+}
+</script></body></html>`;
+}
+
+// ⑤b 邀請評估(單筆) — 顯示原文 + 客戶資訊 + AI 三層評判
+function pageInvite(id) {
+  const inv = id ? getInvite(db, id) : null;
+  if (!inv) {
+    return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>邀請評估</title><style>${CSS}</style></head><body>
+<header><h1>⑤ 邀請評估</h1>${navBar('/invite')}</header>
+<main><div class="panel" style="background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:20px">
+  <p>找不到這筆邀請。<a href="/invites">← 回邀請列表</a></p>
+</div></main></body></html>`;
+  }
+  let parsed = null;
+  try { parsed = inv.ai_analysis_json ? JSON.parse(inv.ai_analysis_json) : null; } catch { parsed = null; }
+  const verdictBlock = (label, obj) => obj
+    ? `<div class="vbox"><div class="vlabel">${label}</div><div class="vval">${esc(obj.verdict || '-')}</div><div class="vnote">${esc(obj.note || '')}</div></div>`
+    : '';
+  const analysisHtml = parsed ? `
+    <div class="grid3">
+      ${verdictBlock('🟢 客戶品質', parsed.clientQuality)}
+      ${verdictBlock('🟡 案子契合度', parsed.fitness)}
+      ${verdictBlock('🔴 邀請真實性', parsed.authenticity)}
+    </div>
+    ${parsed.redFlags && parsed.redFlags.length ? `<div class="warn"><b>🚩 紅旗:</b><ul style="margin:6px 0 0 18px">${parsed.redFlags.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : ''}
+    <div class="action"><b>👉 建議行動:</b> ${esc(parsed.action || '')}</div>
+    ${parsed.declineMessage ? `<div class="dmsg"><b>📋 可直接貼的 decline 訊息(英文):</b><br><pre>${esc(parsed.declineMessage)}</pre><button class="save" style="padding:4px 10px;font-size:12px" onclick="navigator.clipboard.writeText(${JSON.stringify(parsed.declineMessage)});this.textContent='✅ 已複製'">📋 複製</button></div>` : ''}
+  ` : `<p class="reason">尚未分析。按下方「✨ 立刻分析」。</p>`;
+  const scoreColor = parsed?.score >= 8 ? 'var(--grn)' : parsed?.score >= 5 ? 'var(--ylw)' : '#f85149';
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>⑤ 邀請評估</title><style>${CSS}
+  .panel{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:14px}
+  .meta{display:flex;flex-wrap:wrap;gap:14px;color:var(--mut);font-size:13px;margin:8px 0}
+  .meta b{color:var(--tx)}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}@media(max-width:800px){.grid3{grid-template-columns:1fr}}
+  .vbox{background:#0d1117;border:1px solid var(--bd);border-radius:8px;padding:12px}
+  .vlabel{color:var(--mut);font-size:12px;margin-bottom:6px}
+  .vval{font-size:18px;font-weight:600;margin-bottom:6px}
+  .vnote{color:var(--mut);font-size:13px;line-height:1.5}
+  .warn{background:rgba(248,81,73,.08);border:1px solid #f8514955;border-radius:8px;padding:12px;margin:12px 0;color:#ffb4ad;font-size:13px}
+  .action{background:rgba(63,185,80,.08);border:1px solid #3fb95055;border-radius:8px;padding:14px;margin:12px 0;font-size:14px;line-height:1.6}
+  .dmsg{background:#0d1117;border:1px solid var(--bd);border-radius:8px;padding:14px;margin:12px 0}
+  .dmsg pre{white-space:pre-wrap;margin:8px 0;font-family:inherit;color:var(--tx)}
+  .raw{background:#0d1117;border:1px solid var(--bd);border-radius:8px;padding:14px;white-space:pre-wrap;max-height:400px;overflow:auto;font-size:13px;color:var(--mut)}
+  .bigscore{display:inline-block;font-size:42px;font-weight:700;color:${scoreColor}}
+  </style></head><body>
+<header><h1>⑤ 邀請評估 <span class="sub"><a href="/invites">← 回邀請列表</a></span></h1>${navBar('/invite')}</header>
+<main>
+  <div class="panel">
+    <h2 style="margin:0 0 4px">${esc(inv.title || '(未命名)')}</h2>
+    <div class="meta">
+      ${inv.received_text ? `<span>📅 <b>${esc(inv.received_text)}</b></span>` : ''}
+      ${inv.client_spent_text ? `<span>💰 客戶花費 <b>${esc(inv.client_spent_text)}</b></span>` : ''}
+      ${inv.client_hires != null ? `<span>👥 <b>${esc(String(inv.client_hires))}</b> hires</span>` : ''}
+      ${inv.client_payment_verified ? `<span>✅ 付款已驗證</span>` : ''}
+      ${inv.url ? `<span><a href="#" data-url="${esc(inv.url)}" onclick="return copyUpwork(event,this)">🔗 複製 Upwork 連結</a></span>` : ''}
+    </div>
+    <p style="margin-top:10px">
+      <button class="save" onclick="analyze()" id="anbtn">${parsed ? '🔁 重新分析' : '✨ 立刻分析'}</button>
+      <button class="save" style="background:#444" onclick="archiveIt()">📦 Archive</button>
+      <span id="st" class="reason"></span>
+    </p>
+  </div>
+
+  ${parsed ? `<div class="panel"><div style="display:flex;align-items:center;gap:20px"><div><div class="vlabel" style="color:var(--mut);font-size:12px">綜合評分</div><span class="bigscore">${parsed.score ?? '-'}</span><span style="color:var(--mut)">/10</span></div><div style="font-size:20px;font-weight:600">${esc(parsed.recommendation || '')}</div></div></div>` : ''}
+
+  <div class="panel">
+    <h3 style="margin:0 0 10px">📊 三層評判</h3>
+    ${analysisHtml}
+  </div>
+
+  <div class="panel">
+    <h3 style="margin:0 0 10px">📄 邀請/案件原文</h3>
+    <div class="raw">${esc(inv.raw_text || '(未填)')}</div>
+  </div>
+</main>
+<script>
+${COPY_JS.replace(/<\/?script>/g, '')}
+async function analyze(){
+  const btn=document.getElementById('anbtn');btn.disabled=true;
+  document.getElementById('st').textContent='分析中…(約 20 秒)';
+  try{
+    const r=await fetch('/api/invites/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:${JSON.stringify(inv.id)}})});
+    const j=await r.json();
+    if(j.ok){location.reload();}
+    else{document.getElementById('st').textContent='❌ '+(j.error||'失敗');btn.disabled=false;}
+  }catch(e){document.getElementById('st').textContent='❌ '+e.message;btn.disabled=false;}
+}
+async function archiveIt(){
+  if(!confirm('確定 archive 這筆邀請?'))return;
+  try{
+    const r=await fetch('/api/invites/archive',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:${JSON.stringify(inv.id)}})});
+    const j=await r.json();
+    if(j.ok){location.href='/invites';}
+    else{alert('失敗:'+(j.error||''));}
+  }catch(e){alert('❌ '+e.message);}
+}
+// 從列表跳來時 ?autoanalyze=1 自動跑一次
+if(new URLSearchParams(location.search).get('autoanalyze')==='1'&&!${parsed ? 'true' : 'false'}){setTimeout(analyze,400);}
 </script></body></html>`;
 }
 
@@ -1614,7 +1797,9 @@ createServer(async (req, res) => {
     // /api/ingest 用 INGEST_KEY(擴充套件);其餘頁面/API 一律要登入(hdw-auth JWT cookie)
     // /api/refresh-job 帶正確 key 時(本機 gstack 腳本用)免 cookie 驗證,比照 ingest
     const refreshWithKey = url.pathname === '/api/refresh-job' && process.env.INGEST_KEY && url.searchParams.get('key') === process.env.INGEST_KEY;
-    if (url.pathname !== '/api/ingest' && !refreshWithKey) {
+    // 擴充功能也可以用 INGEST_KEY 直接 push invites(不用登入)
+    const inviteIngestWithKey = url.pathname === '/api/invites/ingest' && req.method === 'POST' && process.env.INGEST_KEY && (url.searchParams.get('key') === process.env.INGEST_KEY || req.headers['x-ingest-key'] === process.env.INGEST_KEY);
+    if (url.pathname !== '/api/ingest' && !refreshWithKey && !inviteIngestWithKey) {
       const user = await requireAuth(req, res, url.pathname.startsWith('/api/'));
       if (!user) return;
     }
@@ -1874,6 +2059,63 @@ createServer(async (req, res) => {
     if (url.pathname === '/reply') {
       return serveHtml(res, pageReply());
     }
+    // ⑤ 邀請 — 列表頁、單筆頁
+    if (url.pathname === '/invites') {
+      return serveHtml(res, pageInvites());
+    }
+    if (url.pathname === '/invite') {
+      return serveHtml(res, pageInvite((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
+    }
+    // 手動新增邀請(登入用戶用 /invites 頁的表單)
+    if (url.pathname === '/api/invites/ingest' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      if (!body.raw_text || !String(body.raw_text).trim()) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        return res.end('{"ok":false,"error":"raw_text 必填"}');
+      }
+      // 若沒給 id,從原文+標題雜湊一個短 id(避免重複貼相同邀請)
+      const idIn = body.id || ('inv-' + Buffer.from(String(body.title || '') + '|' + String(body.raw_text).slice(0, 200)).toString('base64url').slice(0, 20));
+      const usd = body.client_spent_text ? parseSpentUsd(body.client_spent_text) : null;
+      upsertInvite(db, {
+        id: idIn,
+        title: body.title || null,
+        url: body.url || null,
+        job_id: body.job_id || null,
+        received_at: body.received_at || new Date().toISOString(),
+        received_text: body.received_text || null,
+        client_spent_text: body.client_spent_text || null,
+        client_spent_usd: usd,
+        client_hires: body.client_hires ?? null,
+        client_payment_verified: body.client_payment_verified,
+        client_invites_sent: body.client_invites_sent ?? null,
+        raw_text: body.raw_text,
+        status: 'new'
+      });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, id: idIn }));
+    }
+    // 對單筆邀請跑 AI 三層評判
+    if (url.pathname === '/api/invites/analyze' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const inv = getInvite(db, id);
+      if (!inv) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此邀請"}'); }
+      const raw = await askAI(invitePrompt(inv, loadProfile()));
+      const data = extractJson(raw);
+      if (!data || typeof data !== 'object') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: 'AI 回傳格式有問題', raw }));
+      }
+      setInviteAi(db, id, Number(data.score) || null, data.recommendation || null, data.recommendation || null, JSON.stringify(data));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, data }));
+    }
+    // Archive 一筆邀請(從列表隱藏,但保留資料)
+    if (url.pathname === '/api/invites/archive' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const ok = setInviteStatus(db, id, 'archived');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok }));
+    }
     if (url.pathname === '/assistant') {
       return serveHtml(res, pageAssistant());
     }
@@ -1902,6 +2144,6 @@ createServer(async (req, res) => {
     res.end(JSON.stringify({ ok: false, error: e.message }));
   }
 }).listen(PORT, HOST, () => {
-  console.log(`\n🌐 網頁:http://${HOST}:${PORT}   (① 列表 / ② 評估 / ③ 提案 / ④ 溝通 ｜ 檔案 · 評分)`);
+  console.log(`\n🌐 網頁:http://${HOST}:${PORT}   (① 列表 / ② 評估 / ③ 提案 / ④ 溝通 / ⑤ 邀請 ｜ 檔案 · 評分)`);
   console.log(`   登入:${NO_AUTH ? 'OFF(NO_AUTH)' : 'hdw-auth ' + AUTH_URL} | ingest 金鑰:${process.env.INGEST_KEY ? 'ON' : 'OFF'}\n   Ctrl+C 關閉。\n`);
 });

@@ -188,6 +188,53 @@ ${full}
 只輸出 JSON。`;
 }
 
+// ⑤ 主動邀請(Invites from clients)分析 — 三層評判 + 套能力邊界 + 最終建議
+export function invitePrompt(invite, p) {
+  const clientBits = [
+    invite.client_spent_text ? `花費 ${invite.client_spent_text}` : '',
+    invite.client_hires != null ? `${invite.client_hires} hires` : '',
+    invite.client_payment_verified ? '付款已驗證' : '',
+    invite.client_invites_sent != null ? `此案已發 ${invite.client_invites_sent} 個邀請(>20=廣撒網)` : ''
+  ].filter(Boolean).join(' | ') || '(未提供)';
+  const ctx = [
+    `案件標題:${invite.title || '(未提供,從原文判斷)'}`,
+    `收到時間:${invite.received_text || invite.received_at || '(未提供)'}`,
+    `客戶數據:${clientBits}`,
+    `邀請/案件原文:\n"""${(invite.raw_text || '').slice(0, 4000)}"""`
+  ].join('\n');
+  return `你是 Upwork 接案顧問。客戶「主動邀請」我投這個案,幫我判斷值不值得認真寫提案、或乾脆 archive。
+
+**三層評判框架(務必依序判斷)**
+🟢 第一層 客戶品質:看花費、hires、付款驗證、hire rate。注意 hires 超高(>1000)是雙面刃 → 可能是大型外包公司、案子規格化、單價低、競爭多。
+🟡 第二層 案子契合度:跟我的「能力邊界」對比。命中紅線、命中 cantDo、或要求我沒有的硬技能(語言、地區、特定證照) → 直接 decline,別浪費 connects 和 JSS。
+🔴 第三層 邀請真實性:Invites sent >20 等於公開職缺、不是真邀請;客戶 hire rate 低 = 廣撒網不認真請人;剛發案就邀我 = 演算法配對不是客戶選我。
+
+**最終建議只能四選一**:
+- "認真寫提案":三層都過、契合度高 → 立刻寫
+- "可投但別重壓":契合 OK 但客戶/真實性有疑慮 → 寫但別 Boost
+- "禮貌 decline":有硬不符(紅線/語言/地區/cantDo) → decline + 一句理由保護 invite response rate
+- "Archive":垃圾邀請/廣撒網/規格不符 → 直接 archive
+
+只輸出 JSON,不要 markdown 圍欄:
+{
+ "score": 0-10 數字(綜合分,8+=認真寫,5-7=可投別重壓,3-4=decline,<3=archive),
+ "recommendation": "認真寫提案 / 可投但別重壓 / 禮貌 decline / Archive" 四選一,
+ "clientQuality": {"verdict":"優/中/差","note":"一句繁中說明"},
+ "fitness": {"verdict":"高/中/低/不符","note":"一句繁中,有硬不符直接點出(例:案子要 Hokkien 但我不會)"},
+ "authenticity": {"verdict":"真邀請/疑似廣撒網/演算法配對","note":"一句繁中說明"},
+ "redFlags": ["逐條短列紅旗,沒有就空陣列"],
+ "declineMessage": "若 recommendation 是 decline,給一句可直接貼的英文 decline 訊息(禮貌、簡短、給理由);否則空字串",
+ "action": "繁中 1-2 句:下一步具體要做什麼(去寫提案/去 decline/直接 archive,以及為什麼)"
+}
+
+我的檔案與能力邊界:
+${profileBrief(p)}
+
+這個邀請:
+${ctx}
+只輸出 JSON。`;
+}
+
 // ③ 客戶訊息回覆助手(繁中思路 + 英文回覆)
 export function replyPrompt(clientMessage, job, p, tone) {
   const ctx = job ? `\n相關職缺:\n${jobBrief(job)}\n` : '';
