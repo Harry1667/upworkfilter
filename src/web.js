@@ -288,7 +288,7 @@ body.chat-open #cwBtn{display:none}
 #cwMsgs .b{align-self:flex-start;background:#0d1117;border:1px solid #272e3a;color:#e6edf3;border-bottom-left-radius:4px}
 #cwMsgs .b strong{color:#79c0ff}
 #cwInbar{display:flex;gap:8px;padding:12px;border-top:1px solid #272e3a;background:#13181f}
-#cwInbar textarea{flex:1;background:#0d1117;color:#e6edf3;border:1px solid #272e3a;border-radius:10px;padding:11px 12px;font:14px/1.5 inherit;resize:none;height:44px;max-height:160px;outline:none;transition:border-color .15s}
+#cwInbar textarea{flex:1;background:#0d1117;color:#e6edf3;border:1px solid #272e3a;border-radius:10px;padding:11px 12px;font:14px/1.5 inherit;resize:none;min-height:44px;max-height:300px;outline:none;transition:border-color .15s;overflow-y:auto}
 #cwInbar textarea:focus{border-color:#4493f8}
 #cwInbar button{background:#2ea043;color:#fff;border:0;border-radius:10px;padding:0 18px;cursor:pointer;font-size:14px;font-weight:600;transition:filter .15s}
 #cwInbar button:hover{filter:brightness(1.1)}
@@ -318,7 +318,10 @@ body.chat-open #cwBtn{display:none}
   </div>
   <div id="cwMsgs"></div>
   <div id="cwHist"><div class="hh">📚 歷史對話 <button id="cwHistNew">＋ 新對話</button></div><ul id="cwHistList"></ul></div>
-  <div id="cwInbar"><textarea id="cwTa" placeholder="問我任何事… (Enter 送出)"></textarea><button id="cwSend">送</button></div>
+  <div id="cwInbar">
+    <textarea id="cwTa" placeholder="貼 JD / cover letter / 問策略… (Enter 送、Shift+Enter 換行)"></textarea>
+    <button id="cwSend" style="align-self:flex-end">送</button>
+  </div>
 </div>
 <script>
 (function(){
@@ -341,7 +344,21 @@ body.chat-open #cwBtn{display:none}
   function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
   function md(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>').replace(/\`([^\`]+)\`/g,'$1').replace(/^#+\\s*/gm,'').replace(/\\n/g,'<br>');}
-  function setText(el,role,text){if(role==='user')el.textContent=text;else el.innerHTML=md(text);}
+  function setText(el,role,text){
+    if(role==='user'){
+      var s=String(text||'');
+      // 🆕 user 長訊息自動摺疊(>300字)
+      if(s.length>300){
+        var preview=s.slice(0,180).replace(/\\n/g,' ').trim()+'…';
+        el.innerHTML='';
+        var p=document.createElement('div');p.textContent=preview;p.style.cssText='opacity:.9';el.appendChild(p);
+        var b=document.createElement('button');b.textContent='展開全文 ('+s.length+' 字) ▾';b.style.cssText='background:rgba(255,255,255,.18);border:0;color:#fff;font-size:11px;border-radius:6px;padding:4px 9px;margin-top:6px;cursor:pointer';
+        var open=false;
+        b.onclick=function(){open=!open;p.textContent=open?s:preview;b.textContent=(open?'收合 ▴':'展開全文 ('+s.length+' 字) ▾');};
+        el.appendChild(b);
+      } else el.textContent=s;
+    } else el.innerHTML=md(text);
+  }
   function bubble(role,text){var d=document.createElement('div');d.className='m '+(role==='user'?'u':'b');setText(d,role,text);msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
   function render(){msgs.innerHTML='';var c=curConvo();var h=c?c.msgs:[];
     if(h.length===0)bubble('bot','嗨!我是你的接案助手 👋 我知道你現在在哪一頁、看哪個案 — 直接問我這案值不值得投、怎麼報價、幫想切入角度都行。');
@@ -365,6 +382,9 @@ body.chat-open #cwBtn{display:none}
   document.getElementById('cwHistNew').onclick=startNew;
   document.getElementById('cwSend').onclick=send;
   ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  // 🆕 textarea 自動撐高(貼大塊文字也好看)
+  ta.addEventListener('input',function(){ta.style.height='44px';ta.style.height=Math.min(ta.scrollHeight,300)+'px';});
+  ta.addEventListener('paste',function(){setTimeout(function(){ta.style.height='44px';ta.style.height=Math.min(ta.scrollHeight,300)+'px';},10);});
   function send(){var t=ta.value.trim();if(!t)return;
     var c=curConvo();if(!c){c=newConvo();}
     ta.value='';bubble('user',t);c.msgs.push({role:'user',content:t});
