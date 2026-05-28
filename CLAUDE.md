@@ -22,15 +22,16 @@ sudo bash -c 'export PATH=/www/server/nodejs/v22.22.2/bin:$PATH
 📊③ 評分+AI:7 維 → AI 快篩 → 大分析
 
 ## 架構(全在 src/)
-- `web.js` — HTTP 伺服器 + 所有頁面/API + 浮動聊天 widget 注入(serveHtml)。頁面:① 列表 ② 評估 ③ 提案 ④ 溝通 ｜ 🧩 功能地圖 · 🎯 能力(/me) · 🪪 Upwork(/profile) · ⚖️ 評分 · 🤖 Agents(/agents)。
-- `score.js` — 規則 7 維評分 + 新手模式 + 低 CP 降級 + **第二道門**(分級能力權重、紅線/能力圈外硬攔截 `blocked`、`wordHit` 整字比對、紅線軟硬分)。
-- `triage.js` — AI 快篩(便宜模型批次,產分數/中標率/母子標籤;讀 capabilityBrief + outcome 校正)。
-- `analyze.js` — 大分析 + 評估網站 HTML;`askAI` 共用。**callProxy 必須非同步**。
-- `assist.js` — profile + `capabilityBrief()`(共用能力邊界)+ 求職信(含自我批改)/投標策略(含勝率)/篩選問題(screeningPrompt)/回覆/聊天 prompt。
+- `web.js` — HTTP 伺服器 + 所有頁面/API + sidebar/chat panel。CSS Grid 佈局(body grid-template-columns:200px 1fr);serveHtml 把 sidebar 從 page 抽出移到 body 第一個 grid item。頁面:① 列表 ② 評估 ③ 提案 ④ 溝通 ⑤ 邀請 ｜ 🌅 今日 📊 投案追蹤 ❤️ 收藏 ｜ 🎯 能力 🪪 Upwork ⚖️ 評分 🧩 功能地圖 🤖 Agents ｜ 📌 Lessons ⭐ 範本 💾 備份。
+- `score.js` — 規則 7 維評分 + 第二道門 + **💀 死亡訊號攔截**(payment_verified=0/hire_rate=0/50+ proposals/spent=0 命中 ≥ 2 → SKIP)+ **紅線在 title = 強制硬擋**(不論其他多強)。
+- `triage.js` — AI 快篩 + **新手勝率硬上限**(!pv→8% / hire 0%→10% / 50+ props→12% / spent < \$100→15%)。
+- `analyze.js` — 大分析 + 評估網站 HTML;`askAI` 共用,支援 `opts.provider` 切換(claude/openai/gemini)。
+- `assist.js` — profile + capabilityBrief + 求職信(3 writer + 總編合成) + 投標策略 + 篩選問題 + 回覆 + chatPrompt(注入 9 步 SOP + Lessons + Anchors + tool docs)。
+- `verify.js` — **信任度 5 函式**:detectHallucinations(幻覺偵測) / annotateCitations(句句標來源) / skepticCritique(魔鬼代言人) / preflightCheck(SOP 守則核對) / extractLessonCandidates(從 notes 萃取 lesson)。
+- `tools.js` — chat agent **11 個 tool registry**(list/add/update/delete applications/lessons/anchors/jobs)+ ReAct loop。
 - `agents/profile-agent.js` — GitHub → proven capabilities。
-- `refresh-live.js` — 本機 gstack 開即時頁重抓單案(提案/面試/客戶)→ POST /api/refresh-job。`rescore.js` — 套能力邊界重算+回填 blocked。
-- `api-fetch.js` — 官方 GraphQL API 抓案(已套能力邊界/模式權重/posted_at;`--detail` 探針)。等 key 審核。
-- `db.js` — node:sqlite,**WAL + busy_timeout**。欄位含 `blocked`(第二道門擋下)、`posted_at`(發布絕對時間戳,顯示依現在重算,別用會過期的 posted_text)。
+- `refresh-live.js` / `rescore.js` / `api-fetch.js` — 即時刷新 / 重算 / 官方 GraphQL(待 key)。
+- `db.js` — node:sqlite,WAL + busy_timeout。表:`jobs`(含 `blocked`/`posted_at`/`favorited`)、`invites`、`applications`(投案追蹤)、`lessons`(學習日誌)、`anchors`(cover letter 範本)。
 
 ## 能力資料(profile.json `capability`)
 - `skills[]`={name 可交付項目, level 1-5, canDo, cantDo, keywords};redlines 紅線;scaleCeiling;searchKeywords(第一道門)。

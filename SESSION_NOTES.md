@@ -1,0 +1,100 @@
+# SESSION NOTES
+
+## 2026-05-29（本次 session — 大改版）
+
+### ✅ 完成
+
+**信任度機制 6 重驗證**（全部上線）
+- ② Preflight Checklist — 對照 Lessons + SOP 守則逐條核對
+- ③ 幻覺偵測 — 每 claim 標 ✅/⚠️/🚨
+- ⑥ Citation — 句句標 `[N][?][!]` 來源
+- ⑦ Multi-model 共識（Claude/OpenAI/Gemini 三路）
+- ⑧ Anchors（few-shot 範本注入）
+- ⑩ Skeptic（魔鬼代言人挑刺）
+
+**評分強化**
+- 💀 死亡訊號攔截器（payment_verified=0 / hire_rate=0 / 50+ proposals / spent=0 命中 ≥ 2 = SKIP）
+- 🚦 新手能見度評分（從 JD Activity 段抓 Interviewing/Boost rankings）
+- triage.js 加新手勝率硬上限（!pv→8% / hire 0%→10% / 50+ props→12%）
+- score.js 紅線出現在 title = 強制硬擋
+
+**Lessons + Anchors 系統**
+- 📌 /lessons CRUD + auto-inject 進所有 AI prompt
+- 🧠 從 application notes 自動萃取 lesson 候選
+- ⭐ /anchors few-shot 範本管理 + 「⭐ 標為範本」按鈕
+- 本次 session 加了 8 條 lesson:
+  1. 0 評價別自爆（"I'll overdeliver" 是業務話術）
+  2. 專案描述加情境/規模/結果
+  3. "production X I use daily" 沒證據 = 模糊
+  4. "Ready to start" 改成 A vs B 選擇題
+  5. 開頭不要 "To answer your points"
+  6. 特定 SaaS 平台沒實戰 = SKIP
+  7. n8n + SaaS production = SKIP
+  8. 前 5 個 5★ 前不接 Swift / SwiftUI
+
+**投案追蹤**
+- 📊 /applications 表 + 狀態流（sent→viewed→replied→interview→hired/rejected/no_response）
+- 統計卡（真實回應/面試/中標率 + Connects 燒）
+- 從列表頁 applied=1 一鍵匯入
+- 🧠 萃取 Lesson 按鈕
+
+**Chat agent 重做**
+- IDE 風格右側 panel（CSS Grid 佈局，body.chat-open #pagecontent margin-right:420px）
+- Tool use:11 個動作（list/add/update/delete applications, lessons, anchors, jobs）
+- 長訊息(>300字)自動摺疊 + textarea auto-grow + 送出後重置高度
+- ReAct loop:AI 夾 `<tool>{...}</tool>` → server 執行 → 結果回送
+
+**Layout 重寫**
+- CSS Grid: body grid-template-columns: 200px 1fr
+- serveHtml 把 sidebar 從 page 內抽出 → body 第一個 grid item
+- Sidebar 4 組:投案流程 / 每日 / 設定 / 學習工具
+- ❤️ 收藏案件 (jobs.favorited)、🔒 標私案、🦴 撿漏 mode
+
+**Profile 真實化**
+- capability.skills 從 11 個吹噓清單 → 12 個誠實能力（含 canDo/cantDo）
+- 紅線 51 個（含 Ashby/Workday/Salesforce/n8n/React Native/Laravel/WordPress 等）
+- searchKeywords 對齊 sweet spot:API + AI + Dashboard + Workflow
+- scaleCeiling 改成「獨立可承接小~中型」誠實版
+
+**文件**
+- README.md 大改 — 全功能對照表 + 中英文
+- USER-FLOW.md — 9 步使用流程
+- 1-dev/00-INDEX.md — 文件總索引
+- 1-dev/01-SOP-投案流程.md — 投案 9 步 SOP
+- **1-dev/能力地圖.md（本次新增）** — Flutter vs SwiftUI / 三類框架 / 紅線 / 接案 mantra
+- 1-dev/03-Applications/ — 每案一資料夾
+
+**Bug fixes**
+- 提案頁 `const sc` / `var sc` 變數衝突
+- Cover letter 留 [PLACEHOLDER] / placeholder 偵測
+- Nginx proxy_read_timeout 60→300s（共識模式 + 4 verify 並發爆 timeout）
+- 共識模式自動跳 verify（10 個 AI call → 5 個）
+- `.applayout flex` 子元素只取 min-content → 改 display:block + padding-left
+
+### 🚧 未完成 / 下次起點
+
+**真正該做的（不是再做功能）**
+- **去投 10 個爛單**累積真實數據
+- 系統強到 over-engineered 了，applications 表還空的 → AI 沒實戰資料可學
+
+**還沒做但討論過的**
+- React Native 仍是 0 個 → 不接（已加紅線）
+- 面試應對工具（雇主回信時怎麼接）— ④ 溝通頁有但弱
+- ROI 分析 / Cover letter A/B test — 樣本不夠，先別做
+
+**Layout 還有殘留問題?**
+- 用 DevTools 驗證過 CSS Grid 沒問題了
+- 如果使用者再回報，需要他貼 DevTools 截圖
+
+### 📌 下次起點
+
+1. **看 /today 真實數據**:現在 0 投案 → 沒資料
+2. **去投 3 個撿漏單**:🦴 撿漏 mode + 提案 < 10 + 預算 $20-200 + payment_verified
+3. **每投完一案立刻建追蹤**:提案頁「✅ 我投了」按鈕
+4. **抓到 AI 寫錯立刻加 lesson**
+
+### 🔑 重要連結
+- 線上:https://upworkfilter.looptw.com
+- 重要頁:`/today` / `/me` / `/lessons` / `/anchors` / `/applications`
+- 本機能力地圖:`1-dev/能力地圖.md`
+- 投案 SOP:`1-dev/01-SOP-投案流程.md`
