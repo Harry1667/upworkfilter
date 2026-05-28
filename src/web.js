@@ -440,7 +440,7 @@ function pageJobs() {
       const skillScore = j.score_skill ?? -1;
       const postedAt = j.posted_at || j.last_seen || '';
       return `
-      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${j.ai_win ?? -1}" data-sortscore="${ev.isAi ? ev.score * 10 : ev.score}" data-seen="${esc(j.last_seen || '')}" data-pay="${pay}" data-comp="${compNum}" data-spent="${spent}" data-skill="${skillScore}" data-posted="${esc(postedAt)}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${j.ai_win ?? -1}" data-sortscore="${ev.isAi ? ev.score * 10 : ev.score}" data-seen="${esc(j.last_seen || '')}" data-pay="${pay}" data-comp="${compNum}" data-spent="${spent}" data-skill="${skillScore}" data-posted="${esc(postedAt)}" data-pv="${j.payment_verified ? 1 : 0}">
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
@@ -473,7 +473,7 @@ function pageJobs() {
   </div>
   <div class="filters">
     <button data-f="APPLY" class="on">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
-    <button data-f="SKIP">🔴 排除</button><button data-f="blocked">🚫 超綱</button><button data-f="applied">已投</button><button data-f="all">全部</button>
+    <button data-f="SKIP">🔴 排除</button><button data-f="blocked">🚫 超綱</button><button data-f="junk" title="低提案+小預算+付款驗證,新手撿漏拿 5★">🦴 撿漏</button><button data-f="applied">已投</button><button data-f="all">全部</button>
     <select id="parentFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
       <option value="">📂 全部大類</option>
       ${allParents.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
@@ -504,12 +504,24 @@ function pageJobs() {
   let verdictF='APPLY';
   function applyFilters(){const par=document.getElementById('parentFilter').value,tag=document.getElementById('tagFilter').value,fit=document.getElementById('fitFilter').value;
     cards.forEach(c=>{
-      let okV=verdictF==='all'?1:verdictF==='applied'?c.dataset.applied==='1':verdictF==='blocked'?c.dataset.blocked==='1':c.dataset.verdict===verdictF;
+      let okV;
+      if(verdictF==='all')okV=1;
+      else if(verdictF==='applied')okV=c.dataset.applied==='1';
+      else if(verdictF==='blocked')okV=c.dataset.blocked==='1';
+      else if(verdictF==='junk'){
+        // 🦴 撿漏:低競爭(≤10 提案) + 付款驗證 + 未投 + (預算 20-200 或未知)
+        const comp=+c.dataset.comp,pay=+c.dataset.pay,pv=c.dataset.pv==='1',ap=c.dataset.applied==='1';
+        okV=pv&&!ap&&comp<=10&&(pay<0||(pay>=20&&pay<=200));
+      }
+      else okV=c.dataset.verdict===verdictF;
       let okP=!par||c.dataset.parent===par;
       let okT=!tag||(','+c.dataset.tags+',').indexOf(','+tag+',')>=0;
       let okF=!fit||c.dataset.fit===fit;
       c.style.display=(okV&&okP&&okT&&okF)?'':'none';});}
-  function f(x){verdictF=x;document.querySelectorAll('.filters button').forEach(b=>b.classList.toggle('on',b.dataset.f===x));applyFilters();}
+  function f(x){verdictF=x;document.querySelectorAll('.filters button').forEach(b=>b.classList.toggle('on',b.dataset.f===x));
+    // 撿漏模式自動切「競爭最少」排序
+    if(x==='junk'){const sel=document.getElementById('sortBy');sel.value='comp';sortCards();}
+    applyFilters();}
   document.querySelectorAll('.filters button').forEach(b=>b.onclick=()=>f(b.dataset.f));
   document.getElementById('parentFilter').onchange=applyFilters;
   document.getElementById('tagFilter').onchange=applyFilters;
