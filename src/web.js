@@ -187,11 +187,14 @@ const CSS = `
   h1{font-size:18px;margin:0 0 10px;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
   h1 .sub{color:var(--mut);font-size:13px;font-weight:400}
   nav a{font-size:14px;text-decoration:none;color:var(--mut)}
-  nav.zones{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  nav.zones{display:flex;flex-direction:column;gap:6px}
+  nav.zones .navrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  nav.zones .navrow-2{opacity:.85}
+  nav.zones .navrow-2 a{font-size:12px;padding:5px 11px}
   nav.zones a{padding:6px 13px;border:1px solid var(--bd);border-radius:9px;background:var(--card);font-size:13px;line-height:1;transition:.15s}
   nav.zones a:hover{border-color:var(--ac);color:var(--tx)}
   nav.zones a.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:700}
-  nav.zones a[href="/logout"]{margin-left:auto;border-color:transparent;background:transparent}
+  nav.zones a[href="/logout"]{border-color:transparent;background:transparent}
   nav.zones a[href="/logout"]:hover{color:#f85149}
   nav .navsep{width:1px;align-self:stretch;background:var(--bd);margin:0 4px;color:transparent;overflow:hidden}
   .flowhint{margin-top:10px;font-size:13px;color:var(--mut)}.flowhint b{color:var(--tx)}
@@ -1072,7 +1075,15 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/today', '🌅 今日', active === '/today')}${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}${link('/lessons', '📌 Lessons', active === '/lessons')}${link('/anchors', '⭐ 範本', active === '/anchors')}${link('/applications', '📊 投案追蹤', active === '/applications')}<a href="/logout">登出</a></nav>`;
+  // 兩排:第一排 = 每日工作流(投案 + 追蹤);第二排 = 設定 + 學習工具
+  return `<nav class="zones">
+    <div class="navrow">
+      ${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/today', '🌅 今日', active === '/today')}${link('/applications', '📊 投案追蹤', active === '/applications')}
+    </div>
+    <div class="navrow navrow-2">
+      ${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/features', '🧩 功能地圖', active === '/features')}${link('/agents', '🤖 Agents', active === '/agents')}<span class="navsep">｜</span>${link('/lessons', '📌 Lessons', active === '/lessons')}${link('/anchors', '⭐ 範本', active === '/anchors')}${link('/backup', '💾 備份', active === '/backup')}<a href="/logout" style="margin-left:auto">登出</a>
+    </div>
+  </nav>`;
 }
 
 // 📌 Lessons 頁:使用者抓到 AI 錯就存,**所有 AI prompt 自動讀取啟用中的 lessons** 當硬規則
@@ -1846,9 +1857,17 @@ function jobBarHtml(job, active) {
     ${back}
     <a href="${esc(cleanUrl(job))}" data-url="${esc(cleanUrl(job))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
     <label class="applied"><input type="checkbox" ${job.applied ? 'checked' : ''} onchange="markJob('${job.id}',this.checked)"> 標記已投</label>
+    <button onclick="markPrivate('${job.id}')" title="點進去發現 Access denied / 私案 / 已 hire?點這個直接 SKIP" style="background:#3d1e1e;color:#f85149;border:1px solid #f85149;border-radius:6px;padding:4px 10px;font-size:13px;cursor:pointer">🔒 標為私案 / 已關閉</button>
     <select onchange="setOutcome('${job.id}',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:13px">${opts}</select>
   </div>
-  <script>function setOutcome(id,v){fetch('/api/outcome?id='+id+'&outcome='+encodeURIComponent(v),{method:'POST'});}</script>`;
+  <script>
+    function setOutcome(id,v){fetch('/api/outcome?id='+id+'&outcome='+encodeURIComponent(v),{method:'POST'});}
+    async function markPrivate(id){
+      if(!confirm('確認標為「私案/已關閉」?\\n會直接 SKIP,不計入提案。'))return;
+      await fetch('/api/job/mark-private?id='+id,{method:'POST'});
+      location.href='/';
+    }
+  </script>`;
 }
 const notFoundPage = (title, active, id) => `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${CSS}</style></head><body>
 <header><h1>${title}</h1>${navBar(active)}</header>
@@ -2582,6 +2601,15 @@ createServer(async (req, res) => {
       }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, added }));
+    }
+    // 🔒 標為私案 / 已關閉 — 點進去發現 Access denied 直接 SKIP
+    if (url.pathname === '/api/job/mark-private' && req.method === 'POST') {
+      const id = url.searchParams.get('id');
+      if (!id) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"缺 id"}'); }
+      const dbi = openDb();
+      dbi.prepare("UPDATE jobs SET verdict='SKIP', reason='🔒 私案/已關閉 — Access denied', blocked=1, ai_verdict='略過 — 私案/已關閉' WHERE id=?").run(id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
     }
     // 🔄 從 jobs.applied=1 匯入 — 把列表頁勾過「已投」但 applications 表還沒紀錄的案子補上
     if (url.pathname === '/api/applications/import-applied' && req.method === 'POST') {
