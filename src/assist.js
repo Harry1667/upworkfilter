@@ -51,7 +51,9 @@ function profileBrief(p) {
     capBrief,
     `作品集:\n${port}`,
     proven ? `已證明能力(GitHub 真實 repo,優先當證據):\n${proven}` : '',
-    `求職信規則:${(p.coverLetterStyle?.rules || []).join(';')}`
+    `求職信規則:${(p.coverLetterStyle?.rules || []).join(';')}`,
+    // 📌 Lessons — 使用者抓過 AI 錯而存的學習,**強制遵守**,違反 = 嚴重錯誤
+    (p.lessons || []).length ? `\n⚠️ Lessons(使用者從過去錯誤累積的硬規則,違反任何一條 = 嚴重錯誤,必須照做):\n${(p.lessons).map((l, i) => `[${i + 1}] ${l}`).join('\n')}` : ''
   ].filter(Boolean).join('\n');
 }
 

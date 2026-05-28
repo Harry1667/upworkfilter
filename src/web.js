@@ -3,7 +3,17 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson } from './db.js';
+
+// 📌 loadProfileWithLessons — profile + 啟用中的 lessons,每個 prompt 都會看到
+function loadProfileWithLessons() {
+  const p = loadProfile();
+  try {
+    const db = openDb();
+    p.lessons = listLessons(db, true).map((l) => l.content);
+  } catch (e) { p.lessons = []; }
+  return p;
+}
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
@@ -1058,7 +1068,72 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}<a href="/logout">登出</a></nav>`;
+  return `<nav class="zones">${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/features', '🧩 功能地圖', active === '/features')}${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/agents', '🤖 Agents', active === '/agents')}${link('/lessons', '📌 Lessons', active === '/lessons')}<a href="/logout">登出</a></nav>`;
+}
+
+// 📌 Lessons 頁:使用者抓到 AI 錯就存,**所有 AI prompt 自動讀取啟用中的 lessons** 當硬規則
+function pageLessons() {
+  const db = openDb();
+  const rows = listLessons(db, false);
+  const list = rows.map((l) => `
+    <li data-id="${l.id}" style="padding:14px;border:1px solid var(--bd);border-radius:10px;margin:8px 0;background:${l.enabled ? 'var(--card)' : '#0d1117'};opacity:${l.enabled ? 1 : 0.55}">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <input type="checkbox" ${l.enabled ? 'checked' : ''} onchange="toggleL(${l.id}, this.checked)" style="margin-top:4px;width:18px;height:18px">
+        <div style="flex:1">
+          <div style="color:var(--tx);line-height:1.55;font-size:14px">${esc(l.content)}</div>
+          <div style="color:var(--mut);font-size:12px;margin-top:6px">#${l.id} · ${esc(l.category || 'general')} · 套用 ${l.hit_count || 0} 次 · ${esc((l.created_at || '').slice(0, 10))}</div>
+        </div>
+        <button onclick="delL(${l.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:18px;padding:0 8px">🗑</button>
+      </div>
+    </li>`).join('');
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>📌 Lessons</title><style>${CSS}
+  .lesson-form{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:18px}
+  .lesson-form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:14px/1.55 inherit;resize:vertical;min-height:60px}
+  .lesson-form input{background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;font:13px inherit}
+  .lesson-form button{background:var(--grn);color:#fff;border:0;border-radius:8px;padding:9px 18px;cursor:pointer;font-size:14px;font-weight:600}
+  ul.ls{list-style:none;margin:0;padding:0}
+  .empty{color:var(--mut);text-align:center;padding:40px;font-size:14px}
+  .help{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
+  </style></head><body>
+<header><h1>📌 Lessons <span class="sub">你抓到的 AI 錯都存在這 — 所有 prompt 自動讀,違反 = 嚴重錯誤</span></h1>${navBar('/lessons')}</header>
+<main>
+  <div class="help">
+    <b>📖 怎麼用</b><br>
+    • 你發現 AI 寫了不該寫的東西(撒謊 / 用錯時區 / 留 placeholder),就在這裡新增一條 lesson<br>
+    • <b>勾選 = 啟用</b>,所有 AI(求職信 / 助手 / 評估)都會自動讀<br>
+    • 取消勾選 = 暫時不套用,但保留紀錄<br>
+    • 🗑 = 永久刪除<br>
+    • 「套用 N 次」= 這條被多少次 AI 任務讀到
+  </div>
+  <div class="lesson-form">
+    <div style="color:var(--mut);font-size:13px;margin-bottom:6px">✍️ 新增一條 lesson(會強制套用到所有 AI prompt)</div>
+    <textarea id="content" placeholder="例如:不要寫 'n8n shipped extensively',我只做過手寫 webhook 自動化"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <input id="category" placeholder="分類(可空,如 honesty / tech / location)" style="flex:1">
+      <button onclick="addL()">➕ 新增</button>
+    </div>
+  </div>
+  <ul class="ls" id="ls">${list || '<div class="empty">還沒有 lesson。看到 AI 寫錯什麼,就來這裡記一條。</div>'}</ul>
+</main>
+<script>
+  async function addL(){
+    const c=document.getElementById('content').value.trim();
+    const cat=document.getElementById('category').value.trim()||'general';
+    if(!c){alert('內容不能空');return;}
+    const r=await fetch('/api/lessons',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({content:c,category:cat})});
+    const j=await r.json();
+    if(j.ok)location.reload();else alert('失敗:'+(j.error||'?'));
+  }
+  async function toggleL(id,enabled){
+    await fetch('/api/lessons/toggle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,enabled})});
+    location.reload();
+  }
+  async function delL(id){
+    if(!confirm('確定刪除這條 lesson?'))return;
+    await fetch('/api/lessons/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
+    location.reload();
+  }
+</script></body></html>`;
 }
 
 // 🧩 功能地圖:把同類案子彙整成「大類 → 小功能(含難度/工具/頻率/相依)」
@@ -1994,12 +2069,43 @@ createServer(async (req, res) => {
         return res.end(JSON.stringify({ ok: false, error: e.message }));
       }
     }
+    // 📌 Lessons CRUD
+    if (url.pathname === '/api/lessons' && req.method === 'GET') {
+      const dbi = openDb();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, lessons: listLessons(dbi, false) }));
+    }
+    if (url.pathname === '/api/lessons' && req.method === 'POST') {
+      const { content, category } = JSON.parse(await readBody(req));
+      if (!content || !String(content).trim()) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        return res.end('{"ok":false,"error":"content 不能空"}');
+      }
+      const dbi = openDb();
+      addLesson(dbi, content, category || 'general');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true }));
+    }
+    if (url.pathname === '/api/lessons/toggle' && req.method === 'POST') {
+      const { id, enabled } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      setLessonEnabled(dbi, id, !!enabled);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/api/lessons/delete' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      deleteLesson(dbi, id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
     if (url.pathname === '/api/cover-letter' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述
-      const prof = loadProfile();
+      const prof = loadProfileWithLessons();
       // 🤝 多 agent 合議:3 個 writer 平行寫 + 1 個總編合成
       // mode=single 走舊版單 prompt(快但品質一般);預設走 ensemble
       const mode = url.searchParams.get('mode') || 'ensemble';
@@ -2048,7 +2154,7 @@ createServer(async (req, res) => {
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述 → 抓影片題/指定專案
-      const data = extractJson(await askAI(advicePrompt(job, loadProfile())));
+      const data = extractJson(await askAI(advicePrompt(job, loadProfileWithLessons())));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, data }));
     }
@@ -2089,7 +2195,7 @@ createServer(async (req, res) => {
       const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000);
-      const data = extractJson(await askAI(screeningPrompt(job, loadProfile())));
+      const data = extractJson(await askAI(screeningPrompt(job, loadProfileWithLessons())));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, data }));
     }
@@ -2117,14 +2223,14 @@ createServer(async (req, res) => {
           `第一道門搜尋關鍵字:${(pp.capability?.searchKeywords || []).join(', ') || '(未設)'}\n` +
           (outcomeNoteText(computeOutcomeStats()) || '投標實績:樣本不足(<5),還沒學到校正資料');
       }
-      const reply = await askAI(chatPrompt(recentMsgs, loadProfile(), jobs, note));
+      const reply = await askAI(chatPrompt(recentMsgs, loadProfileWithLessons(), jobs, note));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, reply: String(reply).trim() }));
     }
     if (url.pathname === '/api/reply' && req.method === 'POST') {
       const { message, id, tone } = JSON.parse(await readBody(req));
       const job = id ? db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) : null;
-      const data = extractJson(await askAI(replyPrompt(message, job, loadProfile(), tone)));
+      const data = extractJson(await askAI(replyPrompt(message, job, loadProfileWithLessons(), tone)));
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, data }));
     }
@@ -2223,6 +2329,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/agents') {
       return serveHtml(res, pageAgents());
+    }
+    if (url.pathname === '/lessons') {
+      return serveHtml(res, pageLessons());
     }
     if (url.pathname === '/scoring' || url.pathname === '/settings' || url.pathname === '/setup') {
       return serveHtml(res, pageScoring()); // /settings、/setup 舊路由導向(back-compat)

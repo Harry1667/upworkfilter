@@ -95,7 +95,44 @@ export function openDb() {
       last_seen         TEXT
     );
   `);
+
+  // ── ④ Lessons(學習日誌)— 使用者抓到 AI 錯就存,自動注入未來 prompt ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lessons (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      content      TEXT NOT NULL,
+      category     TEXT,
+      created_at   TEXT,
+      enabled      INTEGER DEFAULT 1,
+      hit_count    INTEGER DEFAULT 0
+    );
+  `);
+
   return db;
+}
+
+// ── lessons helpers ──
+export function addLesson(db, content, category = 'general') {
+  return db.prepare('INSERT INTO lessons (content, category, created_at) VALUES (?, ?, ?)').run(
+    String(content || '').trim().slice(0, 500),
+    category,
+    new Date().toISOString(),
+  );
+}
+export function listLessons(db, onlyEnabled = false) {
+  const q = onlyEnabled ? 'SELECT * FROM lessons WHERE enabled=1 ORDER BY id DESC' : 'SELECT * FROM lessons ORDER BY id DESC';
+  return db.prepare(q).all();
+}
+export function setLessonEnabled(db, id, enabled) {
+  db.prepare('UPDATE lessons SET enabled=? WHERE id=?').run(enabled ? 1 : 0, id);
+}
+export function deleteLesson(db, id) {
+  db.prepare('DELETE FROM lessons WHERE id=?').run(id);
+}
+export function incrementLessonHit(db, ids) {
+  if (!ids || !ids.length) return;
+  const stmt = db.prepare('UPDATE lessons SET hit_count=hit_count+1 WHERE id=?');
+  for (const id of ids) stmt.run(id);
 }
 
 // ── invites helpers ──
