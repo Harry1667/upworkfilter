@@ -1718,14 +1718,27 @@ function pageProposal(id) {
       if(sc&&sc.ok&&sc.data)renderScreening(sc.data);
       if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';}
       if(a.ok){const d=a.data;
-        if((d.applyRequirements||[]).length){document.getElementById('reqout').innerHTML=(d.applyRequirements).map(function(x){return '• '+x;}).join('<br>')+'<br><br><span style="color:var(--mut)">需要影片講稿 / 指定專案說明?點右下角 💬 助手,貼上題目讓它幫你寫。</span>';document.getElementById('reqsect').style.display='block';}
+        if((d.applyRequirements||[]).length){
+          var reqHtml=(d.applyRequirements).map(function(x){return '• '+x;}).join('<br>');
+          if((d.videoScripts||[]).length){
+            reqHtml+='<br><br><b>🎥 影片講稿大綱(SOP 3 題模板):</b><br>'+
+              (d.videoScripts).map(function(s,i){return '<div style="background:#0d1117;border:1px solid #272e3a;border-radius:8px;padding:10px;margin:6px 0;font-size:13px;line-height:1.55"><b>Q'+(i+1)+'</b><br>'+s+'</div>';}).join('');
+          }
+          if(d.requiredProjectAnswer){
+            reqHtml+='<br><b>📋 Required Project 答案建議:</b><br><div style="background:#0d1117;border:1px solid #272e3a;border-radius:8px;padding:10px;margin-top:6px;font-size:13px">'+d.requiredProjectAnswer+'</div>';
+          }
+          reqHtml+='<br><br><span style="color:var(--mut)">需要進一步客製化?點右下角 💬 助手,告訴它要哪一題。</span>';
+          document.getElementById('reqout').innerHTML=reqHtml;
+          document.getElementById('reqsect').style.display='block';
+        }
         if(d.recentExperience){window._ex=d.recentExperience;document.getElementById('exout').textContent=d.recentExperience;document.getElementById('exsect').style.display='block';}
         const hl=(d.profileHighlights||[]).map(x=>'<span class="pill">'+x+'</span>').join(' ');
         document.getElementById('adout').innerHTML=
           '<b>💲 報價:</b>'+(d.bid||d.priceSuggestion||'')+
+          (d.connectsBid?'<br><br><b>🎯 Connects 競標:</b>'+d.connectsBid:'')+
           '<br><br><b>🔗 GitHub:</b>'+(d.githubLink?'<a href=\"'+d.githubLink+'\" target=\"_blank\">'+d.githubLink+'</a>':'(未設)')+
-          '<br><br><b>📌 Profile highlights(挑這4個):</b><br>'+(hl||'—')+
-          '<br><br><b>🖼️ 該主打作品:</b><br>'+(d.showPortfolio||[]).map(x=>'• '+x).join('<br>')+
+          '<br><br><b>📌 Profile highlights(挑這4個,第1個最強最相關):</b><br>'+(hl||'—')+
+          '<br><br><b>🖼️ 該主打作品(優先有 live URL 的):</b><br>'+(d.showPortfolio||[]).map(x=>'• '+x).join('<br>')+
           (d.screenshot?'<br><b>建議附截圖:</b>'+d.screenshot:'')+
           '<br><br><b>📎 投標應附:</b><br>'+(d.submit||[]).map(x=>'• '+x).join('<br>')+
           '<br><br><b>🎯 切入角度:</b>'+(d.angle||'')+

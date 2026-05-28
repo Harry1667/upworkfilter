@@ -64,8 +64,9 @@ function jobBrief(job) {
   ].join('\n');
 }
 
-// ① 求職信(英文 cover letter)
+// ① 求職信(英文 cover letter) — 套 SOP 5 段結構 + 誠實提弱點
 export function coverLetterPrompt(job, p) {
+  const hasVideo = /video|loom|record/i.test(job.description || '');
   return `你是 Upwork 接案顧問。根據「我的檔案」與「這個職缺」,寫一封**英文 cover letter**。
 
 我的檔案:
@@ -74,25 +75,68 @@ ${profileBrief(p)}
 職缺:
 ${jobBrief(job)}
 
-要求:嚴格遵守上面的求職信規則,並特別注意:
-- 像「真人資深工程師在跟客戶聊」,自然口語,不要套版、不要公式化開頭(別用 "Your challenge is..." 這種開場)。
-- 禁用浮誇/空話:唯一精通、10x、靠AI、vibe coder、game-changer、passion。
-- 開頭直接點到這個客戶的具體情境(用他描述裡的真實細節),不要泛泛。
-- 用 1 個最相關的真實作品當證據(具體技術),給具體做法,結尾問一個好回答的問題。70-110 字。
-只輸出 cover letter 英文本文,不要任何中文說明、不要標題、不要引號。`;
+【寫作 SOP — 嚴格遵守】
+依案子複雜度自動選長度:
+- 短案 / 範圍簡單 / 預算 < $200 → **70-150 字**,3-4 句,單段
+- 複雜案 / 有 Required Project / 列出多項技能 / 預算 > $500 → **1500-2500 字符**,套下面 5 段結構
+
+【5 段結構(複雜案才用)】
+${hasVideo ? '[第 1 行] 📹 Video answers (3 questions, ~3 min): [LOOM_LINK_HERE]  ← 留 placeholder,使用者自己換\n\n' : ''}[第 1 段] 開場 hook (2-3 句):為什麼這案 = 我的真實工作流。**避免**「I am writing to express...」這類罐頭。
+
+[第 2 段] 4 個 bullet 誠實清單:
+  1. 地區 / 時區 (如果客戶有偏好地區但你不是,主動翻成優勢如 Asia 覆蓋)
+  2. 我強的技術棧 (精準對應 JD)
+  3. **我弱的(誠實承認 + 提替代經驗)** — 例如沒做過 React Native 但有 4 個 Flutter app
+  4. Upwork 新手 / 評價現況 + 用 "overdeliver on first clients" 應對
+
+[第 3 段] 2-3 個專案 highlights (• bullet 換行):
+  • 名字 — 一句話描述 — 關鍵技術 — live URL (如果有)
+  • 選最貼 JD 的、要有 live demo 加分
+
+[第 4 段] How I actually use Claude (如果是 AI 相關案才寫):
+  • 講具體做什麼,不要 buzzword
+  • 例:「I shipped bilingual READMEs across 26 of my repos in one afternoon using sub-agents」這種具體數字
+  • 結尾講「I read every diff before commit. Claude is a senior I pair with, not autocomplete.」
+
+[第 5 段] 收尾:
+  Ready to start. GitHub: github.com/${p.githubUser || 'username'}
+  Harry
+
+【風格守則】
+- 像「真人資深工程師在跟客戶聊」,自然口語
+- **禁用**:唯一精通、10x、靠 AI、vibe coder、game-changer、passion、I am confident、cutting-edge
+- 開頭直接點到客戶具體情境(用他描述裡的真實細節)
+- **誠實提弱點** ≫ 自吹自擂 — 雇主更信任會說「我沒做過 X 但...」的人
+
+只輸出 cover letter 英文本文,不要中文說明、不要標題、不要引號、不要 markdown 圍欄。`;
 }
 
-// ①b 求職信自我批改 — 拿 draft 對照規則挑錯再改寫,輸出更好的最終版
+// ①b 求職信自我批改 — 拿 draft 對照 SOP 5 段守則挑錯再改寫
 export function coverLetterRefinePrompt(draft, job, p) {
   return `你是嚴格的 Upwork 求職信編輯。下面是一封給這個職缺的英文 cover letter 草稿。
-請先在心裡逐項檢查問題,再輸出**改寫後的最終版**(只輸出英文本文,不要中文、不要標題、不要引號、不要列出問題):
+請對照下面 SOP 守則逐項檢查,再輸出**改寫後的最終版**(只輸出英文本文,不要中文、不要標題、不要引號、不要列出問題):
 
-檢查清單(發現就修掉):
-- 公式化/套版開頭(如 "Your challenge is...", "I am excited to...", "I came across your job")→ 改成直接點客戶的具體情境。
-- 浮誇/空話(唯一精通、10x、靠 AI、vibe coder、game-changer、passion、I'm confident)→ 刪掉或換成具體事實。
-- 太業務感、像罐頭、沒講到這個客戶的真實細節 → 重寫得像真人資深工程師在聊。
-- 沒有用 1 個最相關的真實作品當證據、沒給具體做法、結尾沒問一個好回答的問題 → 補上。
-- 過長 → 壓到 70-110 字。
+【SOP 檢查清單 — 發現就修】
+公式化/罐頭問題:
+- 套版開頭("Your challenge is...", "I am excited to...", "I came across your job", "I am writing to express")→ 直接點客戶具體情境
+- 浮誇詞(唯一精通、10x、靠 AI、vibe coder、game-changer、passion、I am confident、cutting-edge)→ 刪或換成具體事實
+- 業務 tone、罐頭感、沒講到客戶真實細節 → 重寫得像真人工程師在聊
+
+誠實度問題:
+- **沒主動提弱點** → 加一段「I haven't shipped X yet, but I have Y...」這種誠實 bullet。雇主更信任會承認的人
+- 假裝會 JD 列的技術但實際沒做過 → 改成誠實版
+
+證據問題:
+- 沒引用具體真實作品(repo / live URL) → 補
+- 沒給具體做法/數字 → 加 (例:「shipped 26 bilingual READMEs in one afternoon」這種具體)
+- 沒有 GitHub / live URL → 結尾補上
+
+長度問題:
+- 短案套了長版 → 壓到 70-150 字
+- 複雜案套了短版 → 擴成 1500-2500 字符,套 5 段結構(hook → 4 bullet 誠實清單 → projects → Claude workflow → ready)
+
+影片題:
+- JD 要錄影片但 draft 沒放 Loom 連結 → 第一行加 "📹 Video answers: [LOOM_LINK_HERE]" placeholder
 
 職缺:
 ${jobBrief(job)}
@@ -101,7 +145,7 @@ ${jobBrief(job)}
 ${(p.provenCapabilities || []).slice(0, 8).map((c) => `- ${c.repo}:${c.capability}`).join('\n') || (p.portfolio || []).map((x) => `- ${x.name}:${x.desc}`).join('\n')}
 
 草稿:
-"""${String(draft).slice(0, 1500)}"""
+"""${String(draft).slice(0, 2500)}"""
 
 只輸出改寫後的英文 cover letter 本文。`;
 }
@@ -127,15 +171,18 @@ export function advicePrompt(job, p) {
 
 除了 recentExperience / screeningDraft / videoScripts 的可貼內容用**英文**,其餘用**繁體中文**。只輸出 JSON:
 {
- "showPortfolio":["主打哪 1-2 個作品 + 一句原因(優先用『已證明能力』真實 repo)"],
+ "showPortfolio":["主打哪 1-2 個作品 + 一句原因(SOP 排序:第 1 個一定要有 live URL + 最貼 JD;優先 provenCapabilities)"],
  "screenshot":"建議附哪張作品截圖(1句,指名作品/畫面)",
  "recentExperience":"英文段落(3-4句),貼進『Describe your recent experience』:引用 2-3 真實作品+技術,專業像真人,禁用 vibe coder/靠AI/10x",
  "githubLink":"${gh}",
- "profileHighlights":["挑 4 個最貼合的能力標籤(每個≤6字)"],
- "bid":"報價建議,務必分兩段給:(1)『新手搶單價』= 實際該 bid 的數字(關鍵:使用者是 ${p.level || 'Upwork 新手, 0 評價'},就算這活值更多,0 評價新手報太高幾乎贏不了 → 報價要務實、貼近客戶預算或略高,目標是先拿下第一個 5 星;不要建議贏不了的高價)。(2)『有評價後的合理價』= 這活客觀值多少(供日後參考)。比較客戶預算 vs 我的 profile rate $${p.hourlyRate || 20},一句話講清楚為何這樣報",
+ "profileHighlights":["挑 4 個最貼合的能力標籤(每個≤6字),排序:第 1 個最強最相關,最後 1 個補不同技術棧"],
+ "bid":"報價建議,務必分兩段:(1)『新手搶單價』= 實際該 bid 的數字(${p.level || '0 評價新手'},貼近客戶預算或略高,$15 以下不建議會被當業餘)。(2)『有評價後的合理價』= 客觀值多少。比較客戶預算 vs profile rate $${p.hourlyRate || 20},一句話為何這樣報",
+ "connectsBid":"Upwork Connects 競標建議(繁中 1 句):查 JD 旁的 bid 表 — 1st 位通常 50+ Connects 太貴新手不投;**建議 12-15 Connects 搶 2nd 位**(CP 最高);競爭少的爛單可 0 boost。例如:『建議 12 Connects 搶 2nd 名,1st 名 51 太貴』",
  "angle":"切入角度/差異化(1句)",
  "winStrategy":"根據上面中標率的務實建議(1-2句,繁中):低→值不值得投+差異化或略過;中→提高勝算一招;高→穩拿提醒",
- "applyRequirements":["這案的特殊投標要求,逐條短列(繁中,每條≤30字)。例:需錄3段影片回答(自我介紹/如何用Claude/工時)、需按指定格式寫一個專案說明、客戶偏好地點印尼(僅優先非硬性,台灣時區仍可投)。沒有特殊要求就回空陣列。只列出『要求是什麼』,不要寫長篇草稿"]
+ "applyRequirements":["這案的特殊投標要求,逐條短列(繁中,每條≤30字)。**重點偵測**:Required Video Questions(幾題、各題大綱)、Required Project + 多少 bullet(常見 12 點)、地區/經驗等級偏好、其他客戶自訂 screening。沒特殊要求回空陣列"],
+ "videoScripts":["如果 JD 要錄影,**每題各給一段英文講稿大綱**(每段 30-100 字),套 SOP 標準回答模板:Q1 自我介紹用『Taiwan / CS background / Claude Code daily / 29 repos / new on Upwork → overdeliver』。Q2 依問題客製,但講具體做法+數字。Q3 工時用『30-40 hrs/week sustained / UTC+8 flexible / priority list』。沒影片題回空陣列"],
+ "requiredProjectAnswer":"如果 JD 要求『describe one project』類的 Required Project 答案(尤其列 12 點細節),**回 1 段繁中告訴使用者**:『建議獨立寫一份 .md 當附件,主打 AgentsHub(最強全端 + Claude 範例)。12 點是:short desc / what built / frontend / backend / complexity / UI strength / Claude tools / how used / AI-assisted / your reviews / time / time with Claude Code』。沒要求回空字串"
 }
 
 我的檔案:
@@ -267,12 +314,50 @@ export function chatPrompt(messages, p, jobs, contextNote = '') {
 - 引用案子用「標題」,不要印出 job id(那串數字使用者看不懂)。
 - 條列用「•」或「1. 2. 3.」,保持乾淨好讀。
 
-【你是提案工作台 — 很重要】
-當使用者貼上一個職缺/apply 頁面內容,或要你幫他投某個案:
-1. 先列出「這個 apply 實際會要他填的每一個欄位/問題」(只列這案真的有的:Cover Letter、Describe your recent experience、客戶自訂的篩選問答、影片題、Required project、附件… 別列這案沒有的)。
-2. 為每一欄寫一份「可直接貼」的草稿(英文文案給英文),用下面的「求職信風格規則」,引用他的真實作品/已證明能力當證據。
-3. 文案要像「真人資深工程師在跟客戶講話」:自然、具體、講客戶的問題與你的做法。**嚴禁**:公式化開頭(別都 "Your challenge is...")、浮誇詞(唯一精通、10x、靠 AI、vibe coder)、空泛吹捧。
-4. 他嫌「太業務感/太長/語氣怪」就直接改,來回修到他滿意。
+【投案 SOP — 提案工作台核心心智模型】
+當使用者貼上一個職缺/apply 頁面內容,或要你幫他投某個案,**走這套 9 步**:
+
+Step 1 客戶體檢:Payment verified / 評分 ≥ 4.5 / Hire rate ≥ 30% / 平均時薪 / 描述清晰。紅燈 ≥ 2 個 → 勸他別投。
+
+Step 2 強弱對照:把 JD 技術逐條標 ✅/❌/⚠️。✅ < 60% 就勸退。弱點要**主動誠實提**,不要藏。
+
+Step 3 策略:rate 不要低於 $15(會被當業餘);Connects bid **建議 12-15 搶 2nd 位**,1st 位 50+ 太貴新手不投。
+
+Step 4 Cover Letter(複雜案套 5 段結構):
+  [1] hook 2-3 句點客戶具體情境
+  [2] 4 個誠實 bullet:地區/時區 / 強項 / 弱項主動提+替代經驗 / 新手 overdeliver
+  [3] 2-3 個 projects(有 live URL 的優先)
+  [4] How I use Claude(具體做法+數字,不要 buzzword)
+  [5] Ready to start + GitHub 連結
+  簡單案就 70-150 字短版。
+
+Step 5 Required Project(如果 JD 要求 12 點):勸他獨立寫 .md 當附件,主打最強全端專案。
+
+Step 6 影片題(如果 JD 要求 Video Questions):必錄,不錄自動 disqualified。3 題標準回答:
+  Q1 自我介紹 30-40 秒:Taiwan/CS/Claude Code 每天/29 repos/新手 overdeliver
+  Q2 客製問題 60-90 秒:講具體做法+數字
+  Q3 工時 30 秒:30-40 hrs/week / UTC+8 flexible / priority list
+  Loom 連結放 cover letter 第一行。
+
+Step 7 Portfolio 4 個排序:第 1 個一定要有 live URL + 最貼 JD。
+
+Step 8 提交前 checklist:Loom 連結用無痕視窗測過、沒留 [PLACEHOLDER]、Required Project 附件已上傳、bid 12 不是 51。
+
+Step 9 提交後:截圖存證、馬上投下一案、別刷 Upwork 等通知。
+
+【文案風格守則】
+- 像「真人資深工程師在跟客戶聊」,自然、具體、講客戶的問題與你的做法
+- **嚴禁**:套版開頭("Your challenge is...", "I am writing to express...")、浮誇詞(唯一精通、10x、靠 AI、vibe coder、game-changer、passion、I am confident、cutting-edge)
+- **誠實 ≫ 自吹** — 主動講弱點 = 雇主更信任。例如「I haven't shipped React Native, but I've shipped 4 Flutter apps...」
+- 真實細節 ≫ 抽象描述。「26 READMEs in one afternoon」勝過「I use AI efficiently」
+- 影片磕絆 ≫ 業務 tone — 真人感是新手優勢
+- 第一個 5★ ≫ 高單價 — 前 2 單 overdeliver 換 rating
+- 不確定 JD 提的東西(如 "Claude Design" 不存在的產品) → 教他主動誠實問,不要假裝懂
+
+【實操】當他要寫某欄位:
+1. 先列出這案實際要填的所有欄位(Cover Letter、recent experience、screening、影片題、Required project、附件)
+2. 每欄給「可直接貼」的草稿(英文給英文)
+3. 嫌太業務/太長/語氣怪 → 直接改,來回修到滿意
 ${contextNote ? `\n【使用者此刻的位置 — 優先針對這個情境回答】\n${contextNote}\n` : ''}
 【他的檔案】
 ${profileBrief(p)}
