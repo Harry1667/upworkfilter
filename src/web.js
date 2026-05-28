@@ -181,12 +181,12 @@ function rescoreAll() {
 
 const CSS = `
   :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#6e7681;--ac:#4493f8}
-  *{box-sizing:border-box}html{overflow-x:hidden}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;min-height:100vh}
+  *{box-sizing:border-box}html,body{width:100%;overflow-x:hidden}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;min-height:100vh}
   /* 🗺️ App 整體 layout: 左 sidebar + 右 #pageroot */
-  .applayout{display:flex;min-height:100vh;width:100%;transition:padding-right .2s}
+  .applayout{display:block;width:100%;min-height:100vh;padding-left:200px;transition:padding-right .2s}
   body.chat-open .applayout{padding-right:420px}
-  #pageroot{flex:1 1 0;min-width:0;margin-left:200px}
-  /* sidebar 由 serveHtml 注入,position:fixed left:0;此處保留 #pageroot margin-left 避開 */
+  #pageroot{width:100%;min-width:0}
+  #pageroot > header, #pageroot > main{width:100%;max-width:100%}
   a{color:var(--ac)}
   header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
   h1{font-size:18px;margin:0;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
