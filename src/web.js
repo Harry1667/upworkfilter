@@ -2180,9 +2180,9 @@ function pageProposal(id) {
         // 😈 渲染 Skeptic
         if(c.skeptic&&(c.skeptic.issues||[]).length){
           var sk=c.skeptic,sklist=document.getElementById('sklist');
-          var sc={high:'#f85149',medium:'#d29922',low:'#79c0ff'};
+          var skSev={high:'#f85149',medium:'#d29922',low:'#79c0ff'};
           sklist.innerHTML=sk.issues.map(function(x){
-            var col=sc[x.severity]||'#8b949e';
+            var col=skSev[x.severity]||'#8b949e';
             return '<div style="padding:8px 0;border-bottom:1px dashed #272e3a">'+
               '<span style="color:'+col+';font-weight:700;text-transform:uppercase;font-size:11px;background:#0d1117;padding:2px 6px;border-radius:3px">'+(x.severity||'med')+'</span> '+
               '<span style="color:var(--tx);margin-left:6px">'+(x.problem||'').replace(/</g,'&lt;')+'</span>'+
