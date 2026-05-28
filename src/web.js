@@ -2772,17 +2772,22 @@ createServer(async (req, res) => {
         }
       }
       const finalText = String(text || '').trim();
-      // 🔍 verify + ⑥ citations + ⑩ skeptic + ② preflight 四路平行(不阻塞)
-      const [verifyR, citeR, skR, pfR] = await Promise.allSettled([
-        detectHallucinations(finalText, prof),
-        annotateCitations(finalText, prof),
-        skepticCritique(finalText, job, prof),
-        preflightCheck(finalText, prof, prof.lessons || []),
-      ]);
-      const verify = verifyR.status === 'fulfilled' ? verifyR.value : null;
-      const citations = citeR.status === 'fulfilled' ? citeR.value : null;
-      const skeptic = skR.status === 'fulfilled' ? skR.value : null;
-      const preflight = pfR.status === 'fulfilled' ? pfR.value : null;
+      // 🔍 verify + ⑥ citations + ⑩ skeptic + ② preflight 四路平行
+      // 共識模式 / 跳過驗證模式 → 跳掉(避免 10 個 AI call 並發爆 nginx timeout)
+      let verify = null, citations = null, skeptic = null, preflight = null;
+      const skipVerify = url.searchParams.get('skipverify') === '1' || mode === 'consensus';
+      if (!skipVerify) {
+        const [verifyR, citeR, skR, pfR] = await Promise.allSettled([
+          detectHallucinations(finalText, prof),
+          annotateCitations(finalText, prof),
+          skepticCritique(finalText, job, prof),
+          preflightCheck(finalText, prof, prof.lessons || []),
+        ]);
+        verify = verifyR.status === 'fulfilled' ? verifyR.value : null;
+        citations = citeR.status === 'fulfilled' ? citeR.value : null;
+        skeptic = skR.status === 'fulfilled' ? skR.value : null;
+        preflight = pfR.status === 'fulfilled' ? pfR.value : null;
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, text: finalText, verify, citations, skeptic, preflight, consensus }));
     }
