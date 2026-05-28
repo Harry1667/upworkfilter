@@ -410,7 +410,10 @@ function aiVerdictClass(v) {
 // 一個案最終要顯示的判斷:有 AI 分析就以 AI 為準,否則用規則
 // 回傳 { score, scoreMax, verdict(短), note(完整), cls, isAi }
 function effectiveVerdict(j) {
-  if (j.ai_score != null && j.ai_verdict) {
+  // 💀 規則 SKIP(死亡訊號 / 雇用率 0% / 紅線 / blocked) → 蓋過 AI 樂觀判斷
+  const ruleSkip = j.verdict === 'SKIP';
+  const isDeathSignal = ruleSkip && /💀|死亡訊號|雇用率0%|未付款|紅線/.test(j.reason || '');
+  if (j.ai_score != null && j.ai_verdict && !isDeathSignal) {
     return { score: j.ai_score, scoreMax: 10, verdict: aiVerdictShort(j.ai_verdict), note: j.ai_verdict, cls: aiVerdictClass(j.ai_verdict), isAi: true };
   }
   return { score: j.total_score, scoreMax: 100, verdict: j.verdict, note: '', cls: j.verdict, isAi: false };
