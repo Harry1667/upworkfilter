@@ -267,43 +267,89 @@ const CHAT_WIDGET = `
 #cwInbar textarea:focus{border-color:#4493f8}
 #cwInbar button{background:#2ea043;color:#fff;border:0;border-radius:10px;padding:0 18px;cursor:pointer;font-size:14px;font-weight:600;transition:filter .15s}
 #cwInbar button:hover{filter:brightness(1.1)}
+#cwHist{position:absolute;inset:53px 0 0 0;background:#161b22;z-index:2;display:none;flex-direction:column;overflow:hidden}
+#cwHist.show{display:flex}
+#cwHist .hh{padding:10px 14px;border-bottom:1px solid #272e3a;color:#8b949e;font-size:13px;display:flex;align-items:center;gap:8px}
+#cwHist .hh button{margin-left:auto;background:#2ea043;color:#fff;border:0;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
+#cwHist ul{list-style:none;margin:0;padding:6px;overflow-y:auto;flex:1}
+#cwHist li{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;cursor:pointer;color:#e6edf3;font-size:14px}
+#cwHist li:hover{background:#1f2630}
+#cwHist li.cur{background:#13233b;border-left:3px solid #4493f8;padding-left:9px}
+#cwHist li .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#cwHist li .ts{color:#8b949e;font-size:11px;flex-shrink:0}
+#cwHist li .del{background:0;border:0;color:#8b949e;cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px;flex-shrink:0}
+#cwHist li .del:hover{background:#3d1e1e;color:#f85149}
+#cwHist .empty{color:#8b949e;padding:20px;text-align:center;font-size:13px}
 </style>
 <button id="cwBtn" title="接案助手">💬</button>
 <div id="cwPanel">
   <div id="cwHead">🤖 接案助手 <span class="c" id="cwCtx"></span>
-    <span class="hbtns"><button id="cwBig" title="放大/縮小">⛶</button><button id="cwClose" title="關閉">✕</button></span>
+    <span class="hbtns">
+      <button id="cwHistBtn" title="歷史對話">☰</button>
+      <button id="cwNew" title="新對話">＋</button>
+      <button id="cwBig" title="放大/縮小">⛶</button>
+      <button id="cwClose" title="關閉">✕</button>
+    </span>
   </div>
   <div id="cwMsgs"></div>
+  <div id="cwHist"><div class="hh">📚 歷史對話 <button id="cwHistNew">＋ 新對話</button></div><ul id="cwHistList"></ul></div>
   <div id="cwInbar"><textarea id="cwTa" placeholder="問我任何事… (Enter 送出)"></textarea><button id="cwSend">送</button></div>
 </div>
 <script>
 (function(){
   if(window.__cw)return;window.__cw=1;
-  var KEY='cw_hist';
+  var CK='cw_convos',CC='cw_cur',OLD='cw_hist';
   var panel=document.getElementById('cwPanel'),msgs=document.getElementById('cwMsgs'),ta=document.getElementById('cwTa');
-  var hist=[];try{hist=JSON.parse(sessionStorage.getItem(KEY)||'[]');}catch(e){}
+  var histPanel=document.getElementById('cwHist'),histList=document.getElementById('cwHistList');
+  // 載入對話列表(localStorage 跨 session 保留);舊版 sessionStorage 資料自動遷移成第一筆
+  var convos=[];try{convos=JSON.parse(localStorage.getItem(CK)||'[]');}catch(e){}
+  if(convos.length===0){try{var old=JSON.parse(sessionStorage.getItem(OLD)||'[]');if(old.length)convos=[{id:String(Date.now()),title:'(舊對話)',ts:Date.now(),msgs:old}];}catch(e){}}
+  var curId=localStorage.getItem(CC)||'';
+  function curConvo(){return convos.find(function(c){return c.id===curId;});}
+  function newConvo(){var c={id:String(Date.now())+Math.random().toString(36).slice(2,5),title:'新對話',ts:Date.now(),msgs:[]};convos.unshift(c);curId=c.id;saveConvos();return c;}
+  function saveConvos(){try{localStorage.setItem(CK,JSON.stringify(convos.slice(0,50)));localStorage.setItem(CC,curId);}catch(e){}}
+  function titleFrom(m){var t=String(m||'').replace(/\\s+/g,' ').trim();return t.length>22?t.slice(0,22)+'…':(t||'新對話');}
+  function fmt(ts){var d=new Date(ts),now=new Date();if(d.toDateString()===now.toDateString())return d.toTimeString().slice(0,5);var diff=(now-d)/86400000;if(diff<7)return Math.floor(diff)+'天前';return (d.getMonth()+1)+'/'+d.getDate();}
   function ctx(){var p=location.pathname,id=(new URLSearchParams(location.search)).get('id')||'';
     var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/invites':'邀請列表','/invite':'邀請評估','/features':'功能地圖','/me':'我的能力','/profile':'Upwork Profile','/scoring':'評分設定','/agents':'Agents 中控台','/assistant':'助手'};
     return {page:(m[p]||p),jobId:id};}
   function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
-  // 安全渲染輕量 markdown(先 escape 防 XSS,再轉粗體/換行;移除井號與反引號)
   function md(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>').replace(/\`([^\`]+)\`/g,'$1').replace(/^#+\\s*/gm,'').replace(/\\n/g,'<br>');}
   function setText(el,role,text){if(role==='user')el.textContent=text;else el.innerHTML=md(text);}
   function bubble(role,text){var d=document.createElement('div');d.className='m '+(role==='user'?'u':'b');setText(d,role,text);msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;}
-  function render(){msgs.innerHTML='';if(hist.length===0){bubble('bot','嗨!我是你的接案助手 👋 我知道你現在在哪一頁、看哪個案 — 直接問我這案值不值得投、怎麼報價、幫想切入角度都行。');}else{hist.forEach(function(m){bubble(m.role,m.content);});}}
-  function save(){try{sessionStorage.setItem(KEY,JSON.stringify(hist.slice(-20)));}catch(e){}}
+  function render(){msgs.innerHTML='';var c=curConvo();var h=c?c.msgs:[];
+    if(h.length===0)bubble('bot','嗨!我是你的接案助手 👋 我知道你現在在哪一頁、看哪個案 — 直接問我這案值不值得投、怎麼報價、幫想切入角度都行。');
+    else h.forEach(function(m){bubble(m.role,m.content);});}
+  function renderHist(){histList.innerHTML='';if(convos.length===0){histList.innerHTML='<li class="empty">還沒有對話</li>';return;}
+    convos.forEach(function(c){var li=document.createElement('li');if(c.id===curId)li.className='cur';
+      li.innerHTML='<span class="t"></span><span class="ts"></span><button class="del" title="刪除">🗑</button>';
+      li.querySelector('.t').textContent=c.title;li.querySelector('.ts').textContent=fmt(c.ts);
+      li.onclick=function(e){if(e.target.classList.contains('del'))return;curId=c.id;saveConvos();render();renderHist();toggleHist(false);};
+      li.querySelector('.del').onclick=function(e){e.stopPropagation();if(!confirm('刪除這個對話?'))return;convos=convos.filter(function(x){return x.id!==c.id;});if(curId===c.id)curId=convos[0]?convos[0].id:'';saveConvos();render();renderHist();};
+      histList.appendChild(li);});}
+  function toggleHist(show){if(show==null)show=!histPanel.classList.contains('show');histPanel.classList.toggle('show',show);if(show)renderHist();}
   document.getElementById('cwBtn').onclick=function(){panel.classList.toggle('open');if(panel.classList.contains('open')){setCtx();ta.focus();}};
   document.getElementById('cwClose').onclick=function(){panel.classList.remove('open');};
   document.getElementById('cwBig').onclick=function(){panel.classList.toggle('big');try{localStorage.setItem('cw_big',panel.classList.contains('big')?'1':'0');}catch(e){}};
   try{if(localStorage.getItem('cw_big')==='1')panel.classList.add('big');}catch(e){}
+  document.getElementById('cwHistBtn').onclick=function(){toggleHist();};
+  function startNew(){newConvo();render();renderHist();toggleHist(false);ta.focus();}
+  document.getElementById('cwNew').onclick=startNew;
+  document.getElementById('cwHistNew').onclick=startNew;
   document.getElementById('cwSend').onclick=send;
   ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
-  function send(){var t=ta.value.trim();if(!t)return;ta.value='';bubble('user',t);hist.push({role:'user',content:t});save();
+  function send(){var t=ta.value.trim();if(!t)return;
+    var c=curConvo();if(!c){c=newConvo();}
+    ta.value='';bubble('user',t);c.msgs.push({role:'user',content:t});
+    if(c.title==='新對話'||!c.title)c.title=titleFrom(t);
+    c.ts=Date.now();saveConvos();
     var b=bubble('bot','…');
-    fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:hist,context:ctx()})})
-      .then(function(r){return r.json();}).then(function(j){if(j.ok){setText(b,'bot',j.reply);hist.push({role:'assistant',content:j.reply});save();}else{b.textContent='❌ '+(j.error||'失敗');}})
+    fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:c.msgs,context:ctx()})})
+      .then(function(r){return r.json();}).then(function(j){if(j.ok){setText(b,'bot',j.reply);c.msgs.push({role:'assistant',content:j.reply});c.ts=Date.now();saveConvos();}else{b.textContent='❌ '+(j.error||'失敗');}})
       .catch(function(e){b.textContent='❌ '+e.message;});}
+  // 沒任何對話 → 開一個空的
+  if(!curConvo()){if(convos.length)curId=convos[0].id;else newConvo();saveConvos();}
   render();setCtx();
 })();
 </script>`;
