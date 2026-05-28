@@ -443,7 +443,7 @@ ${profileBrief(p)}
 }
 
 // ④ 接案助手聊天 — 帶入「我的檔案」+「目前案件清單」+「使用者此刻在哪/看哪個案」當上下文
-export function chatPrompt(messages, p, jobs, contextNote = '') {
+export function chatPrompt(messages, p, jobs, contextNote = '', toolDocs = '') {
   const jobLine = (j) => {
     const ai = j.ai_score != null;
     const sv = ai ? `${j.ai_score}/10 ${j.ai_verdict || ''}` : `${j.total_score}/100 ${j.verdict}`;
@@ -505,7 +505,7 @@ Step 9 提交後:截圖存證、馬上投下一案、別刷 Upwork 等通知。
 1. 先列出這案實際要填的所有欄位(Cover Letter、recent experience、screening、影片題、Required project、附件)
 2. 每欄給「可直接貼」的草稿(英文給英文)
 3. 嫌太業務/太長/語氣怪 → 直接改,來回修到滿意
-${contextNote ? `\n【使用者此刻的位置 — 優先針對這個情境回答】\n${contextNote}\n` : ''}
+${toolDocs ? `\n【🛠️ 你能執行的動作 — 重要】\n${toolDocs}\n` : ''}${contextNote ? `\n【使用者此刻的位置 — 優先針對這個情境回答】\n${contextNote}\n` : ''}
 【他的檔案】
 ${profileBrief(p)}
 

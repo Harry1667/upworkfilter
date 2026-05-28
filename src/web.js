@@ -2588,9 +2588,30 @@ createServer(async (req, res) => {
           `第一道門搜尋關鍵字:${(pp.capability?.searchKeywords || []).join(', ') || '(未設)'}\n` +
           (outcomeNoteText(computeOutcomeStats()) || '投標實績:樣本不足(<5),還沒學到校正資料');
       }
-      const reply = await askAI(chatPrompt(recentMsgs, loadProfileWithLessons(), jobs, note));
+      // 🛠️ Tool-use ReAct loop:AI 可呼叫工具,執行後丟回去讓它寫人話答覆
+      const { TOOL_DOCS, executeTool, extractToolCalls, stripToolTags } = await import('./tools.js');
+      const prof = loadProfileWithLessons();
+      let firstReply = await askAI(chatPrompt(recentMsgs, prof, jobs, note, TOOL_DOCS));
+      const calls = extractToolCalls(firstReply);
+      if (calls.length === 0) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true, reply: stripToolTags(firstReply) }));
+      }
+      // 執行(最多 5 個,防失控)
+      const results = [];
+      for (const c of calls.slice(0, 5)) {
+        const r = executeTool(db, c);
+        results.push({ tool: c.name, args: c.args, result: r });
+      }
+      // 把結果丟回給 AI 寫最終答覆
+      const followUp = [
+        ...recentMsgs,
+        { role: 'assistant', content: stripToolTags(firstReply) },
+        { role: 'user', content: `【tool 執行結果】\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\n用人話總結結果給使用者,不要印 raw JSON,不要再呼叫工具。` },
+      ];
+      const finalReply = await askAI(chatPrompt(followUp, prof, jobs, note, ''));
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, reply: String(reply).trim() }));
+      return res.end(JSON.stringify({ ok: true, reply: stripToolTags(finalReply), toolCalls: results }));
     }
     if (url.pathname === '/api/reply' && req.method === 'POST') {
       const { message, id, tone } = JSON.parse(await readBody(req));
