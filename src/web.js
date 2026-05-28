@@ -1921,6 +1921,7 @@ function jobBarHtml(job, active) {
     ${back}
     <a href="${esc(cleanUrl(job))}" data-url="${esc(cleanUrl(job))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
     <label class="applied"><input type="checkbox" ${job.applied ? 'checked' : ''} onchange="markJob('${job.id}',this.checked)"> 標記已投</label>
+    <button id="favBtn" onclick="favThis('${job.id}')" title="收藏案件" style="background:none;border:1px solid var(--bd);border-radius:6px;padding:4px 12px;font-size:14px;cursor:pointer">${job.favorited ? '❤️ 已收藏' : '🤍 收藏'}</button>
     <button onclick="markPrivate('${job.id}')" title="點進去發現 Access denied / 私案 / 已 hire?點這個直接 SKIP" style="background:#3d1e1e;color:#f85149;border:1px solid #f85149;border-radius:6px;padding:4px 10px;font-size:13px;cursor:pointer">🔒 標為私案 / 已關閉</button>
     <select onchange="setOutcome('${job.id}',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:13px">${opts}</select>
   </div>
@@ -1930,6 +1931,11 @@ function jobBarHtml(job, active) {
       if(!confirm('確認標為「私案/已關閉」?\\n會直接 SKIP,不計入提案。'))return;
       await fetch('/api/job/mark-private?id='+id,{method:'POST'});
       location.href='/';
+    }
+    async function favThis(id){
+      var b=document.getElementById('favBtn');var on=b.textContent.indexOf('❤️')>=0;var newVal=on?0:1;
+      await fetch('/api/job/favorite?id='+id+'&fav='+newVal,{method:'POST'});
+      b.textContent=newVal?'❤️ 已收藏':'🤍 收藏';
     }
   </script>`;
 }
