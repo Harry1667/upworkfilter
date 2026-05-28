@@ -181,22 +181,29 @@ function rescoreAll() {
 
 const CSS = `
   :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#6e7681;--ac:#4493f8}
-  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;padding-left:200px}
   a{color:var(--ac)}
   header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
-  h1{font-size:18px;margin:0 0 10px;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+  h1{font-size:18px;margin:0;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
   h1 .sub{color:var(--mut);font-size:13px;font-weight:400}
-  nav a{font-size:14px;text-decoration:none;color:var(--mut)}
-  nav.zones{display:flex;flex-direction:column;gap:6px}
-  nav.zones .navrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-  nav.zones .navrow-2{opacity:.85}
-  nav.zones .navrow-2 a{font-size:12px;padding:5px 11px}
-  nav.zones a{padding:6px 13px;border:1px solid var(--bd);border-radius:9px;background:var(--card);font-size:13px;line-height:1;transition:.15s}
-  nav.zones a:hover{border-color:var(--ac);color:var(--tx)}
-  nav.zones a.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:700}
-  nav.zones a[href="/logout"]{border-color:transparent;background:transparent}
-  nav.zones a[href="/logout"]:hover{color:#f85149}
-  nav .navsep{width:1px;align-self:stretch;background:var(--bd);margin:0 4px;color:transparent;overflow:hidden}
+  /* 📐 左側 sidebar 導覽 */
+  aside.sidebar{position:fixed;left:0;top:0;width:200px;height:100vh;background:#0a0e14;border-right:1px solid var(--bd);padding:18px 12px;overflow-y:auto;z-index:50;display:flex;flex-direction:column;gap:2px}
+  aside.sidebar .brand{color:var(--tx);font-weight:700;font-size:14px;padding:0 8px 14px;border-bottom:1px solid var(--bd);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+  aside.sidebar .brand small{color:var(--mut);font-size:11px;font-weight:400}
+  aside.sidebar .group{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:14px 8px 6px;font-weight:600}
+  aside.sidebar a{display:block;padding:8px 10px;border-radius:7px;color:var(--mut);text-decoration:none;font-size:13px;transition:.12s;line-height:1.3}
+  aside.sidebar a:hover{background:#161b22;color:var(--tx)}
+  aside.sidebar a.on{background:var(--ac);color:#fff;font-weight:600}
+  aside.sidebar .logout{margin-top:auto;border-top:1px solid var(--bd);padding-top:10px}
+  aside.sidebar .logout a{color:#8b949e;font-size:12px}
+  aside.sidebar .logout a:hover{color:#f85149;background:transparent}
+  @media (max-width: 720px){
+    body{padding-left:0;padding-top:54px}
+    aside.sidebar{width:100%;height:auto;flex-direction:row;flex-wrap:wrap;padding:8px;gap:4px;border-right:0;border-bottom:1px solid var(--bd);overflow-x:auto}
+    aside.sidebar .brand,aside.sidebar .group{display:none}
+    aside.sidebar a{padding:5px 8px;font-size:12px;white-space:nowrap;flex-shrink:0}
+    aside.sidebar .logout{margin-top:0;border-top:0;padding-top:0}
+  }
   .flowhint{margin-top:10px;font-size:13px;color:var(--mut)}.flowhint b{color:var(--tx)}
   .filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   .filters button{background:var(--card);color:var(--tx);border:1px solid var(--bd);padding:6px 15px;border-radius:20px;cursor:pointer;font-size:13px;transition:.15s}
@@ -1075,15 +1082,29 @@ async function readBody(req) {
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
-  // 兩排:第一排 = 每日工作流(投案 + 追蹤);第二排 = 設定 + 學習工具
-  return `<nav class="zones">
-    <div class="navrow">
-      ${link('/', '① 列表', active === '/')}${link('/job' + q, '② 評估', active === '/job')}${link('/proposal' + q, '③ 提案', active === '/proposal')}${link('/reply', '④ 溝通', active === '/reply')}${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}<span class="navsep">｜</span>${link('/today', '🌅 今日', active === '/today')}${link('/applications', '📊 投案追蹤', active === '/applications')}
-    </div>
-    <div class="navrow navrow-2">
-      ${link('/me', '🎯 能力', active === '/me')}${link('/profile', '🪪 Upwork', active === '/profile')}${link('/scoring', '⚖️ 評分', active === '/scoring')}${link('/features', '🧩 功能地圖', active === '/features')}${link('/agents', '🤖 Agents', active === '/agents')}<span class="navsep">｜</span>${link('/lessons', '📌 Lessons', active === '/lessons')}${link('/anchors', '⭐ 範本', active === '/anchors')}${link('/backup', '💾 備份', active === '/backup')}<a href="/logout" style="margin-left:auto">登出</a>
-    </div>
-  </nav>`;
+  return `<aside class="sidebar">
+    <div class="brand">📋 Upwork Filter <small>v2</small></div>
+    <div class="group">投案流程</div>
+    ${link('/', '① 列表', active === '/')}
+    ${link('/job' + q, '② 評估', active === '/job')}
+    ${link('/proposal' + q, '③ 提案', active === '/proposal')}
+    ${link('/reply', '④ 溝通', active === '/reply')}
+    ${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}
+    <div class="group">每日</div>
+    ${link('/today', '🌅 今日', active === '/today')}
+    ${link('/applications', '📊 投案追蹤', active === '/applications')}
+    <div class="group">設定</div>
+    ${link('/me', '🎯 能力', active === '/me')}
+    ${link('/profile', '🪪 Upwork', active === '/profile')}
+    ${link('/scoring', '⚖️ 評分', active === '/scoring')}
+    ${link('/features', '🧩 功能地圖', active === '/features')}
+    ${link('/agents', '🤖 Agents', active === '/agents')}
+    <div class="group">學習工具</div>
+    ${link('/lessons', '📌 Lessons', active === '/lessons')}
+    ${link('/anchors', '⭐ 範本', active === '/anchors')}
+    ${link('/backup', '💾 備份', active === '/backup')}
+    <div class="logout"><a href="/logout">→ 登出</a></div>
+  </aside>`;
 }
 
 // 📌 Lessons 頁:使用者抓到 AI 錯就存,**所有 AI prompt 自動讀取啟用中的 lessons** 當硬規則
