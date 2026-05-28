@@ -76,9 +76,14 @@ ${profileBrief(p)}
 ${jobBrief(job)}
 
 【寫作 SOP — 嚴格遵守】
-依案子複雜度自動選長度:
-- 短案 / 範圍簡單 / 預算 < $200 → **70-150 字**,3-4 句,單段
-- 複雜案 / 有 Required Project / 列出多項技能 / 預算 > $500 → **1500-2500 字符**,套下面 5 段結構
+依案子訊號**精準**選長度(寧短勿長,雇主看不完就跳過):
+- **預設用短版 70-150 字**(3-4 句單段) — 雇主在 100 個提案間滑,短而有力 > 長而完整
+- 套**長版 1500-2500 字符 5 段結構**的觸發條件(必須同時 ≥ 2 個):
+  (a) JD 明確要求 Required Project / 12 點答案 / 自我介紹長版
+  (b) JD 列 5+ 項技術或 6+ 項 responsibilities (極詳細的 JD)
+  (c) Hourly rate ≥ $30 或 fixed budget ≥ $1000 (高預算才值得長提案)
+  (d) JD 要錄影且要在 cover letter 同時答多項問題
+- **小時薪 < $20 或預算 < $500 → 永遠用短版**,不要硬寫長
 
 【5 段結構(複雜案才用)】
 ${hasVideo ? '[第 1 行] 📹 Video answers (3 questions, ~3 min): [LOOM_LINK_HERE]  ← 留 placeholder,使用者自己換\n\n' : ''}[第 1 段] 開場 hook (2-3 句):為什麼這案 = 我的真實工作流。**避免**「I am writing to express...」這類罐頭。
@@ -131,9 +136,10 @@ export function coverLetterRefinePrompt(draft, job, p) {
 - 沒給具體做法/數字 → 加 (例:「shipped 26 bilingual READMEs in one afternoon」這種具體)
 - 沒有 GitHub / live URL → 結尾補上
 
-長度問題:
-- 短案套了長版 → 壓到 70-150 字
-- 複雜案套了短版 → 擴成 1500-2500 字符,套 5 段結構(hook → 4 bullet 誠實清單 → projects → Claude workflow → ready)
+長度問題(寧短勿長):
+- **預設目標 70-150 字短版**,雇主滑 100 個提案要看得完
+- 只有當 JD 明確要求多項回答(Required Project + 12 點 / 多 screening / 影片題又要寫長文) + 預算 hourly ≥ $30 或 fixed ≥ $1000 時,才擴成 1500-2500 字符 5 段(hook → 4 誠實 bullet → projects → Claude workflow → ready)
+- **小時薪 < $20 或預算 < $500 → 強制壓到 70-150 字短版**
 
 影片題:
 - JD 要錄影片但 draft 沒放 Loom 連結 → 第一行加 "📹 Video answers: [LOOM_LINK_HERE]" placeholder
