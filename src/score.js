@@ -122,7 +122,7 @@ function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
 // ③ 客戶品質:付款驗證 + 花費 + 聘用率 + 評分
 function scoreClient(j) {
   let s = 0;
-  s += j.payment_verified ? 25 : 0; // 付款驗證
+  s += j.payment_verified ? 35 : 0; // 付款驗證(原 25,加重)
   const spent = j.client_spent_usd;
   if (spent != null) {
     if (spent >= 50000) s += 35;
@@ -137,7 +137,7 @@ function scoreClient(j) {
     else if (j.client_hire_rate >= 50) s += 20;
     else if (j.client_hire_rate >= 30) s += 12;
     else if (j.client_hire_rate > 0) s += 5;
-    else s += 0;
+    else s -= 15; // 0% hire rate 直接扣分(原本 +0,新手要避)
   } else s += 12;
   if (j.client_rating != null && j.client_reviews > 0) {
     if (j.client_rating >= 4.8) s += 15;
@@ -240,10 +240,22 @@ export function scoreJob(j, config) {
   const b = (j.proposals_bucket || '').toLowerCase();
   const crowded = /15 to 20|20 to 50|50/.test(b);
 
-  // 硬性安全閘:雇用率 0% 的死客戶直接打回(不論加權分)
+  // 💀 死亡訊號攔截:命中以下訊號 ≥ 2 個 → 強制 SKIP(新手投了等於燒 Connects)
+  const isNewbie = config.scoring?.mode === 'newbie';
+  const deathSignals = [];
+  if (!j.payment_verified) deathSignals.push('未付款驗證');
+  if (j.client_hire_rate === 0 && (j.client_jobs_posted ?? 0) >= 1) deathSignals.push(`hire rate 0%(${j.client_jobs_posted ?? 0}案`);
+  if (/50/.test((j.proposals_bucket || '').toLowerCase())) deathSignals.push('提案 50+');
+  if (j.client_spent_usd === 0 || j.client_spent_usd == null && !j.client_spent_text) deathSignals.push('客戶未花過錢');
+
   let verdict, reason;
   const deadClient = j.client_hire_rate === 0 && (j.client_jobs_posted ?? 0) >= 3;
-  if (deadClient) {
+  const deathHit = deathSignals.length;
+  // 新手模式 ≥ 2 死亡訊號 = 直接 SKIP;標準模式 ≥ 3 才 SKIP
+  if ((isNewbie && deathHit >= 2) || deathHit >= 3) {
+    verdict = 'SKIP';
+    reason = `💀 死亡訊號攔截 (${deathHit}個):${deathSignals.join('、')} — 新手不投`;
+  } else if (deadClient) {
     verdict = 'SKIP';
     reason = `排除:雇用率0%(發了${j.client_jobs_posted}案沒雇人)`;
   } else if (lowPay && crowded) {
