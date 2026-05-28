@@ -129,6 +129,102 @@ ${hasVideo ? '[第 1 行] 📹 Video answers (3 questions, ~3 min): [LOOM_LINK_H
 只輸出 cover letter 英文本文,不要中文說明、不要標題、不要引號、不要 markdown 圍欄。`;
 }
 
+// ①-A Writer A:Hook 派 — 開頭直接打最相關作品 / 技術 fit
+export function coverLetterWriterA(job, p) {
+  return `你是 Upwork 求職信 Writer A(Hook 派)。寫一封英文 cover letter,風格特色:**第一句話直接砸最強的對應作品/技術命中**,讓客戶 3 秒內知道你能幹這活。
+
+我的檔案:
+${profileBrief(p)}
+
+職缺:
+${jobBrief(job)}
+
+風格要求:
+- 開頭第一句 = 最強匹配作品 + 一句技術細節(例:"I built AgentsHub — multi-agent Claude/GPT orchestration with @mention turn-routing.")
+- 不要客套話、不要"I am writing to express"
+- 中段:2-3 個 bullet 列其他相關作品 + 真實 GitHub URL
+- 結尾:一個專業具體的問題 + ready to start
+- 字數:150-250 字
+- **嚴禁** [PLACEHOLDER]、撒謊(沒做過的技術不要說做過)、浮誇詞(10x/cutting-edge)
+
+只輸出英文 cover letter 本文。`;
+}
+
+// ①-B Writer B:誠實派 — 主動講弱點換信任
+export function coverLetterWriterB(job, p) {
+  return `你是 Upwork 求職信 Writer B(誠實派)。寫一封英文 cover letter,風格特色:**主動把弱點放在前段、把替代經驗放後面**,用「誠實但能補」建立信任。
+
+我的檔案:
+${profileBrief(p)}
+
+職缺:
+${jobBrief(job)}
+
+風格要求:
+- 開頭 1-2 句承認最大的缺口(JD Required 列但你沒做過的 / 陌生產品名 / 地區)
+- 接著:「但我有 X 替代經驗,所以能快速上手」配 1-2 個真實作品證據
+- 中段:列其他真實項目(GitHub URL 真實值)
+- 結尾:**問一個顯示專業的具體技術問題**(不是「請告訴我更多」)
+- 字數:150-250 字
+- **選擇性誠實**:只提客戶會發現的(地區/0 評價/JD Required 缺口/陌生產品),不要自爆 Preferred 等級弱點
+
+只輸出英文 cover letter 本文。`;
+}
+
+// ①-C Writer C:JD 鏡像派 — 完全照 JD 的 To Apply / 清單格式逐條答
+export function coverLetterWriterC(job, p) {
+  return `你是 Upwork 求職信 Writer C(JD 鏡像派)。寫一封英文 cover letter,風格特色:**找出 JD 裡的 "To Apply / Please share / Required" 清單,逐條對應**,客戶一眼看到「他問的我都答了」。
+
+我的檔案:
+${profileBrief(p)}
+
+職缺:
+${jobBrief(job)}
+
+風格要求:
+- 開頭 1 句點題:「To answer your 'To Apply' points directly:」
+- 用 bullet / 短段落逐條對應 JD 的問題
+- 真實作品要附 GitHub URL(github.com/${p.githubUser || 'Harry1667'}/repo-name)
+- 結尾:一句誠實提示(新手 overdeliver / 地區) + ready
+- 字數:200-350 字(允許比 A B 略長,因為要照清單答)
+- **嚴禁** [PLACEHOLDER]、撒謊、客套
+
+只輸出英文 cover letter 本文。`;
+}
+
+// ①-合成器:讀 3 個 writer 的 draft,挑各家最強 paragraph,組成最終版
+export function coverLetterSynthPrompt(drafts, job, p) {
+  return `你是嚴格的 Upwork 求職信總編輯。下面 3 位 writer 寫了同一個職缺的 cover letter。你的工作:
+1) 評估 3 個版本的優缺點(在心裡判斷,不輸出評論)
+2) **挑出每家最好的段落 / 句子 / 切入點**,合成一封最終版
+3) 補上 3 家都漏掉的關鍵(JD 必答 / 真實 GitHub URL / 地區誠實)
+
+職缺:
+${jobBrief(job)}
+
+我的檔案(真實證據):
+${profileBrief(p)}
+
+【Writer A — Hook 派】
+"""${drafts.a || '(空)'}"""
+
+【Writer B — 誠實派】
+"""${drafts.b || '(空)'}"""
+
+【Writer C — JD 鏡像派】
+"""${drafts.c || '(空)'}"""
+
+最終版守則:
+- 自然像「真人資深工程師在跟客戶聊」
+- 真實 GitHub URL(github.com/${p.githubUser || 'Harry1667'}),禁 [PLACEHOLDER]
+- 沒做過的技術不可撒謊;只提客戶會發現的弱點
+- JD 有 "To Apply / Please share" 清單就逐條答
+- 字數:JD 簡單 → 70-150 字;JD 有清單 → 200-350 字;JD 複雜 → 200-400 字
+- 禁用浮誇詞、套版開頭
+
+只輸出最終版英文 cover letter 本文,不要中文、不要標題、不要任何評論。`;
+}
+
 // ①b 求職信自我批改 — 拿 draft 對照 SOP 5 段守則挑錯再改寫
 export function coverLetterRefinePrompt(draft, job, p) {
   return `你是嚴格的 Upwork 求職信編輯。下面是一封給這個職缺的英文 cover letter 草稿。

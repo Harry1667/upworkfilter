@@ -6,7 +6,7 @@ import path from 'node:path';
 import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus } from './db.js';
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
-import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
+import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1979,17 +1979,43 @@ createServer(async (req, res) => {
       if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       if (descOverride && descOverride.trim()) job.description = descOverride.slice(0, 8000); // 用使用者貼的完整描述
       const prof = loadProfile();
-      // 一次到位:prompt 已內化 SOP,不再跑 refine pass(節省 20-30s)
-      // 如果需要 refine 可由前端 query string ?refine=1 觸發
-      const wantRefine = url.searchParams.get('refine') === '1';
-      const draft = await askAI(coverLetterPrompt(job, prof));
-      let text = draft;
-      if (wantRefine) {
-        try { text = await askAI(coverLetterRefinePrompt(draft, job, prof)); }
-        catch (e) { console.error('求職信批改失敗,用草稿:' + e.message); }
+      // 🤝 多 agent 合議:3 個 writer 平行寫 + 1 個總編合成
+      // mode=single 走舊版單 prompt(快但品質一般);預設走 ensemble
+      const mode = url.searchParams.get('mode') || 'ensemble';
+      let text = '';
+      if (mode === 'single') {
+        text = await askAI(coverLetterPrompt(job, prof));
+      } else {
+        // 3 個 writer 平行(失敗的不算)
+        const [a, b, c] = await Promise.allSettled([
+          askAI(coverLetterWriterA(job, prof)),
+          askAI(coverLetterWriterB(job, prof)),
+          askAI(coverLetterWriterC(job, prof)),
+        ]);
+        const drafts = {
+          a: a.status === 'fulfilled' ? a.value : '',
+          b: b.status === 'fulfilled' ? b.value : '',
+          c: c.status === 'fulfilled' ? c.value : '',
+        };
+        const okCount = [drafts.a, drafts.b, drafts.c].filter(Boolean).length;
+        if (okCount === 0) {
+          // 全 fail 退回單 prompt
+          text = await askAI(coverLetterPrompt(job, prof));
+        } else if (okCount === 1) {
+          // 只 1 個成功直接用,不用合成
+          text = drafts.a || drafts.b || drafts.c;
+        } else {
+          // 合成
+          try {
+            text = await askAI(coverLetterSynthPrompt(drafts, job, prof));
+          } catch (e) {
+            console.error('合成失敗,用 Writer C(JD 鏡像):' + e.message);
+            text = drafts.c || drafts.a || drafts.b;
+          }
+        }
       }
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, text: (text || draft).trim() }));
+      return res.end(JSON.stringify({ ok: true, text: String(text || '').trim() }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));
