@@ -73,6 +73,9 @@ function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
 
   // 紅線/不碰:命中即超綱(關鍵字寬鬆,故只降分不直接 SKIP,留人工判斷)
   const redHit = [...new Set((capability?.redlines || []).filter(inText))];
+  // 紅線出現在 title = 核心需求 → 強制硬擋(下面 overscope=true)
+  const titleText = String(j.title || '').toLowerCase();
+  const redInTitle = (capability?.redlines || []).some((kw) => wordHit(titleText, kw));
 
   const graded = capability?.skills?.length ? capability.skills : null;
   let score, matched, topLevel = null;
@@ -109,8 +112,14 @@ function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
   let overscope = false;   // 硬擋(SKIP + blocked):核心就是紅線技術
   let redlineSoft = false; // 軟標(⚠️ 提醒,不擋):核心是你的強項,紅線只是順帶
   if (redHit.length) {
-    if (coreStrong) redlineSoft = true;
-    else { score = Math.min(score, 22); overscope = true; }
+    if (redInTitle) {
+      // 紅線出現在 title = 核心需求,不論其他多強都硬擋
+      score = Math.min(score, 22); overscope = true;
+    } else if (coreStrong) {
+      redlineSoft = true;
+    } else {
+      score = Math.min(score, 22); overscope = true;
+    }
   }
 
   // 能力圈外:有分級能力清單、但案子文字完全沒命中任何技能 → 不是我的領域
