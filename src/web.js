@@ -181,18 +181,19 @@ function rescoreAll() {
 
 const CSS = `
   :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#6e7681;--ac:#4493f8}
-  *{box-sizing:border-box}html,body{width:100%;overflow-x:hidden}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;min-height:100vh}
-  /* 🗺️ App 整體 layout: 左 sidebar + 右 #pageroot */
-  .applayout{display:block;width:100%;min-height:100vh;padding-left:200px;transition:padding-right .2s}
-  body.chat-open .applayout{padding-right:420px}
-  #pageroot{width:100%;min-width:0}
-  #pageroot > header, #pageroot > main{width:100%;max-width:100%}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;display:grid;grid-template-columns:200px 1fr;min-height:100vh;transition:grid-template-columns .2s}
+  body.chat-open{grid-template-columns:200px 1fr 420px}
+  body.chat-open #cwPanel{display:flex !important;position:relative;right:auto;width:auto;height:auto;border-left:1px solid #272e3a}
+  body.chat-open::after{content:""}
+  #pagecontent{min-width:0;overflow-x:hidden}
   a{color:var(--ac)}
   header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
   h1{font-size:18px;margin:0;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
   h1 .sub{color:var(--mut);font-size:13px;font-weight:400}
-  /* 📐 左側 sidebar 導覽 */
-  aside.sidebar{position:fixed;left:0;top:0;width:200px;height:100vh;background:#0a0e14;border-right:1px solid var(--bd);padding:18px 12px;overflow-y:auto;z-index:50;display:flex;flex-direction:column;gap:2px}
+  /* 📐 左側 sidebar 導覽(grid column 1) */
+  aside.sidebar{background:#0a0e14;border-right:1px solid var(--bd);padding:18px 12px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh;overflow-y:auto}
   aside.sidebar .brand{color:var(--tx);font-weight:700;font-size:14px;padding:0 8px 14px;border-bottom:1px solid var(--bd);margin-bottom:10px;display:flex;align-items:center;gap:6px}
   aside.sidebar .brand small{color:var(--mut);font-size:11px;font-weight:400}
   aside.sidebar .group{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:14px 8px 6px;font-weight:600}
@@ -203,8 +204,8 @@ const CSS = `
   aside.sidebar .logout a{color:#8b949e;font-size:12px}
   aside.sidebar .logout a:hover{color:#f85149;background:transparent}
   @media (max-width: 720px){
-    body{padding-left:0;padding-top:54px}
-    aside.sidebar{width:100%;height:auto;flex-direction:row;flex-wrap:wrap;padding:8px;gap:4px;border-right:0;border-bottom:1px solid var(--bd);overflow-x:auto}
+    body{display:block}
+    aside.sidebar{width:100%;height:auto;position:relative;flex-direction:row;flex-wrap:wrap;padding:8px;gap:4px;border-right:0;border-bottom:1px solid var(--bd)}
     aside.sidebar .brand,aside.sidebar .group{display:none}
     aside.sidebar a{padding:5px 8px;font-size:12px;white-space:nowrap;flex-shrink:0}
     aside.sidebar .logout{margin-top:0;border-top:0;padding-top:0}
@@ -423,9 +424,14 @@ window.copyUpwork=function(e,el){if(e)e.preventDefault();
 </script>`;
 
 function serveHtml(res, htmlStr) {
-  // 🛡️ 把頁面主體包進 #pageroot,讓 sidebar 用 flex 佈局,杜絕 overlap
-  let out = String(htmlStr).replace('<body>', '<body><div class="applayout"><div id="pageroot">');
-  out = out.replace('</body>', '</div></div>' + COPY_JS + CHAT_WIDGET + '</body>');
+  let out = String(htmlStr);
+  // 🛡️ Grid 佈局:把 sidebar 從 page 內抽出,放到 body 第一個位置(column 1)
+  // page 其餘內容包進 #pagecontent(column 2)
+  const m = out.match(/<aside class="sidebar">[\s\S]*?<\/aside>/);
+  const sidebar = m ? m[0] : '';
+  if (sidebar) out = out.replace(sidebar, '');
+  out = out.replace('<body>', `<body>${sidebar}<div id="pagecontent">`);
+  out = out.replace('</body>', '</div>' + COPY_JS + CHAT_WIDGET + '</body>');
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, must-revalidate' });
   res.end(out);
 }
