@@ -7,6 +7,7 @@ import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upse
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
+import { detectHallucinations } from './verify.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1668,6 +1669,11 @@ function pageProposal(id) {
     <h2>✍️ 求職信(英文,可複製)</h2>
     <button class="save" style="background:var(--grn);padding:6px 12px;font-size:13px" onclick="navigator.clipboard.writeText(window._cl||'');this.textContent='✅ 已複製'">📋 複製</button>
     <div class="out" id="clout"></div>
+    <div id="verifybox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #272e3a;border-radius:10px;padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="color:var(--ac)">🔍 幻覺偵測 · 事實核查</b><span id="verifysum" style="color:var(--mut);font-size:13px;flex:1"></span></div>
+      <div id="verifylist" style="font-size:13px;line-height:1.7"></div>
+      <div style="margin-top:10px;color:var(--mut);font-size:12px">💡 ⚠️ 不代表錯,可能是 AI 自由發揮 — 自行確認是否屬實。🚨 是 profile 沒列、可能幻覺,建議改掉。</div>
+    </div>
   </div>
 
   <div class="sect" id="exsect" style="display:none">
@@ -1716,7 +1722,22 @@ function pageProposal(id) {
     try{
       const [c,a,sc]=await Promise.all([cover,adv,scr]);
       if(sc&&sc.ok&&sc.data)renderScreening(sc.data);
-      if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';}
+      if(c.ok){window._cl=c.text;document.getElementById('clout').textContent=c.text;document.getElementById('clsect').style.display='block';
+        // 🔍 渲染幻覺偵測
+        if(c.verify&&(c.verify.claims||[]).length){
+          var v=c.verify,box=document.getElementById('verifybox'),list=document.getElementById('verifylist'),sum=document.getElementById('verifysum');
+          var ic={verified:'✅',unverified:'⚠️',contradicted:'🚨'},cc={verified:'#3fb950',unverified:'#d29922',contradicted:'#f85149'};
+          var nV=0,nU=0,nC=0;
+          list.innerHTML=v.claims.map(function(x){
+            var s=x.status||'unverified';if(s==='verified')nV++;else if(s==='contradicted')nC++;else nU++;
+            return '<div style="padding:6px 0;border-bottom:1px dashed #272e3a"><span style="color:'+cc[s]+'">'+(ic[s]||'?')+'</span> '+
+              '<span style="color:var(--tx)">'+(x.text||'').replace(/</g,'&lt;')+'</span><br>'+
+              '<span style="color:var(--mut);font-size:12px;margin-left:24px">'+(x.evidence||'').replace(/</g,'&lt;')+'</span></div>';
+          }).join('');
+          sum.textContent='✅'+nV+' ⚠️'+nU+' 🚨'+nC+(v.summary?' · '+v.summary:'');
+          box.style.display='block';
+        }
+      }
       if(a.ok){const d=a.data;
         if((d.applyRequirements||[]).length){
           var reqHtml=(d.applyRequirements).map(function(x){return '• '+x;}).join('<br>');
@@ -2014,8 +2035,13 @@ createServer(async (req, res) => {
           }
         }
       }
+      const finalText = String(text || '').trim();
+      // 🔍 幻覺偵測 — 不阻塞,失敗也回成稿
+      let verify = null;
+      try { verify = await detectHallucinations(finalText, prof); }
+      catch (e) { console.error('verify 失敗:', e.message); }
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, text: String(text || '').trim() }));
+      return res.end(JSON.stringify({ ok: true, text: finalText, verify }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));
