@@ -78,6 +78,7 @@ ${jobBrief(job)}
 【寫作 SOP — 嚴格遵守】
 依案子訊號**精準**選長度(寧短勿長,雇主看不完就跳過):
 - **預設用短版 70-150 字**(3-4 句單段) — 雇主在 100 個提案間滑,短而有力 > 長而完整
+- 如果 JD 有 **"Please share" / "To Apply" 清單**(明確列 3-5 點要回答) → 用**中長版 200-350 字**,逐條對應 + 結尾 1-2 個誠實 bullet
 - 套**長版 1500-2500 字符 5 段結構**的觸發條件(必須同時 ≥ 2 個):
   (a) JD 明確要求 Required Project / 12 點答案 / 自我介紹長版
   (b) JD 列 5+ 項技術或 6+ 項 responsibilities (極詳細的 JD)
@@ -112,6 +113,12 @@ ${hasVideo ? '[第 1 行] 📹 Video answers (3 questions, ~3 min): [LOOM_LINK_H
 [第 5 段] 收尾:
   Ready to start. GitHub: github.com/${p.githubUser || 'username'}
   Harry
+
+【嚴禁 placeholder】
+- 草稿裡**絕對不能**出現 [PORTFOLIO_LINK]、[GITHUB_PROFILE]、[YOUR_NAME] 這類佔位符
+- 真實連結:GitHub = github.com/${p.githubUser || 'Harry1667'}
+- 真實作品 live URL 從下面 portfolio / provenCapabilities 取,沒有就只寫 GitHub repo
+- 寧可不寫連結,也不要留 [PLACEHOLDER]
 
 【風格守則】
 - 像「真人資深工程師在跟客戶聊」,自然口語
@@ -152,7 +159,13 @@ export function coverLetterRefinePrompt(draft, job, p) {
 - **小時薪 < $20 或預算 < $500 → 強制壓到 70-150 字短版**
 
 影片題:
-- JD 要錄影片但 draft 沒放 Loom 連結 → 第一行加 "📹 Video answers: [LOOM_LINK_HERE]" placeholder
+- JD 要錄影片但 draft 沒放 Loom 連結 → 第一行加 "📹 Video answers: [LOOM_LINK_HERE]" (這個 placeholder 是 ok 的,因為使用者會自己錄完再換)
+- 其他 placeholder 例如 [PORTFOLIO_LINK]、[GITHUB_PROFILE]、[YOUR_NAME] **絕對禁止** → 直接換成真實值:
+  GitHub = github.com/${p.githubUser || 'Harry1667'}
+  Live URL 從 portfolio 取,沒有就只寫 GitHub repo
+
+JD To Apply 清單問題:
+- 如果 JD 有「Please share / To Apply」這種清單(列出要回答 3-5 點),draft 沒逐條對應 → 改成清單式答 4-6 條 + 結尾誠實 bullet,字數放寬到 200-350 字
 
 職缺:
 ${jobBrief(job)}
