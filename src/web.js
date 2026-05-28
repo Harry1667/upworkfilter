@@ -17,7 +17,7 @@ function loadProfileWithLessons() {
 import { scoreJob, parseSpentUsd } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
-import { detectHallucinations, annotateCitations } from './verify.js';
+import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates } from './verify.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1155,8 +1155,11 @@ function pageApplications() {
       <td style="text-align:center">${a.connects_used || 0}</td>
       <td><select onchange="upd(${a.id},'status',this.value,this)" style="background:#0d1117;color:${statusColor[a.status] || '#8b949e'};border:1px solid #272e3a;border-radius:6px;padding:5px 8px;font-weight:600">${opts}</select></td>
       <td>${esc(fmtDate(a.response_at))}</td>
-      <td><input type="text" value="${esc(a.notes || '')}" onblur="upd(${a.id},'notes',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid #272e3a;border-radius:6px;padding:5px 8px;width:160px"></td>
-      <td><button onclick="delA(${a.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:16px">🗑</button></td>
+      <td><input id="n${a.id}" type="text" value="${esc(a.notes || '')}" onblur="upd(${a.id},'notes',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid #272e3a;border-radius:6px;padding:5px 8px;width:160px"></td>
+      <td>
+        <button onclick="suggestL(${a.id})" title="從備註萃取 Lesson" style="background:none;border:0;color:#d29922;cursor:pointer;font-size:16px">🧠</button>
+        <button onclick="delA(${a.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:16px">🗑</button>
+      </td>
     </tr>`;
   }).join('');
   const byStatus = (s) => stats.by[s] || 0;
@@ -1203,6 +1206,24 @@ function pageApplications() {
     if(!confirm('刪除這筆投案紀錄?'))return;
     await fetch('/api/applications/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
     location.reload();
+  }
+  async function suggestL(id){
+    var notes=document.getElementById('n'+id).value.trim();
+    if(notes.length<10){alert('Notes 太短(<10字),先寫一下「為什麼這案沒中/沒回」');return;}
+    var btn=event.target;btn.textContent='⏳';
+    try{
+      var r=await fetch('/api/lessons/suggest',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({notes:notes})});
+      var j=await r.json();btn.textContent='🧠';
+      if(!j.ok||!j.candidates.length){alert('沒抽到 lesson 候選(可能 notes 太具體或已存過類似的)');return;}
+      var msg='AI 從這條 notes 抽出以下 Lesson 候選:\\n\\n';
+      j.candidates.forEach(function(c,i){msg+=(i+1)+'. ['+c.category+'] '+c.content+'\\n\\n';});
+      msg+='全部存進 Lessons?';
+      if(!confirm(msg))return;
+      for(var i=0;i<j.candidates.length;i++){
+        await fetch('/api/lessons',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(j.candidates[i])});
+      }
+      alert('✅ 已存 '+j.candidates.length+' 條 lessons,去 📌 Lessons 看');
+    }catch(e){btn.textContent='🧠';alert('❌ '+e.message);}
   }
 </script></body></html>`;
 }
@@ -1822,6 +1843,10 @@ function pageProposal(id) {
       <div id="verifylist" style="font-size:13px;line-height:1.7"></div>
       <div style="margin-top:10px;color:var(--mut);font-size:12px">💡 ⚠️ 不代表錯,可能是 AI 自由發揮 — 自行確認是否屬實。🚨 是 profile 沒列、可能幻覺,建議改掉。</div>
     </div>
+    <div id="skbox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #f85149;border-radius:10px;padding:14px">
+      <div style="margin-bottom:10px"><b style="color:#f85149">😈 Skeptic · 魔鬼代言人挑刺</b><span id="skverdict" style="color:var(--mut);font-size:13px;margin-left:8px"></span></div>
+      <div id="sklist" style="font-size:13px;line-height:1.65"></div>
+    </div>
     <div id="citebox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #272e3a;border-radius:10px;padding:14px">
       <div style="margin-bottom:10px"><b style="color:var(--ac)">📚 Citation · 句句標來源</b><span style="color:var(--mut);font-size:12px;margin-left:8px">每個 claim 的引用來源 — 看 [N] / [?] / [!] 標記找 profile 對應段</span></div>
       <div id="citeAnno" style="background:#161b22;border:1px solid #272e3a;border-radius:8px;padding:10px;font:13px/1.7 inherit;white-space:pre-wrap;color:var(--tx);margin-bottom:10px"></div>
@@ -1908,6 +1933,22 @@ function pageProposal(id) {
               '<span style="color:var(--mut);font-size:12px">→ '+(s.source||'').replace(/</g,'&lt;')+(s.note?' · '+s.note.replace(/</g,'&lt;'):'')+'</span></div>';
           }).join('');
           document.getElementById('citebox').style.display='block';
+        }
+        // 😈 渲染 Skeptic
+        if(c.skeptic&&(c.skeptic.issues||[]).length){
+          var sk=c.skeptic,sklist=document.getElementById('sklist');
+          var sc={high:'#f85149',medium:'#d29922',low:'#79c0ff'};
+          sklist.innerHTML=sk.issues.map(function(x){
+            var col=sc[x.severity]||'#8b949e';
+            return '<div style="padding:8px 0;border-bottom:1px dashed #272e3a">'+
+              '<span style="color:'+col+';font-weight:700;text-transform:uppercase;font-size:11px;background:#0d1117;padding:2px 6px;border-radius:3px">'+(x.severity||'med')+'</span> '+
+              '<span style="color:var(--tx);margin-left:6px">'+(x.problem||'').replace(/</g,'&lt;')+'</span>'+
+              (x.quote?'<div style="margin-left:6px;margin-top:4px;color:#8b949e;font-size:12px;font-style:italic">「'+x.quote.replace(/</g,'&lt;')+'」</div>':'')+
+              (x.suggestion?'<div style="margin-left:6px;margin-top:4px;color:#3fb950;font-size:12px">→ '+x.suggestion.replace(/</g,'&lt;')+'</div>':'')+
+              '</div>';
+          }).join('');
+          document.getElementById('skverdict').textContent=sk.verdict||'';
+          document.getElementById('skbox').style.display='block';
         }
       }
       if(a.ok){const d=a.data;
@@ -2231,6 +2272,15 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
+    // 🧠 從投案 notes 萃取 lesson 候選
+    if (url.pathname === '/api/lessons/suggest' && req.method === 'POST') {
+      const { notes } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      const existing = listLessons(dbi, false).map((l) => l.content);
+      const result = await extractLessonCandidates(notes, existing);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, candidates: result.candidates || [] }));
+    }
     if (url.pathname === '/api/applications/delete' && req.method === 'POST') {
       const { id } = JSON.parse(await readBody(req));
       const dbi = openDb();
@@ -2280,15 +2330,17 @@ createServer(async (req, res) => {
         }
       }
       const finalText = String(text || '').trim();
-      // 🔍 幻覺偵測 + ⑥ Citation 同時跑(平行)
-      const [verifyR, citeR] = await Promise.allSettled([
+      // 🔍 verify + ⑥ citations + ⑩ skeptic 三路平行(不阻塞 cover letter)
+      const [verifyR, citeR, skR] = await Promise.allSettled([
         detectHallucinations(finalText, prof),
         annotateCitations(finalText, prof),
+        skepticCritique(finalText, job, prof),
       ]);
       const verify = verifyR.status === 'fulfilled' ? verifyR.value : null;
       const citations = citeR.status === 'fulfilled' ? citeR.value : null;
+      const skeptic = skR.status === 'fulfilled' ? skR.value : null;
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, text: finalText, verify, citations }));
+      return res.end(JSON.stringify({ ok: true, text: finalText, verify, citations, skeptic }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));

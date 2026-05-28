@@ -60,6 +60,84 @@ cover letter:
   }
 }
 
+// ⑩ Skeptic — 魔鬼代言人:扮演挑剔雇主挑 cover letter 的刺
+export async function skepticCritique(text, job, profile) {
+  if (!text || text.length < 30) return { issues: [], verdict: 'too short' };
+  const jobBrief = [
+    `標題: ${job?.title || ''}`,
+    `預算: ${job?.budget_text || '?'}`,
+    `描述: ${(job?.description || '').slice(0, 1500)}`,
+  ].join('\n');
+  const prompt = `你是嚴格的挑剔雇主,正在快速掃 100 封 cover letter。你的工作:挑這封信的**刺**(不挑優點)。
+
+【職缺】
+${jobBrief}
+
+【cover letter】
+"""${String(text).slice(0, 3000)}"""
+
+挑刺角度(找 3-6 個就好,寧少勿濫):
+1. 哪句太業務 tone / 套版?
+2. 哪句沒對應到 JD 客戶問的問題?
+3. 哪個 claim 沒證據支撐 / 模糊?
+4. 開頭 5 秒能不能 hook 我?
+5. 結尾有沒有推進對話的問題?
+6. 整體長度對這案 OK 嗎(JD 簡單 → 長太長 / JD 詳細 → 答太短)?
+7. 有沒有讓 "新手 0 評價" 變成劣勢的句子?
+8. 有沒有放錯重點(技術細節 vs 對客戶的價值)?
+
+每個 issue 給:
+- severity: high(必改) / medium(建議改) / low(可改可不改)
+- problem: 1 句指出問題(繁中)
+- suggestion: 1 句具體建議怎麼改(繁中)
+- quote: 引用原文那 1 句(英文,精簡)
+
+只輸出 JSON:
+{
+ "issues":[{"severity":"high|medium|low","problem":"...","suggestion":"...","quote":"..."}],
+ "verdict":"整體 1 句評(繁中):這封信值不值得貼 / 該怎麼改才能更強"
+}`;
+  try {
+    const raw = await askAI(prompt);
+    return extractJson(raw);
+  } catch (e) {
+    console.error('Skeptic 失敗:', e.message);
+    return { issues: [], verdict: 'verification failed' };
+  }
+}
+
+// 🧠 自動 Lesson 學習 — 從 application notes 萃取 lesson 候選
+export async function extractLessonCandidates(notes, existingLessons = []) {
+  if (!notes || notes.length < 10) return { candidates: [] };
+  const existing = (existingLessons || []).slice(0, 30).map((l, i) => `[${i + 1}] ${l}`).join('\n');
+  const prompt = `你是學習日誌助手。下面是使用者寫的「為什麼這案沒中 / 沒回應」的筆記。
+你的工作:從筆記抽出 **可重用的硬規則**,讓未來 AI 寫 cover letter / 投案策略時自動避開同樣的錯。
+
+【現有 Lessons(避免重複)】
+${existing || '(無)'}
+
+【使用者筆記】
+"""${String(notes).slice(0, 1500)}"""
+
+抽 lesson 原則:
+- 必須是**通用、可套用未來**的規則,不要案件專屬細節
+- 必須是**硬規則**:「永遠別 X」「永遠先 Y」這種,不是「也許試試」
+- 與現有 lessons 重複的 → 不抽
+- 沒抽到也沒關係,寧缺勿濫
+
+只輸出 JSON:
+{
+ "candidates":[{"content":"硬規則(繁中,1 句,可以直接存為 lesson)","category":"honesty|tech|format|location|client-check|strategy|general"}]
+}`;
+  try {
+    const raw = await askAI(prompt);
+    return extractJson(raw);
+  } catch (e) {
+    console.error('Lesson 萃取失敗:', e.message);
+    return { candidates: [] };
+  }
+}
+
 // 主函式:輸入 cover letter 草稿,輸出 claim 清單
 export async function detectHallucinations(text, profile) {
   if (!text || text.length < 30) return { claims: [], summary: '草稿太短,跳過驗證' };
