@@ -247,24 +247,32 @@ const CSS = `
 // 注意:此字串內勿用 ${},以免被當模板字面值在 Node 端求值(client JS 一律用字串相加)。
 const CHAT_WIDGET = `
 <style>
-#cwBtn{position:fixed;right:20px;bottom:20px;width:56px;height:56px;border-radius:50%;background:#4493f8;color:#fff;border:0;font-size:24px;cursor:pointer;box-shadow:0 4px 16px #0008;z-index:9999}
+#cwBtn{position:fixed;right:24px;bottom:24px;width:56px;height:56px;border-radius:50%;background:#4493f8;color:#fff;border:0;font-size:24px;cursor:pointer;box-shadow:0 4px 16px #0008;z-index:9999}
 #cwBtn:hover{filter:brightness(1.1)}
-#cwPanel{position:fixed;right:20px;bottom:88px;width:370px;max-width:calc(100vw - 40px);height:540px;max-height:calc(100vh - 130px);background:#161b22;border:1px solid #272e3a;border-radius:14px;display:none;flex-direction:column;z-index:9999;box-shadow:0 10px 40px #000b;overflow:hidden;font:14px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif}
+#cwPanel{position:fixed;right:24px;bottom:92px;width:460px;max-width:calc(100vw - 48px);height:640px;max-height:calc(100vh - 140px);background:#161b22;border:1px solid #272e3a;border-radius:14px;display:none;flex-direction:column;z-index:9999;box-shadow:0 12px 48px #000c;overflow:hidden;font:15px/1.6 -apple-system,"PingFang TC",Segoe UI,sans-serif;transition:width .2s,height .2s}
 #cwPanel.open{display:flex}
-#cwHead{padding:12px 14px;border-bottom:1px solid #272e3a;font-weight:600;color:#e6edf3;display:flex;align-items:center;gap:8px}
+#cwPanel.big{width:min(900px,calc(100vw - 48px));height:calc(100vh - 140px)}
+#cwHead{padding:14px 16px;border-bottom:1px solid #272e3a;font-weight:600;color:#e6edf3;display:flex;align-items:center;gap:10px;font-size:15px}
 #cwHead .c{color:#8b949e;font-size:12px;font-weight:400}
-#cwHead button{margin-left:auto;background:0;border:0;color:#8b949e;font-size:18px;cursor:pointer}
-#cwMsgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
-#cwMsgs .m{max-width:88%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.55;white-space:pre-wrap}
-#cwMsgs .u{align-self:flex-end;background:#4493f8;color:#fff;border-bottom-right-radius:3px}
-#cwMsgs .b{align-self:flex-start;background:#0d1117;border:1px solid #272e3a;color:#e6edf3;border-bottom-left-radius:3px}
-#cwInbar{display:flex;gap:6px;padding:10px;border-top:1px solid #272e3a}
-#cwInbar textarea{flex:1;background:#0d1117;color:#e6edf3;border:1px solid #272e3a;border-radius:9px;padding:9px;font:13px/1.4 inherit;resize:none;height:40px;max-height:96px}
-#cwInbar button{background:#2ea043;color:#fff;border:0;border-radius:9px;padding:0 16px;cursor:pointer;font-size:13px}
+#cwHead .hbtns{margin-left:auto;display:flex;gap:4px}
+#cwHead button{background:0;border:0;color:#8b949e;font-size:18px;cursor:pointer;padding:4px 8px;border-radius:6px;line-height:1}
+#cwHead button:hover{background:#272e3a;color:#e6edf3}
+#cwMsgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+#cwMsgs .m{max-width:85%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.65;white-space:pre-wrap;word-wrap:break-word}
+#cwMsgs .u{align-self:flex-end;background:#4493f8;color:#fff;border-bottom-right-radius:4px}
+#cwMsgs .b{align-self:flex-start;background:#0d1117;border:1px solid #272e3a;color:#e6edf3;border-bottom-left-radius:4px}
+#cwMsgs .b strong{color:#79c0ff}
+#cwInbar{display:flex;gap:8px;padding:12px;border-top:1px solid #272e3a;background:#13181f}
+#cwInbar textarea{flex:1;background:#0d1117;color:#e6edf3;border:1px solid #272e3a;border-radius:10px;padding:11px 12px;font:14px/1.5 inherit;resize:none;height:44px;max-height:160px;outline:none;transition:border-color .15s}
+#cwInbar textarea:focus{border-color:#4493f8}
+#cwInbar button{background:#2ea043;color:#fff;border:0;border-radius:10px;padding:0 18px;cursor:pointer;font-size:14px;font-weight:600;transition:filter .15s}
+#cwInbar button:hover{filter:brightness(1.1)}
 </style>
 <button id="cwBtn" title="接案助手">💬</button>
 <div id="cwPanel">
-  <div id="cwHead">🤖 接案助手 <span class="c" id="cwCtx"></span> <button id="cwClose">✕</button></div>
+  <div id="cwHead">🤖 接案助手 <span class="c" id="cwCtx"></span>
+    <span class="hbtns"><button id="cwBig" title="放大/縮小">⛶</button><button id="cwClose" title="關閉">✕</button></span>
+  </div>
   <div id="cwMsgs"></div>
   <div id="cwInbar"><textarea id="cwTa" placeholder="問我任何事… (Enter 送出)"></textarea><button id="cwSend">送</button></div>
 </div>
@@ -287,6 +295,8 @@ const CHAT_WIDGET = `
   function save(){try{sessionStorage.setItem(KEY,JSON.stringify(hist.slice(-20)));}catch(e){}}
   document.getElementById('cwBtn').onclick=function(){panel.classList.toggle('open');if(panel.classList.contains('open')){setCtx();ta.focus();}};
   document.getElementById('cwClose').onclick=function(){panel.classList.remove('open');};
+  document.getElementById('cwBig').onclick=function(){panel.classList.toggle('big');try{localStorage.setItem('cw_big',panel.classList.contains('big')?'1':'0');}catch(e){}};
+  try{if(localStorage.getItem('cw_big')==='1')panel.classList.add('big');}catch(e){}
   document.getElementById('cwSend').onclick=send;
   ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
   function send(){var t=ta.value.trim();if(!t)return;ta.value='';bubble('user',t);hist.push({role:'user',content:t});save();
