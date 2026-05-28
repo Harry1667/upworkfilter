@@ -1230,9 +1230,10 @@ function pageApplications() {
   <div class="help">
     <b>📖 怎麼用</b><br>
     • 投出去後在 ③ 提案頁按「✅ 我投了」會自動建紀錄,或來這手動加<br>
+    • 之前在列表頁勾過「☑️ 已投」的案子? 點下方紅色按鈕一鍵匯入<br>
     • 收到客戶回覆 → 點下拉改 <b>💬 有回</b>;進面試 → 改 <b>🎤 面試</b>;成交 → <b>🎉 中標</b><br>
-    • 收到拒信或 30 天沒回 → 改 <b>❌ 拒絕</b> 或 <b>🕳 沒回</b><br>
-    • Notes 欄寫「為什麼這案沒中?」可以累積 lessons
+    • Notes 欄寫「為什麼這案沒中?」→ 點 🧠 一鍵萃取 Lesson
+    <div style="margin-top:10px"><button onclick="importApplied()" style="background:#f85149;color:#fff;border:0;border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600">🔄 從『已投』案件匯入</button> <span id="impmsg" style="color:var(--grn);font-size:13px;margin-left:8px"></span></div>
   </div>
   <div class="grid">
     <div class="stat"><div class="n">${stats.total}</div><div class="l">總投案</div></div>
@@ -1256,6 +1257,13 @@ function pageApplications() {
     if(!confirm('刪除這筆投案紀錄?'))return;
     await fetch('/api/applications/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});
     location.reload();
+  }
+  async function importApplied(){
+    var m=document.getElementById('impmsg');m.textContent='匯入中…';
+    var r=await fetch('/api/applications/import-applied',{method:'POST'});
+    var j=await r.json();
+    if(j.ok){m.textContent='✅ 匯入 '+j.added+' 筆 (略過 '+j.skipped+' 筆已存在的)';setTimeout(function(){location.reload();},1000);}
+    else m.textContent='❌ 失敗';
   }
   async function suggestL(id){
     var notes=document.getElementById('n'+id).value.trim();
@@ -2410,6 +2418,27 @@ createServer(async (req, res) => {
       const result = await extractLessonCandidates(notes, existing);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, candidates: result.candidates || [] }));
+    }
+    // 🔄 從 jobs.applied=1 匯入 — 把列表頁勾過「已投」但 applications 表還沒紀錄的案子補上
+    if (url.pathname === '/api/applications/import-applied' && req.method === 'POST') {
+      const dbi = openDb();
+      const applied = dbi.prepare('SELECT * FROM jobs WHERE applied=1').all();
+      const existing = new Set(dbi.prepare('SELECT job_id FROM applications WHERE job_id IS NOT NULL').all().map((r) => r.job_id));
+      let added = 0;
+      for (const j of applied) {
+        if (existing.has(j.id)) continue;
+        addApplication(dbi, {
+          job_id: j.id,
+          job_title: j.title || '',
+          applied_at: j.last_seen || new Date().toISOString(),
+          rate: j.budget_text || '',
+          connects_used: 0,
+          notes: '從列表頁「已投」匯入',
+        });
+        added++;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, added, skipped: applied.length - added }));
     }
     if (url.pathname === '/api/applications/delete' && req.method === 'POST') {
       const { id } = JSON.parse(await readBody(req));
