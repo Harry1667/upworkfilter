@@ -181,8 +181,10 @@ function rescoreAll() {
 
 const CSS = `
   :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#6e7681;--ac:#4493f8}
-  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;padding-left:210px;overflow-x:hidden;min-height:100vh;transition:padding-right .2s}
-  body.chat-open{padding-right:420px}
+  *{box-sizing:border-box}html{overflow-x:hidden}body{margin:0 !important;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC",Segoe UI,sans-serif;padding-left:210px !important;overflow-x:hidden;min-height:100vh;transition:padding-right .2s}
+  body.chat-open{padding-right:420px !important}
+  /* 🛡️ 雙保險:確保 header/main 不會被 sidebar 覆蓋 */
+  body > header, body > main{max-width:calc(100% - 0px);position:relative;left:0}
   a{color:var(--ac)}
   header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
   h1{font-size:18px;margin:0;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
@@ -287,8 +289,8 @@ body.chat-open #cwBtn{display:none}
 #cwMsgs .u{align-self:flex-end;background:#4493f8;color:#fff;border-bottom-right-radius:4px}
 #cwMsgs .b{align-self:flex-start;background:#0d1117;border:1px solid #272e3a;color:#e6edf3;border-bottom-left-radius:4px}
 #cwMsgs .b strong{color:#79c0ff}
-#cwInbar{display:flex;gap:8px;padding:12px;border-top:1px solid #272e3a;background:#13181f}
-#cwInbar textarea{flex:1;background:#0d1117;color:#e6edf3;border:1px solid #272e3a;border-radius:10px;padding:11px 12px;font:14px/1.5 inherit;resize:none;min-height:44px;max-height:300px;outline:none;transition:border-color .15s;overflow-y:auto}
+#cwInbar{display:flex;gap:8px;padding:12px;border-top:1px solid #272e3a;background:#13181f;width:100%;box-sizing:border-box}
+#cwInbar textarea{flex:1 1 0;width:0;min-width:0;background:#0d1117;color:#e6edf3;border:1px solid #272e3a;border-radius:10px;padding:11px 12px;font:14px/1.5 inherit;resize:none;min-height:44px;max-height:300px;outline:none;transition:border-color .15s;overflow-y:auto}
 #cwInbar textarea:focus{border-color:#4493f8}
 #cwInbar button{background:#2ea043;color:#fff;border:0;border-radius:10px;padding:0 18px;cursor:pointer;font-size:14px;font-weight:600;transition:filter .15s}
 #cwInbar button:hover{filter:brightness(1.1)}
