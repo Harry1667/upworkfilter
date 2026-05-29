@@ -18,6 +18,16 @@
 - triage.js 加新手勝率硬上限（!pv→8% / hire 0%→10% / 50+ props→12%）
 - score.js 紅線出現在 title = 強制硬擋
 
+**🥊 新手競爭可行性閘 — can-win（晚間追加，已上線）**
+- 核心洞察:**能力分高 ≠ 接得到**。原本只防爛客戶(死亡訊號)，沒防「②能力滿分但 0 評價搶不到」的案 → 第四道防線
+- 觸發案例:Expert tag + 27 Connects + 超預算的全端 AI 案，能力 100 分卻幾乎中不了
+- 新增 DB 欄位:`experience_level`(Entry/Intermediate/Expert)、`connects_required`
+- score.js 競爭閘:`Expert+0評價` / `connects≥15` / `預算上限<底價$12` 為訊號 → 命中 ≥2 = SKIP「能力夠但搶不到」、==1 = APPLY 降 MAYBE(並標 🥊 原因)
+- `parseExperienceLevel`/`parseConnectsRequired` 共用:先 strip gstack 無障礙樹 `@eNN [type]` 標記(否則欄位被隔開抓不到)+ 防誤判(等級詞需與 "Experience Level" 相鄰)
+- triage.js:Expert+0評價→win≤15%、connects≥15 再-10%、**Required 覆蓋率**(逐項拆 Must-have,有沒做過的核心項如 live voice agent → win 下修,別被 4/5 命中騙高分)
+- ✅ 真實 enrich 驗證:21 案全抓到等級(Expert7/Inter12/Entry2)，7 個 Expert 案正確觸發閘門
+- ⚠️ 限制:`connects_required` 只在**投案頁**出現，詳情頁 enrich 抓不到 → 多為 null，閘門靠 Expert tag + 預算優雅降級
+
 **Lessons + Anchors 系統**
 - 📌 /lessons CRUD + auto-inject 進所有 AI prompt
 - 🧠 從 application notes 自動萃取 lesson 候選
@@ -92,6 +102,8 @@
 2. **去投 3 個撿漏單**:🦴 撿漏 mode + 提案 < 10 + 預算 $20-200 + payment_verified
 3. **每投完一案立刻建追蹤**:提案頁「✅ 我投了」按鈕
 4. **抓到 AI 寫錯立刻加 lesson**
+5. **伺服器跑 enrich 填經驗等級**:can-win 閘要 `experience_level` 才生效，線上 DB 現有案多為 null → 在伺服器跑 `npm run enrich` 或本機 `npm run refresh -- <id>` 補；之後 Expert 案會自動降級
+6. **觀察 can-win 閘誤殺率**:若把該投的 Expert 案也擋掉，調 score.js 競爭閘門檻(目前 ≥2 訊號才 SKIP)
 
 ### 🔑 重要連結
 - 線上:https://upworkfilter.looptw.com
