@@ -343,7 +343,7 @@ body.chat-open #cwPanel.big ~ * #pagecontent,body.chat-open.big-chat #pageconten
   function titleFrom(m){var t=String(m||'').replace(/\\s+/g,' ').trim();return t.length>22?t.slice(0,22)+'…':(t||'新對話');}
   function fmt(ts){var d=new Date(ts),now=new Date();if(d.toDateString()===now.toDateString())return d.toTimeString().slice(0,5);var diff=(now-d)/86400000;if(diff<7)return Math.floor(diff)+'天前';return (d.getMonth()+1)+'/'+d.getDate();}
   function ctx(){var p=location.pathname,id=(new URLSearchParams(location.search)).get('id')||'';
-    var m={'/':'案件列表','/job':'案件評估','/proposal':'寫提案','/reply':'客戶回覆','/invites':'邀請列表','/invite':'邀請評估','/features':'功能地圖','/me':'我的能力','/profile':'Upwork Profile','/scoring':'評分設定','/agents':'Agents 中控台','/assistant':'助手'};
+    var m={'/':'找案子','/job':'評估案件','/proposal':'寫提案','/reply':'回客戶訊息','/invites':'客戶邀請','/invite':'邀請評估','/features':'功能需求地圖','/me':'我的能力','/profile':'我的身分檔','/scoring':'評分設定','/agents':'AI 設定','/assistant':'助手'};
     return {page:(m[p]||p),jobId:id};}
   function setCtx(){var c=ctx();document.getElementById('cwCtx').textContent='在:'+c.page+(c.jobId?' · 看著這案':'');}
   function md(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -570,8 +570,8 @@ function pageJobs() {
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
         <details class="dim"><summary>展開 7 維評分</summary><div class="grid7">${metrics}</div></details>
         <div class="acts">
-          <a class="open primary" href="/job?id=${j.id}">② 評估 →</a>
-          <a class="open" href="/proposal?id=${j.id}">③ 提案 →</a>
+          <a class="open primary" href="/job?id=${j.id}">② 評估案件 →</a>
+          <a class="open" href="/proposal?id=${j.id}">③ 寫提案 →</a>
           <a class="open" href="${esc(cleanUrl(j))}" data-url="${esc(cleanUrl(j))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
         </div>
       </article>`;
@@ -695,14 +695,14 @@ function pageProfile() {
   const capList = (p.provenCapabilities || [])
     .map((c) => `<li><b>${esc(c.repo)}</b> — ${esc(c.capability)}<br><small style="color:var(--mut)">[${esc((c.techs || []).join(' / '))}]</small></li>`)
     .join('') || '<li class="reason">尚未執行 Profile Agent。</li>';
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Upwork Profile</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的身分檔</title><style>${CSS}
   .form label{display:block;color:var(--mut);font-size:13px;margin:14px 0 4px}
   .form input,.form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:14px/1.6 inherit}
   .form textarea{min-height:80px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .port{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin:10px 0}
   .port input{margin-bottom:6px}.port .x{float:right;background:none;border:0;color:#f85149;cursor:pointer;font-size:16px}
   .caps li{margin:8px 0}h2{border-left:3px solid var(--grn);padding-left:10px}</style></head><body>
-<header><h1>🪪 Upwork Profile <span class="sub">「我在 Upwork 是誰」— 身分/作品/求職信規則,AI 寫文都讀這份。能力數值請去 <a href="/me">🎯 我的能力</a></span></h1>${navBar('/profile')}</header>
+<header><h1>🪪 我的身分檔 <span class="sub">「我在 Upwork 是誰」— 姓名/作品集/求職信規則,AI 寫所有文案都讀這份。技能等級數值請去 <a href="/me">🎯 我的能力</a> 設定。</span></h1>${navBar('/profile')}</header>
 <main class="form">
   <h2>基本資料</h2>
   <div class="row2">
@@ -811,7 +811,7 @@ function pageMe() {
         <span class="rt">${esc(j.title)}</span>
         <small class="rr">${esc(String(j.reason || '').slice(0, 60))}</small>
       </a>`).join('')
-    : '<p class="reason">目前沒有貼合能力的未投案件。先去 ① 列表 抓案、或調整下方能力清單。</p>';
+    : '<p class="reason">目前沒有貼合能力的未投案件。先去 ① 找案子 抓案、或調整下方能力清單。</p>';
 
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的能力</title><style>${CSS}
   .form label{display:block;color:var(--mut);font-size:13px;margin:14px 0 4px}
@@ -968,11 +968,11 @@ function pageAgents() {
        ${bRow('估 ≥60%', os.buckets.high)}${bRow('估 40-59%', os.buckets.mid)}${bRow('估 <40%', os.buckets.low)}${bRow('未估', os.buckets.none)}</table>
        ${catRows ? `<p class="reason" style="margin-top:12px">依領域:</p><table><tr><th>領域</th><th>投了</th><th>獲回應</th><th>命中率</th></tr>${catRows}</table>` : ''}
        <p class="reason" style="margin-top:12px">${note ? '🔁 餵給 AI 快篩的校正:<br>' + esc(note) : '⚠️ 樣本未達 5 案,還不夠餵給 AI 校正(避免噪音)。多標幾筆結果就會自動啟用。'}</p>`
-    : '<p class="reason">還沒有投標結果。投標後到「② 評估」頁右上角把結果標起來(已回覆/面試/錄取/落選),這裡就會統計,並回饋給 AI 校正未來勝率估計。</p>';
+    : '<p class="reason">還沒有投標結果。投標後到「② 評估案件」頁右上角把結果標起來(已回覆/面試/錄取/落選),這裡就會統計,並回饋給 AI 校正未來勝率估計。</p>';
 
   const updated = p.provenUpdatedAt ? esc(p.provenUpdatedAt.slice(0, 16).replace('T', ' ')) : '尚未執行';
 
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agents 中控台</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 設定總覽</title><style>${CSS}
   .asec{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0}
   .asec h2{margin-top:0;border-left:3px solid var(--ac);padding-left:10px;font-size:16px}
   .asec table{width:100%;border-collapse:collapse;margin-top:6px}
@@ -990,7 +990,7 @@ function pageAgents() {
   .qhint{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
   .qhint button{background:var(--card);border:1px solid var(--bd);color:var(--mut);border-radius:14px;padding:4px 11px;font-size:12px;cursor:pointer}
   .qhint button:hover{border-color:var(--ac);color:var(--tx)}</style></head><body>
-<header><h1>🤖 Agents 中控台 <span class="sub">這些 agent 怎麼設定的、學到了什麼,都在這。要改去對應頁面</span></h1>${navBar('/agents')}</header>
+<header><h1>🤖 AI 設定總覽 <span class="sub">系統裡每個 AI 怎麼設定的、學到了什麼,都彙整在這。要修改請點各區塊的「編輯 →」到對應頁面。</span></h1>${navBar('/agents')}</header>
 <main>
   <div class="asec">
     <h2>🧠 Profile Agent — 已證明能力</h2>
@@ -1045,7 +1045,7 @@ function pageAgents() {
     bubble('user',q);hist.push({role:'user',content:q});
     var ph=bubble('assistant','思考中…');
     try{var r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({messages:hist,context:{page:'Agents 中控台',scope:'agents'}})});
+      body:JSON.stringify({messages:hist,context:{page:'AI 設定總覽',scope:'agents'}})});
       var j=await r.json();ph.textContent=j.ok?j.reply:('\\u274c '+(j.error||'失敗'));
       if(j.ok)hist.push({role:'assistant',content:j.reply});}
     catch(e){ph.textContent='\\u274c '+e.message;}}
@@ -1070,12 +1070,12 @@ function pageScoring() {
     </div>`;
   }).join('');
   const tag = (m, label, desc) => `<button class="modebtn ${m === mode ? 'on' : ''}" onclick="setMode('${m}')">${label}<small>${desc}</small></button>`;
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>評分引擎</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>評分設定</title><style>${CSS}
   .modes{display:flex;gap:10px;margin:6px 0 18px}
   .modebtn{flex:1;background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:10px;padding:12px;cursor:pointer;text-align:left}
   .modebtn small{display:block;color:var(--mut);font-size:12px;margin-top:3px}
   .modebtn.on{border-color:var(--ac);background:#13233b}</style></head><body>
-<header><h1>⚖️ 評分引擎 <span class="sub">「案子好不好」— 決定哪些案被推到你面前</span></h1>${navBar('/scoring')}</header>
+<header><h1>⚖️ 評分設定 <span class="sub">調整「怎麼判斷一個案子好不好」的規則 — 決定哪些案會被推到你面前（值得投/可考慮/排除）。</span></h1>${navBar('/scoring')}</header>
 <main>
   <h3 style="margin:4px 0">評分模式</h3>
   <div class="modes">
@@ -1126,26 +1126,26 @@ function navBar(active, jobId) {
   const q = jobId ? `?id=${jobId}` : '';
   return `<aside class="sidebar">
     <div class="brand">📋 Upwork Filter <small>v2</small></div>
-    <div class="group">投案流程</div>
-    ${link('/', '① 列表', active === '/')}
-    ${link('/job' + q, '② 評估', active === '/job')}
-    ${link('/proposal' + q, '③ 提案', active === '/proposal')}
-    ${link('/reply', '④ 溝通', active === '/reply')}
-    ${link('/invites', '⑤ 邀請', active === '/invites' || active === '/invite')}
+    <div class="group">接案流程</div>
+    ${link('/', '① 找案子', active === '/')}
+    ${link('/job' + q, '② 評估案件', active === '/job')}
+    ${link('/proposal' + q, '③ 寫提案', active === '/proposal')}
+    ${link('/reply', '④ 回客戶訊息', active === '/reply')}
+    ${link('/invites', '⑤ 客戶邀請', active === '/invites' || active === '/invite')}
     <div class="group">每日</div>
-    ${link('/today', '🌅 今日', active === '/today')}
-    ${link('/?fav=1', '❤️ 收藏', false)}
+    ${link('/today', '🌅 今日待辦', active === '/today')}
+    ${link('/?fav=1', '❤️ 收藏案件', false)}
     ${link('/applications', '📊 投案追蹤', active === '/applications')}
-    <div class="group">設定</div>
-    ${link('/me', '🎯 能力', active === '/me')}
-    ${link('/profile', '🪪 Upwork', active === '/profile')}
-    ${link('/scoring', '⚖️ 評分', active === '/scoring')}
-    ${link('/features', '🧩 功能地圖', active === '/features')}
-    ${link('/agents', '🤖 Agents', active === '/agents')}
+    <div class="group">我的設定</div>
+    ${link('/me', '🎯 我的能力', active === '/me')}
+    ${link('/profile', '🪪 我的身分檔', active === '/profile')}
+    ${link('/scoring', '⚖️ 評分設定', active === '/scoring')}
+    ${link('/features', '🧩 功能需求地圖', active === '/features')}
+    ${link('/agents', '🤖 AI 設定', active === '/agents')}
     <div class="group">學習工具</div>
-    ${link('/lessons', '📌 Lessons', active === '/lessons')}
-    ${link('/anchors', '⭐ 範本', active === '/anchors')}
-    ${link('/backup', '💾 備份', active === '/backup')}
+    ${link('/lessons', '📌 AI 糾錯紀錄', active === '/lessons')}
+    ${link('/anchors', '⭐ 信件範本', active === '/anchors')}
+    ${link('/backup', '💾 備份/還原', active === '/backup')}
     <div class="logout"><a href="/logout">→ 登出</a></div>
   </aside>`;
 }
@@ -1165,7 +1165,7 @@ function pageLessons() {
         <button onclick="delL(${l.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:18px;padding:0 8px">🗑</button>
       </div>
     </li>`).join('');
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>📌 Lessons</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>📌 AI 糾錯紀錄</title><style>${CSS}
   .lesson-form{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:18px}
   .lesson-form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:14px/1.55 inherit;resize:vertical;min-height:60px}
   .lesson-form input{background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;font:13px inherit}
@@ -1174,7 +1174,7 @@ function pageLessons() {
   .empty{color:var(--mut);text-align:center;padding:40px;font-size:14px}
   .help{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
   </style></head><body>
-<header><h1>📌 Lessons <span class="sub">你抓到的 AI 錯都存在這 — 所有 prompt 自動讀,違反 = 嚴重錯誤</span></h1>${navBar('/lessons')}</header>
+<header><h1>📌 AI 糾錯紀錄 <span class="sub">你抓到的 AI 錯誤都記在這（俗稱 Lessons）— 所有 AI 任務會自動讀取,違反 = 嚴重錯誤。</span></h1>${navBar('/lessons')}</header>
 <main>
   <div class="help">
     <b>📖 怎麼用</b><br>
@@ -1260,7 +1260,7 @@ function pageToday() {
   .cta b{color:var(--ac)}
   .empty{color:var(--mut);padding:10px;font-size:13px}
   </style></head><body>
-<header><h1>🌅 今日 <span class="sub">${new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', weekday: 'long', month: 'long', day: 'numeric' })} · 開站第一眼看這頁</span></h1>${navBar('/today')}</header>
+<header><h1>🌅 今日待辦 <span class="sub">${new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', weekday: 'long', month: 'long', day: 'numeric' })} · 每天開站第一眼看這頁,先處理今天該做的事。</span></h1>${navBar('/today')}</header>
 <main>
 
   <h2 style="margin-top:0">📊 真實數據(取代 AI 猜測)</h2>
@@ -1284,9 +1284,9 @@ function pageToday() {
 
   <h2>🧠 學習狀態</h2>
   <a href="/lessons" class="cta">📌 啟用中 Lessons:<b>${lessons.length}</b> 條 → ${lessons.length < 5 ? '建議 5 條起跳,每次抓到 AI 寫錯就加' : '繼續累積'}</a>
-  <a href="/anchors" class="cta">⭐ 啟用中 Anchors:<b>${anchors.length}</b> 個 → ${anchors.length < 1 ? '寫過順的信去 ③ 提案頁點 ⭐ 標為範本' : '繼續累積'}</a>
+  <a href="/anchors" class="cta">⭐ 啟用中 Anchors:<b>${anchors.length}</b> 個 → ${anchors.length < 1 ? '寫過順的信去 ③ 寫提案頁點 ⭐ 標為範本' : '繼續累積'}</a>
 
-  ${stats.total === 0 ? '<div style="background:#13233b;border-left:3px solid #d29922;border-radius:8px;padding:14px;color:var(--tx);font-size:14px;line-height:1.65;margin-top:20px"><b>💡 還沒投過案?</b><br>系統再強,沒投案 = 沒資料 = 沒學習。<br>建議:今天去 <a href="/" style="color:var(--ac)">① 列表</a> 點 🦴 撿漏 → 投 1-3 個爛單。第一個 5★ 比第 10 個功能重要。</div>' : ''}
+  ${stats.total === 0 ? '<div style="background:#13233b;border-left:3px solid #d29922;border-radius:8px;padding:14px;color:var(--tx);font-size:14px;line-height:1.65;margin-top:20px"><b>💡 還沒投過案?</b><br>系統再強,沒投案 = 沒資料 = 沒學習。<br>建議:今天去 <a href="/" style="color:var(--ac)">① 找案子</a> 點 🦴 撿漏 → 投 1-3 個爛單。第一個 5★ 比第 10 個功能重要。</div>' : ''}
 
 </main></body></html>`;
 }
@@ -1354,22 +1354,22 @@ function pageAnchors() {
         <button onclick="delA(${a.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:18px">🗑</button>
       </div>
     </li>`).join('');
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>⭐ Anchors</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>⭐ 信件範本</title><style>${CSS}
   .help{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
   ul.ls{list-style:none;margin:0;padding:0}
   .empty{color:var(--mut);text-align:center;padding:40px;font-size:14px}
   </style></head><body>
-<header><h1>⭐ Anchors <span class="sub">你親自審過 OK 的 cover letter — 當 voice 校準範本,AI 寫新信會對齊這些</span></h1>${navBar('/anchors')}</header>
+<header><h1>⭐ 信件範本 <span class="sub">你親自審過、覺得寫得好的求職信（俗稱 Anchors）— 存成範本後,AI 寫新信會對齊這些的語氣與寫法。</span></h1>${navBar('/anchors')}</header>
 <main>
   <div class="help">
     <b>📖 怎麼用</b><br>
-    • 在 ③ 提案頁產出 cover letter,你覺得這封寫得真的好 → 點 <b>⭐ 標為範本</b><br>
+    • 在 ③ 寫提案頁產出 cover letter,你覺得這封寫得真的好 → 點 <b>⭐ 標為範本</b><br>
     • 啟用的範本(打勾的)會被注入到 <b>所有未來</b> AI 寫信任務當參考<br>
     • 最多保留 3 個最新的當 anchor(避免 prompt 太長)<br>
     • 取消勾選 = 暫停,🗑 = 刪除<br>
     • <b>新手前 5 案不用急著加</b>,等寫過幾封順的再挑來標,品質才會好
   </div>
-  <ul class="ls" id="ls">${list || '<div class="empty">還沒有 anchor。在 ③ 提案頁產生 cover letter 後,挑寫得好的點⭐ 標為範本。</div>'}</ul>
+  <ul class="ls" id="ls">${list || '<div class="empty">還沒有 anchor。在 ③ 寫提案頁產生 cover letter 後,挑寫得好的點⭐ 標為範本。</div>'}</ul>
 </main>
 <script>
   async function toggleA(id,enabled){
@@ -1427,7 +1427,7 @@ function pageApplications() {
 <main>
   <div class="help">
     <b>📖 怎麼用</b><br>
-    • 投出去後在 ③ 提案頁按「✅ 我投了」會自動建紀錄,或來這手動加<br>
+    • 投出去後在 ③ 寫提案頁按「✅ 我投了」會自動建紀錄,或來這手動加<br>
     • 之前在列表頁勾過「☑️ 已投」的案子? 點下方紅色按鈕一鍵匯入<br>
     • 收到客戶回覆 → 點下拉改 <b>💬 有回</b>;進面試 → 改 <b>🎤 面試</b>;成交 → <b>🎉 中標</b><br>
     • Notes 欄寫「為什麼這案沒中?」→ 點 🧠 一鍵萃取 Lesson
@@ -1545,7 +1545,7 @@ function pageFeatures() {
     </details>`;
   }).join('');
 
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>功能地圖</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>功能需求地圖</title><style>${CSS}
   .scan{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 16px}
   .scan input{flex:1;min-width:200px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px 12px;font-size:14px}
   .catbox{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:8px 16px 14px;margin-bottom:14px}
@@ -1564,7 +1564,7 @@ function pageFeatures() {
   .src .ev{font-size:11px;color:var(--mut);margin-left:6px}
   .catsrc{margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)}.catsrc summary{font-size:13px}
   .ok{color:#3fb950}.mid{color:#d29922}.bad{color:#f85149}</style></head><body>
-<header><h1>🧩 功能地圖 <span class="sub">同類案子需要哪些功能 · 更新:${updated}</span></h1>${navBar('/features')}</header>
+<header><h1>🧩 功能需求地圖 <span class="sub">同一類型的案子,客戶通常會要求哪些功能 · 更新:${updated}</span></h1>${navBar('/features')}</header>
 <main>
   <p class="reason">輸入工作類型(關鍵字),系統從同類案子用 AI 歸納出「這類案子通常需要哪些小功能」並標難度/工具/出現頻率。<b>只記錄功能,不開發</b>。一次可輸入多個,用逗號分隔。<br>工具分兩類:<b style="color:#7ee2a8">📋 案子點名</b>=描述裡真的出現的;<b style="color:var(--mut)">💡 AI 建議</b>=這功能通常會用到的典型技術(AI 推測,非客戶要求)。</p>
   <div class="scan">
@@ -1689,7 +1689,7 @@ function pageInvites() {
           <td><a class="open" href="/invite?id=${esc(i.id)}">查看 →</a></td>
         </tr>`;
       }).join('');
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>⑤ 邀請</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>⑤ 客戶邀請</title><style>${CSS}
   table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:10px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}th{color:var(--mut);font-weight:500}
   .layout{display:grid;grid-template-columns:1fr 380px;gap:20px}@media(max-width:1000px){.layout{grid-template-columns:1fr}}
   textarea,input{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font-size:13px;box-sizing:border-box}
@@ -1697,7 +1697,7 @@ function pageInvites() {
   label{display:block;color:var(--mut);font-size:12px;margin:10px 0 4px}
   .panel{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px}
   </style></head><body>
-<header><h1>⑤ 邀請 <span class="sub">客戶主動發來的 invitation — 套你的能力邊界判斷值不值得寫提案</span></h1>${navBar('/invites')}</header>
+<header><h1>⑤ 客戶邀請 <span class="sub">客戶主動發來邀請你投標的案子 — 系統會套用你的能力邊界,幫你判斷值不值得花時間寫提案。</span></h1>${navBar('/invites')}</header>
 <main>
   <div class="layout">
     <div>
@@ -1904,7 +1904,7 @@ function winRateAnalysis(job, ev) {
   // 怎麼脫穎而出(低勝率時的具體戰術)
   const tips = [
     '開頭 3 行直接點出客戶的痛點與你的解法,別用通用模板(AI 一看就知道)',
-    '附「最相關」的真實作品連結/截圖 — 去 ③ 提案 看系統建議主打哪個',
+    '附「最相關」的真實作品連結/截圖 — 去 ③ 寫提案 看系統建議主打哪個',
     /20|50|\+/.test(prop) ? '此案提案已多 → 越早投越好,並在開頭證明你已讀懂需求(問一個聰明問題)' : '提早投、客製化開場',
     '報價用「價值定位」而非殺價;新手可給明確里程碑與快速交付承諾降低客戶風險'
   ];
@@ -1941,12 +1941,12 @@ function jobBarHtml(job, active) {
 }
 const notFoundPage = (title, active, id) => `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${CSS}</style></head><body>
 <header><h1>${title}</h1>${navBar(active)}</header>
-<main><p class="reason">${id ? '找不到這個案(可能已從資料庫移除)。' : '請從 <a href="/">① 列表</a> 挑一個案。'}</p></main></body></html>`;
+<main><p class="reason">${id ? '找不到這個案(可能已從資料庫移除)。' : '請從 <a href="/">① 找案子</a> 挑一個案。'}</p></main></body></html>`;
 
 // ② 評估:純判斷 — 核心數據 + 7維評分 + 勝率 + 工作內容。不產文案(去 ③ 提案)
 function pageJob(id) {
   const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
-  if (!job) return notFoundPage('② 評估', '/job', id);
+  if (!job) return notFoundPage('② 評估案件', '/job', id);
   const cfg = loadConfig();
   const C = cfg.scoring.criteria;
   const ev = effectiveVerdict(job);
@@ -1970,7 +1970,7 @@ function pageJob(id) {
     const v = job[COL[k]] ?? 0;
     return `<div class="m"><b>${C[k].label}</b> ${v}<div class="${trackCls(v)}"><i style="width:${v}%"></i></div></div>`;
   }).join('');
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>評估:${esc(job.title)}</title><style>${CSS}
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>評估案件:${esc(job.title)}</title><style>${CSS}
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:8px}
   .cards .c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}.c .l{color:var(--mut);font-size:12px}.c .v{font-size:15px;font-weight:600;margin-top:2px}
   .winbox{display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:8px 0}
@@ -1988,7 +1988,7 @@ function pageJob(id) {
   .cta{display:inline-block;background:var(--ac);color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;margin:6px 0}
   #anframe{width:100%;height:600px;border:1px solid var(--bd);border-radius:12px;background:#0d1117}</style></head><body>
 <header>
-  <h1>② 評估 <span class="sub">${verdictLine}</span></h1>
+  <h1>② 評估案件 <span class="sub">${verdictLine}</span></h1>
   ${navBar('/job', job.id)}
   ${jobBarHtml(job, '/job')}
 </header>
@@ -2027,7 +2027,7 @@ function pageJob(id) {
   <details class="howwin"${wr.lowWin ? ' open' : ''}>
     <summary>🏆 就算勝率低,怎麼脫穎而出 / 值不值得花 connects</summary>
     <ul>${wr.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
-    <p class="reason">想要這個案子的「客製化中標策略 + 求職信」→ <a href="/proposal?id=${job.id}">去 ③ 提案</a>(AI 會針對此案給差異化打法)。</p>
+    <p class="reason">想要這個案子的「客製化中標策略 + 求職信」→ <a href="/proposal?id=${job.id}">去 ③ 寫提案</a>(AI 會針對此案給差異化打法)。</p>
   </details>
 
   <h2>7 維評分(規則式)</h2>
@@ -2072,13 +2072,13 @@ function pageJob(id) {
 // ③ 提案:生產 — 求職信 + 主打作品 + 建議附截圖 + 投標項 + 報價(AI,只在這裡花 token)
 function pageProposal(id) {
   const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
-  if (!job) return notFoundPage('③ 提案', '/proposal', id);
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>提案:${esc(job.title)}</title><style>${CSS}
+  if (!job) return notFoundPage('③ 寫提案', '/proposal', id);
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>寫提案:${esc(job.title)}</title><style>${CSS}
   .sect{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0}
   .sect h2{margin:0 0 10px;border:0;padding:0}.out{white-space:pre-wrap;font-size:14px;line-height:1.7;margin-top:10px}
   .jobbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}.jobbar a,.jobbar label{font-size:13px}</style></head><body>
 <header>
-  <h1>③ 提案 <span class="sub">${esc(job.budget_text || '')} · 提案 ${esc(job.proposals_bucket || '?')}</span></h1>
+  <h1>③ 寫提案 <span class="sub">${esc(job.budget_text || '')} · 提案 ${esc(job.proposals_bucket || '?')}</span></h1>
   ${navBar('/proposal', job.id)}
   ${jobBarHtml(job, '/proposal')}
 </header>
@@ -2091,7 +2091,7 @@ function pageProposal(id) {
   </details>
   <p>
     <button class="save" id="go" onclick="gen()">✨ 產生提案</button>
-    <button class="save" style="background:#6e7681;margin-left:6px" onclick="gen('consensus')" title="3 個 AI 各跑一版,差異標出來。多花 30s 但能看 AI 哪邊不確定">🤝 共識模式</button>
+    <button class="save" style="background:#6e7681;margin-left:6px" onclick="gen('consensus')" title="3 個 AI 各寫一版求職信,把差異標出來。多花約 30 秒,但能看出 AI 哪邊不確定">🤝 三 AI 比對版</button>
     <span id="st" class="reason"></span>
   </p>
 
