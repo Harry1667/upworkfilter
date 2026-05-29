@@ -187,7 +187,8 @@ const CSS = `
   body.chat-open #pagecontent{margin-right:420px;transition:margin-right .2s}
   #pagecontent{min-width:0;overflow-x:hidden}
   a{color:var(--ac)}
-  header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px 20px;z-index:9}
+  header{position:sticky;top:0;background:#0d1117ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--bd);padding:14px max(20px,calc((100% - 920px)/2));z-index:9}
+  body.wide header{padding:14px 20px}
   h1{font-size:18px;margin:0;display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
   h1 .sub{color:var(--mut);font-size:13px;font-weight:400}
   /* 📐 左側 sidebar 導覽(grid column 1) */
@@ -213,8 +214,8 @@ const CSS = `
   .filters button{background:var(--card);color:var(--tx);border:1px solid var(--bd);padding:6px 15px;border-radius:20px;cursor:pointer;font-size:13px;transition:.15s}
   .filters button:hover{border-color:var(--ac)}
   .filters button.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600}
-  main{max-width:920px;margin:0;padding:22px 20px}
-  main.wide{max-width:1360px}
+  main{max-width:920px;margin:0 auto;padding:22px 20px}
+  body.wide main{max-width:1360px;margin:0}
   /* 雙欄:左設定/表單、右參考資訊 */
   .cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:28px;align-items:start}
   .cols .side{position:sticky;top:84px}
@@ -434,7 +435,9 @@ function serveHtml(res, htmlStr) {
   const m = out.match(/<aside class="sidebar">[\s\S]*?<\/aside>/);
   const sidebar = m ? m[0] : '';
   if (sidebar) out = out.replace(sidebar, '');
-  out = out.replace('<body>', `<body>${sidebar}<div id="pagecontent">`);
+  // 偵測頁面是否雙欄(main.wide):雙欄頁靠左對齊、其餘(列表/單欄)頁置中
+  const isWide = /<main[^>]*class="[^"]*\bwide\b/.test(out);
+  out = out.replace('<body>', `<body${isWide ? ' class="wide"' : ''}>${sidebar}<div id="pagecontent">`);
   out = out.replace('</body>', '</div>' + COPY_JS + CHAT_WIDGET + '</body>');
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, must-revalidate' });
   res.end(out);
@@ -708,35 +711,41 @@ function pageProfile() {
   .port input{margin-bottom:6px}.port .x{float:right;background:none;border:0;color:#f85149;cursor:pointer;font-size:16px}
   .caps li{margin:8px 0}h2{border-left:3px solid var(--grn);padding-left:10px}</style></head><body>
 <header><h1>🪪 我的身分檔 <span class="sub">「我在 Upwork 是誰」— 姓名/作品集/求職信規則,AI 寫所有文案都讀這份。技能等級數值請去 <a href="/me">🎯 我的能力</a> 設定。</span></h1>${navBar('/profile')}</header>
-<main class="form">
-  <h2>基本資料</h2>
-  <div class="row2">
-    <div><label>姓名</label><input id="f_name" value="${v(p.name)}"></div>
-    <div><label>定位 Title</label><input id="f_title" value="${v(p.title)}"></div>
+<main class="form wide">
+  <div class="cols">
+    <div class="colmain">
+      <h2>基本資料</h2>
+      <div class="row2">
+        <div><label>姓名</label><input id="f_name" value="${v(p.name)}"></div>
+        <div><label>定位 Title</label><input id="f_title" value="${v(p.title)}"></div>
+      </div>
+      <div class="row2">
+        <div><label>等級 / 階段</label><input id="f_level" value="${v(p.level)}"></div>
+        <div><label>時薪(USD)</label><input id="f_rate" type="number" value="${v(p.hourlyRate)}"></div>
+      </div>
+      <label>自我介紹 Bio</label><textarea id="f_bio">${v(p.bio)}</textarea>
+      <label>報價備註</label><input id="f_rateNote" value="${v(p.rateNote)}">
+
+      <h2>技能(逗號分隔)</h2>
+      <textarea id="f_skills">${esc(skills)}</textarea>
+
+      <h2>作品集</h2>
+      <div id="ports">${portfolioRows}</div>
+      <button class="save" style="background:#30363d" onclick="addPort()">＋ 新增作品</button>
+
+      <h2>求職信規則(一行一條)</h2>
+      <textarea id="f_rules" style="min-height:160px">${esc(rules)}</textarea>
+
+      <p style="margin-top:16px"><button class="save" onclick="save()">💾 儲存檔案</button> <span id="msg" class="reason"></span></p>
+    </div>
+
+    <div class="side">
+      <h2>🤖 Profile Agent(已證明能力)</h2>
+      <p class="reason">自動抓 GitHub(<b>${esc(p.githubUser || 'Harry1667')}</b>)歸納「已證明能力」,讓有真實 repo 證據的案子適配度加成、求職信引用真實作品。${p.provenUpdatedAt ? `上次更新:${esc(p.provenUpdatedAt.slice(0, 16).replace('T', ' '))},共 ${(p.provenCapabilities || []).length} 項。每週一自動刷新。` : '尚未執行。'}</p>
+      <p><button class="save" onclick="runAgent()">🤖 立即執行(約 1-2 分)</button> <span id="amsg" class="reason"></span></p>
+      <ul class="caps">${capList}</ul>
+    </div>
   </div>
-  <div class="row2">
-    <div><label>等級 / 階段</label><input id="f_level" value="${v(p.level)}"></div>
-    <div><label>時薪(USD)</label><input id="f_rate" type="number" value="${v(p.hourlyRate)}"></div>
-  </div>
-  <label>自我介紹 Bio</label><textarea id="f_bio">${v(p.bio)}</textarea>
-  <label>報價備註</label><input id="f_rateNote" value="${v(p.rateNote)}">
-
-  <h2>技能(逗號分隔)</h2>
-  <textarea id="f_skills">${esc(skills)}</textarea>
-
-  <h2>作品集</h2>
-  <div id="ports">${portfolioRows}</div>
-  <button class="save" style="background:#30363d" onclick="addPort()">＋ 新增作品</button>
-
-  <h2>求職信規則(一行一條)</h2>
-  <textarea id="f_rules" style="min-height:160px">${esc(rules)}</textarea>
-
-  <p style="margin-top:16px"><button class="save" onclick="save()">💾 儲存檔案</button> <span id="msg" class="reason"></span></p>
-
-  <h2 style="margin-top:30px">🤖 Profile Agent(已證明能力)</h2>
-  <p class="reason">自動抓 GitHub(<b>${esc(p.githubUser || 'Harry1667')}</b>)歸納「已證明能力」,讓有真實 repo 證據的案子適配度加成、求職信引用真實作品。${p.provenUpdatedAt ? `上次更新:${esc(p.provenUpdatedAt.slice(0, 16).replace('T', ' '))},共 ${(p.provenCapabilities || []).length} 項。每週一自動刷新。` : '尚未執行。'}</p>
-  <p><button class="save" onclick="runAgent()">🤖 立即執行(約 1-2 分)</button> <span id="amsg" class="reason"></span></p>
-  <ul class="caps">${capList}</ul>
 </main>
 <script>
   // 原始 profile(保留表單沒涵蓋的欄位,存檔時合併回去)
@@ -1003,7 +1012,9 @@ function pageAgents() {
   .qhint button{background:var(--card);border:1px solid var(--bd);color:var(--mut);border-radius:14px;padding:4px 11px;font-size:12px;cursor:pointer}
   .qhint button:hover{border-color:var(--ac);color:var(--tx)}</style></head><body>
 <header><h1>🤖 AI 設定總覽 <span class="sub">系統裡每個 AI 怎麼設定的、學到了什麼,都彙整在這。要修改請點各區塊的「編輯 →」到對應頁面。</span></h1>${navBar('/agents')}</header>
-<main>
+<main class="wide">
+  <div class="cols">
+    <div class="colmain">
   <div class="asec">
     <h2>🧠 Profile Agent — 已證明能力</h2>
     <p class="reason">自動抓 GitHub(<b>${esc(p.githubUser || 'Harry1667')}</b>)歸納真實作品能力,供求職信引用、評分加成。上次更新:${updated} · 共 ${caps.length} 項 · ${(p.provenTechs || []).length} 個技術關鍵字。
@@ -1033,7 +1044,9 @@ function pageAgents() {
     <h2>📈 學習迴路 — Agent 學到的東西</h2>
     ${learnedHtml}
   </div>
+    </div>
 
+    <div class="side">
   <div class="asec">
     <h2>💬 問 Agents</h2>
     <p class="reason">問它任何關於你的設定、能力、實績、某個案子值不值得投。它看得到上面所有資料。</p>
@@ -1045,6 +1058,8 @@ function pageAgents() {
     <div class="chatbox">
       <div class="chatlog" id="clog"><div class="bub a">嗨,我是你的接案 Agent。上面的設定與實績我都看得到,問我吧。</div></div>
       <div class="chatin"><input id="cin" placeholder="輸入問題…" onkeydown="if(event.key==='Enter')send()"><button onclick="send()">送出</button></div>
+    </div>
+  </div>
     </div>
   </div>
 </main>
@@ -1187,24 +1202,31 @@ function pageLessons() {
   .help{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
   </style></head><body>
 <header><h1>📌 AI 糾錯紀錄 <span class="sub">你抓到的 AI 錯誤都記在這（俗稱 Lessons）— 所有 AI 任務會自動讀取,違反 = 嚴重錯誤。</span></h1>${navBar('/lessons')}</header>
-<main>
-  <div class="help">
-    <b>📖 怎麼用</b><br>
-    • 你發現 AI 寫了不該寫的東西(撒謊 / 用錯時區 / 留 placeholder),就在這裡新增一條 lesson<br>
-    • <b>勾選 = 啟用</b>,所有 AI(求職信 / 助手 / 評估)都會自動讀<br>
-    • 取消勾選 = 暫時不套用,但保留紀錄<br>
-    • 🗑 = 永久刪除<br>
-    • 「套用 N 次」= 這條被多少次 AI 任務讀到
-  </div>
-  <div class="lesson-form">
-    <div style="color:var(--mut);font-size:13px;margin-bottom:6px">✍️ 新增一條 lesson(會強制套用到所有 AI prompt)</div>
-    <textarea id="content" placeholder="例如:不要寫 'n8n shipped extensively',我只做過手寫 webhook 自動化"></textarea>
-    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-      <input id="category" placeholder="分類(可空,如 honesty / tech / location)" style="flex:1">
-      <button onclick="addL()">➕ 新增</button>
+<main class="wide">
+  <div class="cols">
+    <div class="colmain">
+      <div class="lesson-form">
+        <div style="color:var(--mut);font-size:13px;margin-bottom:6px">✍️ 新增一條 lesson(會強制套用到所有 AI prompt)</div>
+        <textarea id="content" placeholder="例如:不要寫 'n8n shipped extensively',我只做過手寫 webhook 自動化"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <input id="category" placeholder="分類(可空,如 honesty / tech / location)" style="flex:1">
+          <button onclick="addL()">➕ 新增</button>
+        </div>
+      </div>
+      <ul class="ls" id="ls">${list || '<div class="empty">還沒有 lesson。看到 AI 寫錯什麼,就來這裡記一條。</div>'}</ul>
+    </div>
+
+    <div class="side">
+      <div class="help">
+        <b>📖 怎麼用</b><br>
+        • 你發現 AI 寫了不該寫的東西(撒謊 / 用錯時區 / 留 placeholder),就在這裡新增一條 lesson<br>
+        • <b>勾選 = 啟用</b>,所有 AI(求職信 / 助手 / 評估)都會自動讀<br>
+        • 取消勾選 = 暫時不套用,但保留紀錄<br>
+        • 🗑 = 永久刪除<br>
+        • 「套用 N 次」= 這條被多少次 AI 任務讀到
+      </div>
     </div>
   </div>
-  <ul class="ls" id="ls">${list || '<div class="empty">還沒有 lesson。看到 AI 寫錯什麼,就來這裡記一條。</div>'}</ul>
 </main>
 <script>
   async function addL(){
@@ -1586,14 +1608,24 @@ function pageFeatures() {
   .catsrc{margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)}.catsrc summary{font-size:13px}
   .ok{color:#3fb950}.mid{color:#d29922}.bad{color:#f85149}</style></head><body>
 <header><h1>🧩 功能需求地圖 <span class="sub">同一類型的案子,客戶通常會要求哪些功能 · 更新:${updated}</span></h1>${navBar('/features')}</header>
-<main>
-  <p class="reason">輸入工作類型(關鍵字),系統從同類案子用 AI 歸納出「這類案子通常需要哪些小功能」並標難度/工具/出現頻率。<b>只記錄功能,不開發</b>。一次可輸入多個,用逗號分隔。<br>工具分兩類:<b style="color:#7ee2a8">📋 案子點名</b>=描述裡真的出現的;<b style="color:var(--mut)">💡 AI 建議</b>=這功能通常會用到的典型技術(AI 推測,非客戶要求)。</p>
-  <div class="scan">
-    <input id="q" placeholder="例如:chatbot, voice assistant, web scraping">
-    <button class="save" id="go" onclick="scan()">🔍 掃描功能</button>
+<main class="wide">
+  <div class="cols">
+    <div class="colmain">
+      ${cats || '<p class="reason">還沒有資料。在右側輸入工作類型按「掃描功能」,或在終端機跑 <code>npm run features -- "chatbot"</code>。</p>'}
+    </div>
+
+    <div class="side">
+      <div class="lesson-form" style="background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:14px">
+        <div style="color:var(--mut);font-size:13px;margin-bottom:8px">🔍 掃描某類工作的功能需求</div>
+        <input id="q" placeholder="例如:chatbot, voice assistant" style="width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px 12px;font-size:14px;box-sizing:border-box">
+        <button class="save" id="go" onclick="scan()" style="margin-top:10px">🔍 掃描功能</button>
+        <p id="st" class="reason" style="margin-top:8px"></p>
+      </div>
+      <div class="help" style="background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65">
+        輸入工作類型(關鍵字),系統從同類案子用 AI 歸納出「這類案子通常需要哪些小功能」並標難度/工具/出現頻率。<b>只記錄功能,不開發</b>。一次可輸入多個,用逗號分隔。<br><br>工具分兩類:<b style="color:#7ee2a8">📋 案子點名</b>=描述裡真的出現的;<b style="color:var(--mut)">💡 AI 建議</b>=這功能通常會用到的典型技術(AI 推測,非客戶要求)。
+      </div>
+    </div>
   </div>
-  <p id="st" class="reason"></p>
-  ${cats || '<p class="reason">還沒有資料。在上面輸入工作類型按「掃描功能」,或在終端機跑 <code>npm run features -- "chatbot"</code>。</p>'}
 </main>
 <script>
   async function scan(){
