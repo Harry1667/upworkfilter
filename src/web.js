@@ -214,6 +214,11 @@ const CSS = `
   .filters button:hover{border-color:var(--ac)}
   .filters button.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600}
   main{max-width:920px;margin:0;padding:22px 20px}
+  main.wide{max-width:1360px}
+  /* 雙欄:左設定/表單、右參考資訊 */
+  .cols{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:28px;align-items:start}
+  .cols .side{position:sticky;top:84px}
+  @media (max-width:1080px){.cols{grid-template-columns:1fr}.cols .side{position:static}}
   .card{background:var(--card);border:1px solid var(--bd);border-left-width:4px;border-radius:12px;padding:16px;margin-bottom:14px}
   .card.v-APPLY{border-left-color:var(--grn)} .card.v-MAYBE{border-left-color:var(--ylw)} .card.v-SKIP{border-left-color:var(--red);opacity:.7}
   .top{display:flex;align-items:center;gap:10px}
@@ -836,7 +841,7 @@ function pageMe() {
   .gate.ok{border-color:var(--grn)}.gate b{display:block;font-size:14px}.gate small{color:var(--mut);font-size:12px}
   .garr{display:flex;align-items:center;color:var(--mut);font-size:20px}</style></head><body>
 <header><h1>🎯 我的能力 <span class="sub">三道門漏斗:① 關鍵字抓源 → ② 能力篩選 → ③ 7維+AI 評分,層層過濾出最適合你的案</span></h1>${navBar('/me')}</header>
-<main class="form">
+<main class="form wide">
   <div class="gates">
     <div class="gate"><b>🚪 一 · 來源</b><small>關鍵字 → Upwork 搜尋網址 → 貼進擴充功能,只抓進你領域的案</small></div>
     <div class="garr">→</div>
@@ -847,37 +852,43 @@ function pageMe() {
     <div class="gate ok"><b>✅ 到你手上</b><small>完全適合你的案</small></div>
   </div>
 
-  <h2>🚪 第一道門:案子來源關鍵字</h2>
-  <p class="legend">一行一個關鍵字(英文,Upwork 搜尋用),系統以 OR 串接。建議只放<b>主力(精通/熟練)</b>領域,別太雜。</p>
-  <textarea id="f_kw" style="min-height:150px" oninput="genUrl()">${esc(searchKeywords)}</textarea>
-  <p style="margin:8px 0"><button class="save" style="background:#30363d" onclick="suggestKw()">⚙️ 從分級技能自動建議(level ≥ 4)</button></p>
-  <label>產生的搜尋字串(q)</label>
-  <textarea id="o_q" readonly style="min-height:50px;color:var(--mut)"></textarea>
-  <label>Upwork 搜尋網址 — 複製貼到擴充功能的 <b>Search URL</b> 欄</label>
-  <input id="o_url" readonly style="color:var(--ac)">
-  <p style="margin:8px 0">
-    <button class="save" onclick="copyUrl()">📋 複製搜尋網址</button>
-    <a class="save" id="openUrl" target="_blank" rel="noopener" style="background:#30363d;text-decoration:none;display:inline-block">↗ 在 Upwork 開啟預覽</a>
-    <span id="kwmsg" class="reason"></span>
-  </p>
+  <div class="cols">
+    <div class="colmain">
+      <h2>🚪 第一道門:案子來源關鍵字</h2>
+      <p class="legend">一行一個關鍵字(英文,Upwork 搜尋用),系統以 OR 串接。建議只放<b>主力(精通/熟練)</b>領域,別太雜。</p>
+      <textarea id="f_kw" style="min-height:150px" oninput="genUrl()">${esc(searchKeywords)}</textarea>
+      <p style="margin:8px 0"><button class="save" style="background:#30363d" onclick="suggestKw()">⚙️ 從分級技能自動建議(level ≥ 4)</button></p>
+      <label>產生的搜尋字串(q)</label>
+      <textarea id="o_q" readonly style="min-height:50px;color:var(--mut)"></textarea>
+      <label>Upwork 搜尋網址 — 複製貼到擴充功能的 <b>Search URL</b> 欄</label>
+      <input id="o_url" readonly style="color:var(--ac)">
+      <p style="margin:8px 0">
+        <button class="save" onclick="copyUrl()">📋 複製搜尋網址</button>
+        <a class="save" id="openUrl" target="_blank" rel="noopener" style="background:#30363d;text-decoration:none;display:inline-block">↗ 在 Upwork 開啟預覽</a>
+        <span id="kwmsg" class="reason"></span>
+      </p>
 
-  <h2>🎯 最貼合你能力的案件</h2>
-  <p class="legend">依「能力匹配度」分數排序的未投案件(已排除超綱)。點進去評估。</p>
-  ${recoHtml}
+      <h2>🎯 第二道門:可交付能力 + 邊界</h2>
+      <p class="legend">每項是「<b>你能交付的具體成果</b>」,不是工具名。填<b>能做/不做</b>把邊界講清楚(框架不等於會做任何事)。<br>level=你在這項的深度:<b>5 精通</b>(通話能辯護每個決策)· <b>4 熟練</b>(獨立交付)· <b>3 能做</b>(需查文件/多點時間)· <b>2 勉強</b>· <b>1 碰過</b>。關鍵字供案件比對(小寫)。</p>
+      <div id="caps">${skillRows}</div>
+      <button class="save" style="background:#30363d" onclick="addCap()">＋ 新增技能</button>
 
-  <h2>🎯 第二道門:可交付能力 + 邊界</h2>
-  <p class="legend">每項是「<b>你能交付的具體成果</b>」,不是工具名。填<b>能做/不做</b>把邊界講清楚(框架不等於會做任何事)。<br>level=你在這項的深度:<b>5 精通</b>(通話能辯護每個決策)· <b>4 熟練</b>(獨立交付)· <b>3 能做</b>(需查文件/多點時間)· <b>2 勉強</b>· <b>1 碰過</b>。關鍵字供案件比對(小寫)。</p>
-  <div id="caps">${skillRows}</div>
-  <button class="save" style="background:#30363d" onclick="addCap()">＋ 新增技能</button>
+      <h2>🚫 紅線 / 不碰(逗號分隔)</h2>
+      <p class="legend">案子文字命中任一,該案會被標「⚠️超綱」並從 APPLY 降為 MAYBE。例:wordpress、php、solidity、unity。</p>
+      <textarea id="f_red">${esc(redlines)}</textarea>
 
-  <h2>🚫 紅線 / 不碰(逗號分隔)</h2>
-  <p class="legend">案子文字命中任一,該案會被標「⚠️超綱」並從 APPLY 降為 MAYBE。例:wordpress、php、solidity、unity。</p>
-  <textarea id="f_red">${esc(redlines)}</textarea>
+      <h2>📏 能接的專案規模上限</h2>
+      <textarea id="f_scale">${v(cap.scaleCeiling)}</textarea>
 
-  <h2>📏 能接的專案規模上限</h2>
-  <textarea id="f_scale">${v(cap.scaleCeiling)}</textarea>
+      <p style="margin-top:18px"><button class="save" onclick="save()">💾 儲存並重算所有案子</button> <span id="msg" class="reason"></span></p>
+    </div>
 
-  <p style="margin-top:18px"><button class="save" onclick="save()">💾 儲存並重算所有案子</button> <span id="msg" class="reason"></span></p>
+    <div class="side">
+      <h2>🎯 最貼合你能力的案件</h2>
+      <p class="legend">依「能力匹配度」分數排序的未投案件(已排除超綱)。點進去評估。</p>
+      ${recoHtml}
+    </div>
+  </div>
 </main>
 <script>
   const BASE=${JSON.stringify(p)};
@@ -1256,15 +1267,15 @@ function pageToday() {
   .stat .l{color:var(--mut);font-size:12px;margin-top:4px}
   .section{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:14px}
   .section h2{margin:0 0 10px 0;font-size:15px}
-  main>h2{margin:34px 0 12px;border-top:1px solid var(--bd);padding-top:18px;font-size:16px}
-  main>h2:first-of-type{border-top:0;margin-top:4px;padding-top:0}
+  main>h2,.colmain>h2,.side>h2{margin:28px 0 12px;border-top:1px solid var(--bd);padding-top:16px;font-size:16px}
+  main>h2:first-of-type,.colmain>h2:first-of-type,.side>h2:first-of-type{border-top:0;margin-top:4px;padding-top:0}
   .cta{display:block;background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:14px;color:var(--tx);text-decoration:none;margin-bottom:10px;font-size:14px}
   .cta:hover{background:#1f2630}
   .cta b{color:var(--ac)}
   .empty{color:var(--mut);padding:10px;font-size:13px}
   </style></head><body>
 <header><h1>🌅 今日待辦 <span class="sub">${new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', weekday: 'long', month: 'long', day: 'numeric' })} · 每天開站第一眼看這頁,先處理今天該做的事。</span></h1>${navBar('/today')}</header>
-<main>
+<main class="wide">
 
   <h2 style="margin-top:0">📊 真實數據(取代 AI 猜測)</h2>
   <div class="grid">
@@ -1275,19 +1286,26 @@ function pageToday() {
     <div class="stat"><div class="n" style="color:#8b949e">${week}</div><div class="l">本週投 (${weekResponded}有回)</div></div>
   </div>
 
-  <h2>⚡ 今天該做的</h2>
-  ${pending.length ? `<div class="section"><h2>📬 待跟進 (投了 7+ 天還在 sent 狀態,${pending.length} 個)</h2><ul style="list-style:none;margin:0;padding:0">${apList(pending)}</ul></div>` : ''}
-  ${ghosted.length ? `<div class="section"><h2>🕳 該標沒回 (14+ 天無音訊,${ghosted.length} 個 — 建議改 no_response 釋出心理空間)</h2><ul style="list-style:none;margin:0;padding:0">${apList(ghosted)}</ul></div>` : ''}
-  ${stalled.length ? `<div class="section"><h2>💬 有回但卡 3+ 天 (${stalled.length} 個 — 該主動推進對話)</h2><ul style="list-style:none;margin:0;padding:0">${apList(stalled)}</ul></div>` : ''}
+  <div class="cols">
+    <div class="colmain">
+      <h2>⚡ 今天該做的</h2>
+      ${pending.length ? `<div class="section"><h2>📬 待跟進 (投了 7+ 天還在 sent 狀態,${pending.length} 個)</h2><ul style="list-style:none;margin:0;padding:0">${apList(pending)}</ul></div>` : ''}
+      ${ghosted.length ? `<div class="section"><h2>🕳 該標沒回 (14+ 天無音訊,${ghosted.length} 個 — 建議改 no_response 釋出心理空間)</h2><ul style="list-style:none;margin:0;padding:0">${apList(ghosted)}</ul></div>` : ''}
+      ${stalled.length ? `<div class="section"><h2>💬 有回但卡 3+ 天 (${stalled.length} 個 — 該主動推進對話)</h2><ul style="list-style:none;margin:0;padding:0">${apList(stalled)}</ul></div>` : ''}
+      ${(!pending.length && !ghosted.length && !stalled.length) ? '<div class="empty">目前沒有需要跟進的案子 🎉 去找新案或撿漏吧。</div>' : ''}
 
-  <h2>🦴 今日撿漏池</h2>
-  <a href="/" class="cta">
-    <b>${junkAvail}</b> 個符合撿漏條件(付款驗證 + 提案 < 10 + 預算 $20-200) · 今日新進 <b>${newToday}</b> 個案 →
-  </a>
+      <h2>🦴 今日撿漏池</h2>
+      <a href="/" class="cta">
+        <b>${junkAvail}</b> 個符合撿漏條件(付款驗證 + 提案 < 10 + 預算 $20-200) · 今日新進 <b>${newToday}</b> 個案 →
+      </a>
+    </div>
 
-  <h2>🧠 學習狀態</h2>
-  <a href="/lessons" class="cta">📌 啟用中 Lessons:<b>${lessons.length}</b> 條 → ${lessons.length < 5 ? '建議 5 條起跳,每次抓到 AI 寫錯就加' : '繼續累積'}</a>
-  <a href="/anchors" class="cta">⭐ 啟用中 Anchors:<b>${anchors.length}</b> 個 → ${anchors.length < 1 ? '寫過順的信去 ③ 寫提案頁點 ⭐ 標為範本' : '繼續累積'}</a>
+    <div class="side">
+      <h2>🧠 學習狀態</h2>
+      <a href="/lessons" class="cta">📌 啟用中 Lessons:<b>${lessons.length}</b> 條 → ${lessons.length < 5 ? '建議 5 條起跳,每次抓到 AI 寫錯就加' : '繼續累積'}</a>
+      <a href="/anchors" class="cta">⭐ 啟用中 Anchors:<b>${anchors.length}</b> 個 → ${anchors.length < 1 ? '寫過順的信去 ③ 寫提案頁點 ⭐ 標為範本' : '繼續累積'}</a>
+    </div>
+  </div>
 
   ${stats.total === 0 ? '<div style="background:#13233b;border-left:3px solid #d29922;border-radius:8px;padding:14px;color:var(--tx);font-size:14px;line-height:1.65;margin-top:20px"><b>💡 還沒投過案?</b><br>系統再強,沒投案 = 沒資料 = 沒學習。<br>建議:今天去 <a href="/" style="color:var(--ac)">① 找案子</a> 點 🦴 撿漏 → 投 1-3 個爛單。第一個 5★ 比第 10 個功能重要。</div>' : ''}
 
