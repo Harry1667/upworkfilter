@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
-import { parseSpentUsd } from './score.js';
+import { parseSpentUsd, parseExperienceLevel, parseConnectsRequired } from './score.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -64,6 +64,11 @@ function parseLive(raw) {
   if (spent) { live.client_spent_text = spent[0].replace(/\s*total/i, '').trim(); live.client_spent_usd = parseSpentUsd(spent[0]); }
   const posted = text.match(/Posted\s+([\w\s]+?\bago|yesterday|just now)/i);
   if (posted) { const iso = parseRelativePosted(posted[1]); if (iso) live.posted_at = iso; }
+  // 🥊 can-win 訊號:經驗等級 + 需 Connects(即時頁也更新)
+  const exp = parseExperienceLevel(text);
+  if (exp) live.experience_level = exp;
+  const cr = parseConnectsRequired(text);
+  if (cr != null) live.connects_required = cr;
   return live;
 }
 

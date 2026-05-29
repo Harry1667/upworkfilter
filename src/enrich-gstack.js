@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
 import { openDb, upsertJob } from './db.js';
-import { scoreJob, parseSpentUsd } from './score.js';
+import { scoreJob, parseSpentUsd, parseExperienceLevel, parseConnectsRequired } from './score.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
@@ -29,6 +29,12 @@ function parseDetail(snap, job) {
   if (posted) job.client_jobs_posted = parseInt(posted[1], 10);
   if (spent) { job.client_spent_text = spent[0]; job.client_spent_usd = parseSpentUsd(spent[0]); }
   if (/Payment (method )?verified/i.test(snap)) job.payment_verified = true;
+
+  // 🥊 can-win 訊號(詳情頁抓得到才填)
+  const exp = parseExperienceLevel(snap);
+  if (exp) job.experience_level = exp;
+  const cr = parseConnectsRequired(snap);
+  if (cr != null) job.connects_required = cr;
 
   // 預算
   const hr = [...snap.matchAll(/\$\s*([\d.]+)\s*\/?\s*hr|\$\s*([\d.]+)\.00\/hr/gi)].map((m) => parseFloat(m[1] || m[2]));

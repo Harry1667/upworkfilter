@@ -71,6 +71,10 @@ export function openDb() {
   // 發布時間「絕對時間戳」(ISO):擴充功能算好的 postedAtIso。posted_text 是會過期的相對字串,顯示一律用這個重算。
   try { db.exec('ALTER TABLE jobs ADD COLUMN posted_at TEXT'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN favorited INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
+  // 🥊 新手競爭可行性訊號(can-win,非客戶品質):詳情頁抓得到才填,沒抓到=null(不誤判)
+  // experience_level=Upwork 經驗等級(Entry/Intermediate/Expert);connects_required=投這案要幾個 Connects(超熱門度)
+  try { db.exec('ALTER TABLE jobs ADD COLUMN experience_level TEXT'); } catch { /* 已存在 */ }
+  try { db.exec('ALTER TABLE jobs ADD COLUMN connects_required INTEGER'); } catch { /* 已存在 */ }
 
   // ── ⑤ 邀請(Invites from clients)— 客戶主動邀請,跟 jobs 分開存(欄位、流程都不同) ──
   db.exec(`
@@ -349,7 +353,7 @@ export function upsertJob(db, j) {
     INSERT INTO jobs (
       id, title, url, posted_text, posted_at,
       budget_type, budget_text, hourly_min, hourly_max, fixed_budget,
-      proposals_bucket, payment_verified,
+      proposals_bucket, payment_verified, experience_level, connects_required,
       client_spent_text, client_spent_usd, client_hire_rate, client_rating, client_reviews, client_jobs_posted,
       description, matched_skills,
       score_reward, score_skill, score_client, score_competition, score_longterm, score_clarity, score_risk,
@@ -358,7 +362,7 @@ export function upsertJob(db, j) {
     ) VALUES (
       $id, $title, $url, $posted_text, $posted_at,
       $budget_type, $budget_text, $hourly_min, $hourly_max, $fixed_budget,
-      $proposals_bucket, $payment_verified,
+      $proposals_bucket, $payment_verified, $experience_level, $connects_required,
       $client_spent_text, $client_spent_usd, $client_hire_rate, $client_rating, $client_reviews, $client_jobs_posted,
       $description, $matched_skills,
       $sreward, $sskill, $sclient, $scomp, $slong, $sclar, $srisk,
@@ -369,6 +373,7 @@ export function upsertJob(db, j) {
       title=$title, url=$url, posted_text=$posted_text, posted_at=COALESCE($posted_at, posted_at),
       budget_type=$budget_type, budget_text=$budget_text, hourly_min=$hourly_min, hourly_max=$hourly_max, fixed_budget=$fixed_budget,
       proposals_bucket=$proposals_bucket, payment_verified=$payment_verified,
+      experience_level=COALESCE($experience_level, experience_level), connects_required=COALESCE($connects_required, connects_required),
       client_spent_text=$client_spent_text, client_spent_usd=$client_spent_usd,
       client_hire_rate=$client_hire_rate, client_rating=$client_rating, client_reviews=$client_reviews, client_jobs_posted=$client_jobs_posted,
       description=$description, matched_skills=$matched_skills,
@@ -390,6 +395,8 @@ export function upsertJob(db, j) {
     $fixed_budget: j.fixed_budget ?? null,
     $proposals_bucket: j.proposals_bucket ?? null,
     $payment_verified: j.payment_verified ? 1 : 0,
+    $experience_level: j.experience_level ?? null,
+    $connects_required: j.connects_required ?? null,
     $client_spent_text: j.client_spent_text ?? null,
     $client_spent_usd: j.client_spent_usd ?? null,
     $client_hire_rate: j.client_hire_rate ?? null,

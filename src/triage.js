@@ -40,6 +40,7 @@ function jobLine(j) {
   return `[id:${j.id}] ${j.title || ''}\n` +
     `  預算:${j.budget_text || '?'} | 提案數:${j.proposals_bucket || '?'} | 付款驗證:${j.payment_verified ? '是' : '否'} | ` +
     `客戶花費:${j.client_spent_text || '?'} | 客戶評分:${j.client_rating ?? '?'} | 雇用率:${j.client_hire_rate ?? '?'}%\n` +
+    `  經驗等級:${j.experience_level || '?'} | 投案需 Connects:${j.connects_required ?? '?'}\n` +
     `  內容:${String(j.description || '').replace(/\s+/g, ' ').slice(0, 700)}`;
 }
 
@@ -48,6 +49,7 @@ function buildPrompt(jobs, p, parents, needs, outcomeNote = '') {
 請為「這位人」逐案快速判斷契合度(是否值得他花時間投)。重點:工作實質是否符合他的「可交付能力與邊界」、報酬 vs 工作量是否合理、新手能不能贏。
 注意:① 揪出「掛羊頭」的案(標題有 AI/dev 字眼但其實是找招募/SEO/行銷/銷售,跟開發無關)→ 低分。② 預算明顯偏低(時薪 < $12 或 fixed 對工作量過低)又競爭激烈(提案多)= 燒時間/Connects 的雷案 → 低分(略過)。
 ③ 【能力邊界】案子主要落在他「深度低(1-2)」或「不做」的領域 → win 大幅下修、score 降;命中「紅線」→ verdict 略過、win≈0。落在「深度高(4-5)」且在「能做」範圍 → 才給高 win。win 要誠實反映「他真的接得下來且贏得了嗎」。
+④ 【Required 覆蓋率(不是只看最強項)】把 JD 的「Must-have / Required」逐項拆出,對照他的能力邊界。只要有「他沒做過或深度 1-2 的核心 Required 項」(例:live voice agent / WebRTC 即時語音),win 就要下修、reason 點名該缺口 —— 能力總分高 ≠ 覆蓋每個 Required,別被 4/5 命中騙高分。
 
 🚨 【新手勝率硬規則 — 必須嚴格遵守】
 這位使用者是 0 評價新手。0 評價在 Upwork 的真實勝率被嚴重壓縮。即使能力 100% 符合,你的 win 估計**必須**套用以下硬上限:
@@ -56,6 +58,8 @@ function buildPrompt(jobs, p, parents, needs, outcomeNote = '') {
 - 提案數 50+(proposals_bucket 含 "50") → **win ≤ 12%**(50 人在搶,新手不在前段班)
 - 提案數 20-50 → **win ≤ 25%**
 - 客戶 spent=0 或 < $100 → **win ≤ 15%**(新客戶不知道怎麼挑人)
+- 經驗等級 = Expert(experience_level)且他 0 評價 → **win ≤ 15%**(Expert 案客戶要老手,新手陪榜)
+- 投案需 Connects ≥ 15(connects_required)→ **win 再 -10%**(超熱門案,一堆人搶,新手提案沉到底沒人看)
 - 命中多項上述條件 → 取**最低**值,再 -5%
 - 即使案子完美,新手 win 上限 65%(現實情況沒人會給 0 評價 80%+)
 - 只有「客戶有評價 + 付款驗證 + 提案 < 10 + 雇用率 > 50%」這種完美組合才能給 50%+

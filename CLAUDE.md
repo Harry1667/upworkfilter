@@ -18,13 +18,14 @@ sudo bash -c 'export PATH=/www/server/nodejs/v22.22.2/bin:$PATH
 
 ## 三道門漏斗(核心心智模型)
 🚪① 來源:`/me` 分級技能 → Upwork 搜尋關鍵字/網址(貼擴充功能,同步 config.searchQueries)
-🎯② 能力:`score.js` 紅線/能力圈外 → SKIP+`blocked`(不進 AI);核心強命中只標 ⚠️ 軟降
+🎯② 能力(can-do):`score.js` 紅線/能力圈外 → SKIP+`blocked`(不進 AI);核心強命中只標 ⚠️ 軟降
 📊③ 評分+AI:7 維 → AI 快篩 → 大分析
+🥊④ 競爭可行性(can-win):`score.js` 新手競爭閘 + `triage.js` 勝率硬上限。**核心原則:能力分高 ≠ 接得到** —— Expert tag/超高 Connects/超預算的案,能力滿分也要壓成 SKIP/MAYBE,別燒 Connects 投不可能的案。
 
 ## 架構(全在 src/)
 - `web.js` — HTTP 伺服器 + 所有頁面/API + sidebar/chat panel。CSS Grid 佈局(body grid-template-columns:200px 1fr);serveHtml 把 sidebar 從 page 抽出移到 body 第一個 grid item。頁面:① 列表 ② 評估 ③ 提案 ④ 溝通 ⑤ 邀請 ｜ 🌅 今日 📊 投案追蹤 ❤️ 收藏 ｜ 🎯 能力 🪪 Upwork ⚖️ 評分 🧩 功能地圖 🤖 Agents ｜ 📌 Lessons ⭐ 範本 💾 備份。
-- `score.js` — 規則 7 維評分 + 第二道門 + **💀 死亡訊號攔截**(payment_verified=0/hire_rate=0/50+ proposals/spent=0 命中 ≥ 2 → SKIP)+ **紅線在 title = 強制硬擋**(不論其他多強)。
-- `triage.js` — AI 快篩 + **新手勝率硬上限**(!pv→8% / hire 0%→10% / 50+ props→12% / spent < \$100→15%)。
+- `score.js` — 規則 7 維評分 + 第二道門 + **💀 死亡訊號攔截**(payment_verified=0/hire_rate=0/50+ proposals/spent=0 命中 ≥ 2 → SKIP,防爛客戶)+ **紅線在 title = 強制硬擋**(不論其他多強)+ **🥊 新手競爭可行性閘(can-win,非客戶品質)**:`experience_level=Expert` / `connects_required≥15` / `預算上限<底價` 為訊號,新手模式命中 ≥2→SKIP「能力夠但搶不到」、==1→APPLY 降 MAYBE。專抓「②能力分高、客戶也 OK,但 0 評價搶不到」的案。資料抓不到的訊號不計(不誤殺未 enrich 的案)。`parseExperienceLevel`/`parseConnectsRequired` 共用解析(enrich/refresh 都用)。
+- `triage.js` — AI 快篩 + **新手勝率硬上限**(!pv→8% / hire 0%→10% / 50+ props→12% / spent < \$100→15% / **Expert+0評價→15% / connects≥15 再-10%**)+ **Required 覆蓋率規則**(逐項拆 Must-have,有沒做過的核心 Required 項→win 下修,別被 4/5 命中騙高分)。
 - `analyze.js` — 大分析 + 評估網站 HTML;`askAI` 共用,支援 `opts.provider` 切換(claude/openai/gemini)。
 - `assist.js` — profile + capabilityBrief + 求職信(3 writer + 總編合成) + 投標策略 + 篩選問題 + 回覆 + chatPrompt(注入 9 步 SOP + Lessons + Anchors + tool docs)。
 - `verify.js` — **信任度 5 函式**:detectHallucinations(幻覺偵測) / annotateCitations(句句標來源) / skepticCritique(魔鬼代言人) / preflightCheck(SOP 守則核對) / extractLessonCandidates(從 notes 萃取 lesson)。

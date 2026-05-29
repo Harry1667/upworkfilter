@@ -14,6 +14,39 @@ export function parseSpentUsd(text) {
   return Math.round(n);
 }
 
+// gstack 無障礙樹快照會在欄位間夾 @eNN 與 [type] 標記(如 "@e21 [strong]: Expert")。
+// 解析前一律先清掉,否則相鄰兩欄(等級 / Experience Level)會被標記隔開而比對不到。
+function cleanSnap(snap) {
+  return String(snap || '').replace(/@e\d+/g, ' ').replace(/\[[^\]]*\]/g, ' ');
+}
+
+// 從詳情頁文字快照抽「經驗等級」(Entry/Intermediate/Expert)。
+// 等級詞必須與 "Experience Level" 相鄰(中間僅容許標點/空白,≤18 字元),避免誤抓內文裡的 "expert"。
+export function parseExperienceLevel(snap) {
+  if (!snap) return null;
+  const t = cleanSnap(snap);
+  const LV = '(Entry[\\s-]?level|Intermediate|Expert)';
+  const m = t.match(new RegExp(`${LV}[^A-Za-z]{0,18}Experience\\s*Level`, 'i'))
+    || t.match(new RegExp(`Experience\\s*Level[^A-Za-z]{0,18}${LV}`, 'i'));
+  if (!m) return null;
+  const w = (m[1] || '').toLowerCase();
+  if (w.startsWith('entry')) return 'Entry';
+  if (w.startsWith('inter')) return 'Intermediate';
+  return 'Expert';
+}
+
+// 從文字抽「投這案需要幾個 Connects」(超熱門度代理)。注意:此數字只在「投案頁」出現,
+// 詳情頁快照通常沒有 → enrich 多半抓不到(回 null,閘門改靠 Expert tag/預算,優雅降級)。
+export function parseConnectsRequired(snap) {
+  if (!snap) return null;
+  const t = cleanSnap(snap);
+  const m = t.match(/(?:requires|proposal for:?|Send a proposal for:?)\s*(\d+)\s*Connects/i)
+    || t.match(/(\d+)\s*Connects?\s*(?:required|to (?:submit|apply))/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 // ① 報酬合理性:預算/時薪是否合理(對齊你的底價與目標)
 function scoreReward(j, rate) {
   if (j.budget_type === 'hourly') {
@@ -257,6 +290,22 @@ export function scoreJob(j, config) {
   if (/50/.test((j.proposals_bucket || '').toLowerCase())) deathSignals.push('提案 50+');
   if (j.client_spent_usd === 0 || j.client_spent_usd == null && !j.client_spent_text) deathSignals.push('客戶未花過錢');
 
+  // 🥊 新手競爭可行性訊號(can-win,與「客戶品質」無關)——
+  // 抓住「②能力分很高、客戶也 OK,但 0 評價新手實際搶不到」這類案。資料抓不到的訊號不計(不誤殺)。
+  const competeSignals = [];
+  if (isNewbie) {
+    const exp = String(j.experience_level || '').toLowerCase();
+    if (exp.includes('expert')) competeSignals.push('Expert 等級(0 評價搶不過老手)');
+    const cr = Number(j.connects_required);
+    if (Number.isFinite(cr) && cr >= 15) competeSignals.push(`需 ${cr} Connects(超熱門,新手提案沉底)`);
+    // 客戶上限低到「連你的底價都低於它」→ 你得跌破底價才進得了範圍 = 贏不了(非報酬好壞,是搶不到)
+    // 用 hourlyFloor 而非 target,避免把一堆 $15-24 仍可投的案誤降(那些只是報酬偏低,不是搶不到)
+    const floor = config.rate?.hourlyFloor;
+    if (j.budget_type === 'hourly' && floor != null && j.hourly_max != null && j.hourly_max < floor) {
+      competeSignals.push(`預算上限 $${j.hourly_max} < 你的底價 $${floor}(得跌破底價才進範圍)`);
+    }
+  }
+
   let verdict, reason;
   const deadClient = j.client_hire_rate === 0 && (j.client_jobs_posted ?? 0) >= 3;
   const deathHit = deathSignals.length;
@@ -267,6 +316,10 @@ export function scoreJob(j, config) {
   } else if (deadClient) {
     verdict = 'SKIP';
     reason = `排除:雇用率0%(發了${j.client_jobs_posted}案沒雇人)`;
+  } else if (competeSignals.length >= 2) {
+    // 🥊 第四道防線:能力分高但新手搶不到(命中 ≥ 2 競爭訊號)→ 不投,省 Connects
+    verdict = 'SKIP';
+    reason = `🥊 新手競爭可行性過低 (${competeSignals.length}):${competeSignals.join('、')} — 能力夠但搶不到`;
   } else if (lowPay && crowded) {
     verdict = 'SKIP';
     reason = `排除:低預算+高競爭(燒 Connects 不值得)— 提案${j.proposals_bucket || '多'}`;
@@ -298,6 +351,12 @@ export function scoreJob(j, config) {
     // 核心是你的強項,只是順帶提到紅線 → 不擋,但標 ⚠️ 讓你自己判斷;不讓它穩坐「值得投」
     if (verdict === 'APPLY') verdict = 'MAYBE';
     reason = `⚠️ 含紅線「${sk.redHit.join('/')}」(順帶提及,核心是你強項,自行判斷)— ${reason}`;
+  }
+
+  // 🥊 競爭可行性軟降:命中單一訊號 → APPLY 降 MAYBE;已是 MAYBE 也補上旗標(讓你看得到原因)
+  if (competeSignals.length === 1 && (verdict === 'APPLY' || verdict === 'MAYBE')) {
+    if (verdict === 'APPLY') verdict = 'MAYBE';
+    reason = `🥊 ${competeSignals[0]} — ${reason}`;
   }
 
   return { scores, total_score: total, verdict, reason, blocked, matched_skills: sk.matched };

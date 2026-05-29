@@ -2866,7 +2866,7 @@ createServer(async (req, res) => {
         return res.end(JSON.stringify({ ok: false, needLocal: true, msg: `雲端目前無法直接抓即時數據(需官方 API 或本機 gstack)。請在本機跑:npm run refresh -- ${id}` }));
       }
       const job = { ...row, payment_verified: !!row.payment_verified, enriched: !!row.enriched };
-      for (const k of ['proposals_bucket', 'client_hire_rate', 'client_rating', 'client_reviews', 'client_jobs_posted', 'client_spent_text', 'client_spent_usd', 'posted_at']) {
+      for (const k of ['proposals_bucket', 'client_hire_rate', 'client_rating', 'client_reviews', 'client_jobs_posted', 'client_spent_text', 'client_spent_usd', 'posted_at', 'experience_level', 'connects_required']) {
         if (live[k] != null && live[k] !== '') job[k] = live[k];
       }
       Object.assign(job, scoreJob(job, loadConfig()));
