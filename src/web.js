@@ -2170,6 +2170,7 @@ function pageProposal(id) {
     <button class="save" style="background:#9d7cd8;padding:6px 12px;font-size:13px;margin-left:6px" onclick="markAnchor()" title="把這封信存為範本,AI 寫新信會對齊這封 voice">⭐ 標為範本</button>
     <span id="sentmsg" style="color:var(--grn);font-size:13px;margin-left:8px"></span>
     <div class="out" id="clout"></div>
+    <div id="vstatus" style="display:none;margin-top:10px;color:var(--mut);font-size:13px"></div>
     <div id="verifybox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #272e3a;border-radius:10px;padding:14px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="color:var(--ac)">🔍 幻覺偵測 · 事實核查</b><span id="verifysum" style="color:var(--mut);font-size:13px;flex:1"></span></div>
       <div id="verifylist" style="font-size:13px;line-height:1.7"></div>
@@ -2230,7 +2231,7 @@ function pageProposal(id) {
     const descOverride=(document.getElementById('descOv').value||'').trim();
     btn.disabled=true;st.textContent='產生中…('+(mode==='consensus'?'🤝 3 模型共識,約 60-90 秒':'求職信 + 策略 + 篩選問題作戰區,約30-60秒')+')';
     const body=JSON.stringify({id:ID,descOverride:descOverride});
-    const clUrl='/api/cover-letter'+(mode?'?mode='+mode:'');
+    const clUrl='/api/cover-letter'+(mode?'?mode='+mode:'?skipverify=1');
     const cover=fetch(clUrl,{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
     const adv=fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
     const scr=fetch('/api/screening',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json()).catch(function(){return{ok:false};});
@@ -2246,72 +2247,7 @@ function pageProposal(id) {
           }).join('');
           cb.style.display='block';
         }
-        // 🔍 渲染幻覺偵測
-        if(c.verify&&(c.verify.claims||[]).length){
-          var v=c.verify,box=document.getElementById('verifybox'),list=document.getElementById('verifylist'),sum=document.getElementById('verifysum');
-          var ic={verified:'✅',unverified:'⚠️',contradicted:'🚨'},cc={verified:'#3fb950',unverified:'#d29922',contradicted:'#f85149'};
-          var nV=0,nU=0,nC=0;
-          list.innerHTML=v.claims.map(function(x){
-            var s=x.status||'unverified';if(s==='verified')nV++;else if(s==='contradicted')nC++;else nU++;
-            return '<div style="padding:6px 0;border-bottom:1px dashed #272e3a"><span style="color:'+cc[s]+'">'+(ic[s]||'?')+'</span> '+
-              '<span style="color:var(--tx)">'+(x.text||'').replace(/</g,'&lt;')+'</span><br>'+
-              '<span style="color:var(--mut);font-size:12px;margin-left:24px">'+(x.evidence||'').replace(/</g,'&lt;')+'</span></div>';
-          }).join('');
-          sum.textContent='✅'+nV+' ⚠️'+nU+' 🚨'+nC+(v.summary?' · '+v.summary:'');
-          box.style.display='block';
-        }
-        // 📚 渲染 Citations
-        if(c.citations&&c.citations.annotated){
-          var ct=c.citations,anno=document.getElementById('citeAnno'),lst=document.getElementById('citeList');
-          // 把 [^N] 標記變成彩色 superscript
-          var html=ct.annotated.replace(/</g,'&lt;').replace(/\[\^(\d+|\?|!)\]/g,function(_,n){
-            var col=n==='!'?'#f85149':n==='?'?'#d29922':'#3fb950';
-            return '<sup style="color:'+col+';font-weight:700;background:#0d1117;padding:0 4px;border-radius:3px;margin:0 1px">['+n+']</sup>';
-          });
-          anno.innerHTML=html;
-          var ic={verified:'✅',unverified:'⚠️',contradicted:'🚨'},cc={verified:'#3fb950',unverified:'#d29922',contradicted:'#f85149'};
-          lst.innerHTML=(ct.sources||[]).map(function(s){
-            var col=cc[s.status]||'#8b949e';
-            return '<div style="padding:5px 0;border-bottom:1px dashed #272e3a">'+
-              '<span style="color:'+col+';font-weight:700">['+s.n+']</span> '+
-              '<span style="color:var(--tx)">'+(s.claim||'').replace(/</g,'&lt;')+'</span> '+
-              '<span style="color:var(--mut);font-size:12px">→ '+(s.source||'').replace(/</g,'&lt;')+(s.note?' · '+s.note.replace(/</g,'&lt;'):'')+'</span></div>';
-          }).join('');
-          document.getElementById('citebox').style.display='block';
-        }
-        // 😈 渲染 Skeptic
-        if(c.skeptic&&(c.skeptic.issues||[]).length){
-          var sk=c.skeptic,sklist=document.getElementById('sklist');
-          var skSev={high:'#f85149',medium:'#d29922',low:'#79c0ff'};
-          sklist.innerHTML=sk.issues.map(function(x){
-            var col=skSev[x.severity]||'#8b949e';
-            return '<div style="padding:8px 0;border-bottom:1px dashed #272e3a">'+
-              '<span style="color:'+col+';font-weight:700;text-transform:uppercase;font-size:11px;background:#0d1117;padding:2px 6px;border-radius:3px">'+(x.severity||'med')+'</span> '+
-              '<span style="color:var(--tx);margin-left:6px">'+(x.problem||'').replace(/</g,'&lt;')+'</span>'+
-              (x.quote?'<div style="margin-left:6px;margin-top:4px;color:#8b949e;font-size:12px;font-style:italic">「'+x.quote.replace(/</g,'&lt;')+'」</div>':'')+
-              (x.suggestion?'<div style="margin-left:6px;margin-top:4px;color:#3fb950;font-size:12px">→ '+x.suggestion.replace(/</g,'&lt;')+'</div>':'')+
-              '</div>';
-          }).join('');
-          document.getElementById('skverdict').textContent=sk.verdict||'';
-          document.getElementById('skbox').style.display='block';
-        }
-        // ✅ 渲染 Preflight checklist
-        if(c.preflight&&(c.preflight.rules||[]).length){
-          var pf=c.preflight,pflist=document.getElementById('pflist'),pfsum=document.getElementById('pfsum');
-          var nO=0,nB=0,nN=0;
-          pflist.innerHTML=pf.rules.map(function(r){
-            var ic=r.status==='followed'?'✅':r.status==='broken'?'❌':'⚪',col=r.status==='followed'?'#3fb950':r.status==='broken'?'#f85149':'#8b949e';
-            if(r.status==='followed')nO++;else if(r.status==='broken')nB++;else nN++;
-            return '<div style="padding:5px 0;border-bottom:1px dashed #272e3a">'+
-              '<span style="color:'+col+'">'+ic+'</span> <span style="color:var(--mut);font-size:11px">'+(r.id||'')+'</span> '+
-              '<span style="color:var(--tx)">'+(r.desc||'').replace(/</g,'&lt;')+'</span>'+
-              (r.status==='broken'&&r.quote?'<div style="margin-left:24px;margin-top:3px;color:#8b949e;font-size:12px;font-style:italic">原文:「'+r.quote.replace(/</g,'&lt;')+'」</div>':'')+
-              (r.status==='broken'&&r.fix?'<div style="margin-left:24px;margin-top:3px;color:#3fb950;font-size:12px">→ '+r.fix.replace(/</g,'&lt;')+'</div>':'')+
-              '</div>';
-          }).join('');
-          pfsum.textContent='✅'+nO+' ❌'+nB+' ⚪'+nN+(pf.summary?' · '+pf.summary:'');
-          document.getElementById('pfbox').style.display='block';
-        }
+        renderVerify(c);
       }
       if(a.ok){const d=a.data;
         if((d.applyRequirements||[]).length){
@@ -2342,8 +2278,85 @@ function pageProposal(id) {
           (d.winStrategy?'<br><br><b>🏆 勝率策略:</b>'+d.winStrategy:'');
         document.getElementById('adsect').style.display='block';}
       st.textContent=(c.ok||a.ok)?'✅ 完成':'❌ '+((c.error||a.error)||'失敗');
+      // 🔍 草稿已出 → 背景補跑驗證(ensemble 才有;consensus 跳過驗證、用 3 模型比對代替)
+      if(c.ok&&window._cl&&mode!=='consensus')fetchVerify(ID,window._cl);
     }catch(e){st.textContent='❌ '+e.message;}
     btn.disabled=false;}
+  // 🔍 渲染 4 路驗證(幻覺/引用/skeptic/preflight)— 主流程與背景補跑共用
+  function renderVerify(c){
+    if(c.verify&&(c.verify.claims||[]).length){
+      var v=c.verify,box=document.getElementById('verifybox'),list=document.getElementById('verifylist'),sum=document.getElementById('verifysum');
+      var ic={verified:'✅',unverified:'⚠️',contradicted:'🚨'},cc={verified:'#3fb950',unverified:'#d29922',contradicted:'#f85149'};
+      var nV=0,nU=0,nC=0;
+      list.innerHTML=v.claims.map(function(x){
+        var s=x.status||'unverified';if(s==='verified')nV++;else if(s==='contradicted')nC++;else nU++;
+        return '<div style="padding:6px 0;border-bottom:1px dashed #272e3a"><span style="color:'+cc[s]+'">'+(ic[s]||'?')+'</span> '+
+          '<span style="color:var(--tx)">'+(x.text||'').replace(/</g,'&lt;')+'</span><br>'+
+          '<span style="color:var(--mut);font-size:12px;margin-left:24px">'+(x.evidence||'').replace(/</g,'&lt;')+'</span></div>';
+      }).join('');
+      sum.textContent='✅'+nV+' ⚠️'+nU+' 🚨'+nC+(v.summary?' · '+v.summary:'');
+      box.style.display='block';
+    }
+    if(c.citations&&c.citations.annotated){
+      var ct=c.citations,anno=document.getElementById('citeAnno'),lst=document.getElementById('citeList');
+      var html=ct.annotated.replace(/</g,'&lt;').replace(/\[\^(\d+|\?|!)\]/g,function(_,n){
+        var col=n==='!'?'#f85149':n==='?'?'#d29922':'#3fb950';
+        return '<sup style="color:'+col+';font-weight:700;background:#0d1117;padding:0 4px;border-radius:3px;margin:0 1px">['+n+']</sup>';
+      });
+      anno.innerHTML=html;
+      var cic={verified:'✅',unverified:'⚠️',contradicted:'🚨'},ccc={verified:'#3fb950',unverified:'#d29922',contradicted:'#f85149'};
+      lst.innerHTML=(ct.sources||[]).map(function(s){
+        var col=ccc[s.status]||'#8b949e';
+        return '<div style="padding:5px 0;border-bottom:1px dashed #272e3a">'+
+          '<span style="color:'+col+';font-weight:700">['+s.n+']</span> '+
+          '<span style="color:var(--tx)">'+(s.claim||'').replace(/</g,'&lt;')+'</span> '+
+          '<span style="color:var(--mut);font-size:12px">→ '+(s.source||'').replace(/</g,'&lt;')+(s.note?' · '+s.note.replace(/</g,'&lt;'):'')+'</span></div>';
+      }).join('');
+      document.getElementById('citebox').style.display='block';
+    }
+    if(c.skeptic&&(c.skeptic.issues||[]).length){
+      var sk=c.skeptic,sklist=document.getElementById('sklist');
+      var skSev={high:'#f85149',medium:'#d29922',low:'#79c0ff'};
+      sklist.innerHTML=sk.issues.map(function(x){
+        var col=skSev[x.severity]||'#8b949e';
+        return '<div style="padding:8px 0;border-bottom:1px dashed #272e3a">'+
+          '<span style="color:'+col+';font-weight:700;text-transform:uppercase;font-size:11px;background:#0d1117;padding:2px 6px;border-radius:3px">'+(x.severity||'med')+'</span> '+
+          '<span style="color:var(--tx);margin-left:6px">'+(x.problem||'').replace(/</g,'&lt;')+'</span>'+
+          (x.quote?'<div style="margin-left:6px;margin-top:4px;color:#8b949e;font-size:12px;font-style:italic">「'+x.quote.replace(/</g,'&lt;')+'」</div>':'')+
+          (x.suggestion?'<div style="margin-left:6px;margin-top:4px;color:#3fb950;font-size:12px">→ '+x.suggestion.replace(/</g,'&lt;')+'</div>':'')+
+          '</div>';
+      }).join('');
+      document.getElementById('skverdict').textContent=sk.verdict||'';
+      document.getElementById('skbox').style.display='block';
+    }
+    if(c.preflight&&(c.preflight.rules||[]).length){
+      var pf=c.preflight,pflist=document.getElementById('pflist'),pfsum=document.getElementById('pfsum');
+      var nO=0,nB=0,nN=0;
+      pflist.innerHTML=pf.rules.map(function(r){
+        var pic=r.status==='followed'?'✅':r.status==='broken'?'❌':'⚪',col=r.status==='followed'?'#3fb950':r.status==='broken'?'#f85149':'#8b949e';
+        if(r.status==='followed')nO++;else if(r.status==='broken')nB++;else nN++;
+        return '<div style="padding:5px 0;border-bottom:1px dashed #272e3a">'+
+          '<span style="color:'+col+'">'+pic+'</span> <span style="color:var(--mut);font-size:11px">'+(r.id||'')+'</span> '+
+          '<span style="color:var(--tx)">'+(r.desc||'').replace(/</g,'&lt;')+'</span>'+
+          (r.status==='broken'&&r.quote?'<div style="margin-left:24px;margin-top:3px;color:#8b949e;font-size:12px;font-style:italic">原文:「'+r.quote.replace(/</g,'&lt;')+'」</div>':'')+
+          (r.status==='broken'&&r.fix?'<div style="margin-left:24px;margin-top:3px;color:#3fb950;font-size:12px">→ '+r.fix.replace(/</g,'&lt;')+'</div>':'')+
+          '</div>';
+      }).join('');
+      pfsum.textContent='✅'+nO+' ❌'+nB+' ⚪'+nN+(pf.summary?' · '+pf.summary:'');
+      document.getElementById('pfbox').style.display='block';
+    }
+  }
+  // 🔍 草稿出來後背景補跑驗證(獨立請求,不阻塞草稿顯示)
+  async function fetchVerify(id,text){
+    var vs=document.getElementById('vstatus');
+    if(vs){vs.style.display='block';vs.textContent='🔍 背景驗證中(幻覺/引用/skeptic/preflight,約 1-3 分鐘)…';}
+    try{
+      var r=await fetch('/api/verify-cover',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,text:text})});
+      var c=await r.json();
+      if(c&&c.ok){renderVerify(c);if(vs){vs.textContent='✅ 驗證完成';setTimeout(function(){vs.style.display='none';},4000);}}
+      else if(vs){vs.textContent='⚠️ 背景驗證失敗:'+((c&&c.error)||'未知');}
+    }catch(e){if(vs)vs.textContent='⚠️ 背景驗證失敗:'+e.message;}
+  }
   // ✅ 一鍵建追蹤紀錄 — cover letter / 案標題自動帶入,使用者只要填 rate + connects
   async function markSent(){
     var cl=window._cl||document.getElementById('clout').textContent||'';
@@ -2843,6 +2856,30 @@ createServer(async (req, res) => {
       }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, text: finalText, verify, citations, skeptic, preflight, consensus }));
+    }
+    if (url.pathname === '/api/verify-cover' && req.method === 'POST') {
+      // 🔍 背景驗證:cover letter 主流程(skipverify)先回草稿,前端再單獨補跑這 4 路驗證,
+      // 避免一次同步等 ~5 分鐘(writers+synth ~110s,這裡 verify 另算 ~180s)。
+      const { id, text } = JSON.parse(await readBody(req));
+      const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+      if (!job) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      const finalText = String(text || '').trim();
+      if (!finalText) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"缺少求職信內容"}'); }
+      const prof = loadProfileWithLessons();
+      const [verifyR, citeR, skR, pfR] = await Promise.allSettled([
+        detectHallucinations(finalText, prof),
+        annotateCitations(finalText, prof),
+        skepticCritique(finalText, job, prof),
+        preflightCheck(finalText, prof, prof.lessons || []),
+      ]);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({
+        ok: true,
+        verify: verifyR.status === 'fulfilled' ? verifyR.value : null,
+        citations: citeR.status === 'fulfilled' ? citeR.value : null,
+        skeptic: skR.status === 'fulfilled' ? skR.value : null,
+        preflight: pfR.status === 'fulfilled' ? pfR.value : null,
+      }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {
       const { id, descOverride } = JSON.parse(await readBody(req));
