@@ -213,7 +213,7 @@ const CSS = `
   .filters button{background:var(--card);color:var(--tx);border:1px solid var(--bd);padding:6px 15px;border-radius:20px;cursor:pointer;font-size:13px;transition:.15s}
   .filters button:hover{border-color:var(--ac)}
   .filters button.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600}
-  main{max-width:860px;margin:0 auto;padding:18px}
+  main{max-width:920px;margin:0;padding:22px 20px}
   .card{background:var(--card);border:1px solid var(--bd);border-left-width:4px;border-radius:12px;padding:16px;margin-bottom:14px}
   .card.v-APPLY{border-left-color:var(--grn)} .card.v-MAYBE{border-left-color:var(--ylw)} .card.v-SKIP{border-left-color:var(--red);opacity:.7}
   .top{display:flex;align-items:center;gap:10px}
@@ -823,8 +823,9 @@ function pageMe() {
   .cap .caph input,.cap .caph select{margin-bottom:0}
   .cap .c_name{font-weight:600}
   .cap .x{position:absolute;top:-8px;right:-8px;background:#21262d;border:1px solid var(--bd);color:#f85149;cursor:pointer;font-size:13px;border-radius:50%;width:22px;height:22px;line-height:1}
-  h2{border-left:3px solid var(--ac);padding-left:10px;font-size:16px;margin:26px 0 8px}
-  .legend{font-size:12px;color:var(--mut);margin:2px 0 10px}
+  h2{border-left:3px solid var(--ac);padding:16px 0 0 12px;font-size:17px;margin:38px 0 10px;border-top:1px solid var(--bd)}
+  h2:first-of-type{border-top:0;margin-top:8px;padding-top:0}
+  .legend{font-size:12.5px;color:var(--mut);margin:0 0 12px;line-height:1.6;background:#0d1117;border-left:2px solid var(--bd);border-radius:0 6px 6px 0;padding:8px 12px}
   .reco{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin:6px 0;text-decoration:none;color:var(--tx)}
   .reco:hover{border-color:var(--ac)}
   .reco .rs{font-weight:700;font-size:18px;color:var(--grn);min-width:34px;text-align:center}
@@ -1255,6 +1256,8 @@ function pageToday() {
   .stat .l{color:var(--mut);font-size:12px;margin-top:4px}
   .section{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:14px}
   .section h2{margin:0 0 10px 0;font-size:15px}
+  main>h2{margin:34px 0 12px;border-top:1px solid var(--bd);padding-top:18px;font-size:16px}
+  main>h2:first-of-type{border-top:0;margin-top:4px;padding-top:0}
   .cta{display:block;background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:14px;color:var(--tx);text-decoration:none;margin-bottom:10px;font-size:14px}
   .cta:hover{background:#1f2630}
   .cta b{color:var(--ac)}
