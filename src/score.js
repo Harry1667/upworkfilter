@@ -72,13 +72,19 @@ export function toNum(v) {
 
 // 資深/Expert 案:experience_level=Expert、或「標題」資深字眼、或「描述」明確要求資深/Upwork 資歷
 export function isSeniorExpertJob(j) {
-  if (String(j.experience_level || '').toLowerCase().includes('expert')) return true;
+  const lvl = String(j.experience_level || '').toLowerCase();
+  if (lvl.includes('expert')) return true;
   const title = String(j.title || '').toLowerCase();
-  // 標題:不用裸 \blead\b(會誤判 "lead generation");只認「資深職位」的 lead 措辭
-  if (/\bsenior\b|\bexpert\b|\bprincipal\b|\bstaff engineer\b|tech lead|team lead|lead (developer|engineer|architect)|engineering lead|\barchitect\b|\brockstar\b|\bguru\b|\bninja\b|10x/.test(title)) return true;
-  // 描述:只認「高精確度的資歷門檻語」(這些幾乎不會出現在真正的新手友善小案,FP 低)
   const desc = String(j.description || '').toLowerCase();
-  return /do not apply if you('?re| are) new|no beginners|no newbies|previous upwork (history|experience)|expert[- ]level (freelancer|developer|engineer|contractor)|senior (contractor|freelancer)|must be (a |an )?(senior|expert)/.test(desc);
+  // 強資深訊號(不含裸 "expert"):客戶自己寫的硬門檻 → 即使 Upwork 標 Entry/Intermediate 也該擋(Codex review)
+  // 標題不用裸 \blead\b(會誤判 "lead generation");只認「資深職位」的 lead 措辭
+  const strongTitle = /\bsenior\b|\bprincipal\b|\bstaff engineer\b|tech lead|team lead|lead (developer|engineer|architect)|engineering lead|\barchitect\b|\brockstar\b|\bguru\b|\bninja\b|10x/.test(title);
+  const descExcl = /do not apply if you('?re| are) new|no beginners|no newbies|previous upwork (history|experience)|expert[- ]level (freelancer|developer|engineer|contractor)|senior (contractor|freelancer)|must be (a |an )?(senior|expert)/.test(desc);
+  if (strongTitle || descExcl) return true;
+  // 只剩「裸 expert 標題」這種模糊訊號(如 "Flutter Expert Needed" = 想找高手做小活,非資深職位):
+  // Upwork 官方 Entry/Intermediate 就信它,不誤判;level 未知才用裸 expert 標題推斷。
+  if (lvl.includes('entry') || lvl.includes('intermediate')) return false;
+  return /\bexpert\b/.test(title);
 }
 
 // 大型範圍:整套 SaaS/平台 from scratch / 企業 / 需團隊 / 長期但無明確第一里程碑
@@ -90,7 +96,8 @@ export function isLargeScope(j) {
     /(saas|platform|marketplace|ecosystem|crm|erp|portal|full system|entire system|whole system|product suite)/.test(text);
   // 「entire/complete/full + saas/platform/product/...」整套產品(要求相鄰,不被 full-stack 觸發)
   const wholeProduct = /(entire|complete|full|whole)\s+(saas|platform|product|system|marketplace|application|ecosystem|suite)/.test(text);
-  const enterprise = /\benterprise\b|managed agents?|multi[\s-]?tenant/.test(text);
+  // enterprise 要「職缺語境」才算(避免命中 scraper 抓進來的 Upwork footer「Enterprise Solutions」boilerplate)
+  const enterprise = /enterprise[\s-](?:client|grade|software|platform|application|saas|system|customers?|deployment|account)|managed agents?|multi[\s-]?tenant/.test(text);
   const team = /team of \d|multi[\s-]?person team|our (dev|engineering) team/.test(text);
   const longNoFirst = /long[\s-]?term|ongoing|full[\s-]?time|retainer|\d+\+?\s*months/.test(text) &&
     !/(first|small|test|trial|milestone|start with|poc|proof of concept|pilot|task)/.test(text);
