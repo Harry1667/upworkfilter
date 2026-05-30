@@ -81,7 +81,7 @@ ${jobBrief(job)}
 
 【寫作 SOP — 嚴格遵守】
 依案子訊號**精準**選長度(寧短勿長,雇主看不完就跳過):
-- **預設用短版 70-150 字**(3-4 句單段) — 雇主在 100 個提案間滑,短而有力 > 長而完整
+- **預設用 120-180 字降風險結構**:① hook(依案變化:直接給解法 / 點出 JD 漏掉的細節 / 精準作品命中,**別每封都 "The core problem is..."**) ② I can help by: 3 個具體交付 ③ 一個最相關作品+真實 URL ④ 降風險:**fixed >$200** 提議小額試做、**小案 ≤$200 或時薪** 用「deliver in 24-48h」 ⑤ 一個具體問題 — 雇主在 100 個提案間滑,短而有力 > 長而完整
 - 如果 JD 有 **"Please share" / "To Apply" 清單**(明確列 3-5 點要回答) → 用**中長版 200-350 字**,逐條對應 + 結尾 1-2 個誠實 bullet
 - 套**長版 1500-2500 字符 5 段結構**的觸發條件(必須同時 ≥ 2 個):
   (a) JD 明確要求 Required Project / 12 點答案 / 自我介紹長版
@@ -218,13 +218,24 @@ ${profileBrief(p)}
 【Writer C — JD 鏡像派】
 """${drafts.c || '(空)'}"""
 
+【最終版結構 — 預設用這個降風險結構(除非 JD 明確要 Required Project / 多題長答)】
+**120-180 字**,降低客戶風險導向。
+**開頭 hook 要「依這案變化」,別每封都用 "The core problem is..."(太像 AI bot,客戶在列表頁掃過就跳過)。從這幾種挑最自然的一種開場:**
+  (a) 直接給解法:"I'd build this with Playwright + a retry layer that keeps the session alive…"
+  (b) 點出 JD 裡別人會漏的細節:"The tricky part here is the SMS-OTP step — it needs…"
+  (c) 精準的作品/技術命中:"I built exactly this — 29 scrapers behind one shared interface (api-dindon)."
+  (d) 一句點出客戶要的結果(用他 JD 的字),不是你的頭銜
+接著:
+2. "I can help by:" + 3 個具體交付步驟(短 bullet)
+3. 一個「最相關」的真實作品 + 為何相關(**只放一個**,附真實 GitHub URL,別堆清單)
+4. 降風險(**看預算**):fixed **> $200** → 提議小額付費試做(small paid test / first milestone);**小案 ≤ $200 或時薪** → 用「I can deliver this in 24-48h」承諾即可(對小案硬提付費試做 = 像沒讀預算,別這樣)
+5. 結尾一個針對此案的具體技術問題(邀請對方回覆)
+
 最終版守則:
-- 自然像「真人資深工程師在跟客戶聊」
-- 真實 GitHub URL(github.com/${p.githubUser || 'Harry1667'}),禁 [PLACEHOLDER]
-- 沒做過的技術不可撒謊;只提客戶會發現的弱點
-- JD 有 "To Apply / Please share" 清單就逐條答
-- 字數:JD 簡單 → 70-150 字;JD 有清單 → 200-350 字;JD 複雜 → 200-400 字
-- 禁用浮誇詞、套版開頭
+- 自然像「真人工程師在跟客戶聊」,真實 GitHub URL(github.com/${p.githubUser || 'Harry1667'}),禁 [PLACEHOLDER]
+- 沒做過的技術不可撒謊;只提客戶會發現的弱點;**只主打一個作品,別堆技能/作品清單**
+- 禁浮誇/罐頭詞(10x / vibe coder / perfect fit / cutting-edge / passionate / game-changer / I'm confident)、禁套版開頭
+- 例外:JD 有 "To Apply / Please share" 清單 → 逐條答,字數放寬到 200-350;JD 要 Required Project / 12 點長答 → 才放長
 
 只輸出最終版英文 cover letter 本文,不要中文、不要標題、不要任何評論。`;
 }
@@ -253,10 +264,17 @@ export function coverLetterRefinePrompt(draft, job, p) {
 - 沒給具體做法/數字 → 加 (例:「shipped 26 bilingual READMEs in one afternoon」這種具體)
 - 沒有 GitHub / live URL → 結尾補上
 
-長度問題(寧短勿長):
-- **預設目標 70-150 字短版**,雇主滑 100 個提案要看得完
-- 只有當 JD 明確要求多項回答(Required Project + 12 點 / 多 screening / 影片題又要寫長文) + 預算 hourly ≥ $30 或 fixed ≥ $1000 時,才擴成 1500-2500 字符 5 段(hook → 4 誠實 bullet → projects → Claude workflow → ready)
-- **小時薪 < $20 或預算 < $500 → 強制壓到 70-150 字短版**
+降低客戶風險 + 自然度(0 評價新手**必查**):
+- 開頭是不是又用「The core problem is...」這種固定句? 是的話**換一種 hook**(直接給解法 / 點出 JD 漏掉的細節 / 精準作品命中),別每封都一樣像 AI。
+- 有沒有「I can help by:」3 個具體交付步驟? 沒有就補。
+- 降風險看預算:**fixed > $200** 要有「小額付費試做/第一里程碑」;**小案 ≤ $200 或時薪** 用「deliver in 24-48h」即可(別對小案硬塞付費試做,像沒讀預算)。
+- 是不是只主打「一個」最相關作品? 堆了一長串就砍到一個。
+
+長度問題(預設精簡):
+- **預設目標 120-180 字**,降風險結構(客戶問題 → 3 交付 → 1 作品 → 小額試做 → 1 問題),雇主滑 100 個提案要看得完
+- JD 有 "To Apply / Please share" 清單 → 逐條答,放寬到 200-350 字
+- 只有當 JD 明確要求多項回答(Required Project + 12 點 / 影片題又要寫長文) + 高預算時,才擴成長版 5 段
+- **小時薪 < $20 或預算 < $500 → 壓到 120 字內**
 
 影片題:
 - JD 要錄影片但 draft 沒放 Loom 連結 → 第一行加 "📹 Video answers: [LOOM_LINK_HERE]" (這個 placeholder 是 ok 的,因為使用者會自己錄完再換)

@@ -1,7 +1,18 @@
 {
   "note": "你的個人設定。改這裡就能調整搜尋、技能、出價門檻、評分權重。",
   "searchQueries": [
-    "AI integration OR full stack developer OR Next.js OR Flutter OR bug fix"
+    "\"OpenAI API\" chatbot",
+    "\"Claude API\" chatbot OR \"Anthropic API\" chatbot",
+    "\"OpenAI API\" automation",
+    "\"AI automation\" \"email\"",
+    "\"n8n\" automation OR \"Make.com\" automation OR Zapier automation",
+    "\"Google Sheets\" automation OR \"Apps Script\"",
+    "\"web scraping\" Python",
+    "\"Playwright\" scraping",
+    "\"PDF parser\" OR \"PDF data extraction\"",
+    "\"email parser\" OR \"email automation\"",
+    "\"Next.js\" \"bug fix\"",
+    "\"FastAPI\" \"bug fix\" OR \"Node.js\" \"bug fix\""
   ],
   "searchFilters": {
     "paymentVerifiedOnly": true,
@@ -109,6 +120,8 @@
     "threshold": 60,
     "maybeThreshold": 45,
     "mode": "newbie",
+    "connectsHot": 16,
+    "_connectsHot_note": "投案需這麼多 Connects 才算『超熱門』而懲罰/降級。2026 Upwork 漲價,你實測 9-24,16 是中上段。覺得餓死 leads 就調高,想更省 Connects 就調低。",
     "newbieWeights": {
       "reward": 10,
       "skill": 25,

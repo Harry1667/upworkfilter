@@ -47,19 +47,117 @@ export function parseConnectsRequired(snap) {
   return Number.isFinite(n) ? n : null;
 }
 
+// ───────── 新帳號可勝性(first-win)輔助 — 接既有 can-win 閘,非另建評分系統 ─────────
+
+// 提案數只有「桶」字串(無精確數)→ 正規化成保守等級
+export function proposalBucketLevel(bucket) {
+  const b = String(bucket || '').toLowerCase();
+  if (!b) return 'unknown';
+  if (b.includes('less than 5') || b.includes('fewer than 5') || b.includes('0 to 4')) return '<5';
+  if (b.includes('5 to 10') || b.includes('5-9')) return '5-10';
+  if (b.includes('10 to 15') || b.includes('10-14')) return '10-15';
+  if (b.includes('15 to 20')) return '15-20';
+  if (b.includes('20 to 50')) return '20-50';
+  if (b.includes('50')) return '50+';
+  return 'unknown';
+}
+
+// 髒資料防護:把 "13 Connects"/"200 USD"/"0"/數字 都安全轉成數值(抓不到回 null)
+export function toNum(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+// 資深/Expert 案:experience_level=Expert、或「標題」資深字眼、或「描述」明確要求資深/Upwork 資歷
+export function isSeniorExpertJob(j) {
+  if (String(j.experience_level || '').toLowerCase().includes('expert')) return true;
+  const title = String(j.title || '').toLowerCase();
+  // 標題:不用裸 \blead\b(會誤判 "lead generation");只認「資深職位」的 lead 措辭
+  if (/\bsenior\b|\bexpert\b|\bprincipal\b|\bstaff engineer\b|tech lead|team lead|lead (developer|engineer|architect)|engineering lead|\barchitect\b|\brockstar\b|\bguru\b|\bninja\b|10x/.test(title)) return true;
+  // 描述:只認「高精確度的資歷門檻語」(這些幾乎不會出現在真正的新手友善小案,FP 低)
+  const desc = String(j.description || '').toLowerCase();
+  return /do not apply if you('?re| are) new|no beginners|no newbies|previous upwork (history|experience)|expert[- ]level (freelancer|developer|engineer|contractor)|senior (contractor|freelancer)|must be (a |an )?(senior|expert)/.test(desc);
+}
+
+// 大型範圍:整套 SaaS/平台 from scratch / 企業 / 需團隊 / 長期但無明確第一里程碑
+// 注意:刻意收緊,避免把正常「full-stack developer」案誤判成大型(stack/system 太鬆,新手吃得下全棧小案)
+export function isLargeScope(j) {
+  const text = `${j.title || ''} ${j.description || ''}`.toLowerCase();
+  // 「from scratch」必須與「大型產品詞」共現,否則「landing page from scratch」這種小案會被誤判
+  const fromScratch = /(from scratch|ground up|greenfield)/.test(text) &&
+    /(saas|platform|marketplace|ecosystem|crm|erp|portal|full system|entire system|whole system|product suite)/.test(text);
+  // 「entire/complete/full + saas/platform/product/...」整套產品(要求相鄰,不被 full-stack 觸發)
+  const wholeProduct = /(entire|complete|full|whole)\s+(saas|platform|product|system|marketplace|application|ecosystem|suite)/.test(text);
+  const enterprise = /\benterprise\b|managed agents?|multi[\s-]?tenant/.test(text);
+  const team = /team of \d|multi[\s-]?person team|our (dev|engineering) team/.test(text);
+  const longNoFirst = /long[\s-]?term|ongoing|full[\s-]?time|retainer|\d+\+?\s*months/.test(text) &&
+    !/(first|small|test|trial|milestone|start with|poc|proof of concept|pilot|task)/.test(text);
+  return fromScratch || wholeProduct || enterprise || team || longNoFirst;
+}
+
+// 第一單目標:小而明確、低競爭、付款驗證、客戶非全新爛,且非 Expert/大型 → 新手搶得到的案
+export function isFirstReviewTarget(j, config) {
+  if (isSeniorExpertJob(j) || isLargeScope(j)) return false;
+  // 全職/長期/retainer 不是「第一單」目標(慢、面試多、競爭高)— 查標題「與描述」(描述也可能藏全職)
+  const ftText = `${String(j.title || '')} ${String(j.description || '')}`.toLowerCase();
+  if (/full[\s-]?time|\d+\s*hrs?\/\s*week|hours per week|long[\s-]?term|retainer|ongoing (role|work|basis|position)|\d+\+?\s*months/.test(ftText)) return false;
+  if (!j.payment_verified) return false;
+  const lvl = proposalBucketLevel(j.proposals_bucket);
+  if (!(lvl === '<5' || lvl === '5-10' || lvl === 'unknown')) return false;
+  // 高 Connects 案不是「第一單目標」(投案成本高)。Gemini review:門檻用 config.connectsHot(預設16)
+  const cr = toNum(j.connects_required);
+  if (cr != null && cr >= (config?.scoring?.connectsHot ?? 16)) return false;
+  const floor = config?.rate || {};
+  let budgetOk = false;
+  const fb = toNum(j.fixed_budget);
+  if (j.budget_type === 'fixed' && fb != null) {
+    budgetOk = fb >= 50 && fb <= 400; // 第一單甜蜜區
+  } else if (j.budget_type === 'hourly') {
+    const hi = toNum(j.hourly_max) ?? toNum(j.hourly_min);
+    budgetOk = hi != null && hi >= (floor.hourlyFloor ?? 12);
+  }
+  if (!budgetOk) return false;
+  const hr = toNum(j.client_hire_rate);
+  const hireZero = hr === 0 && (toNum(j.client_jobs_posted) ?? 0) >= 1;
+  if (hireZero) return false;
+  const someTrust = (toNum(j.client_spent_usd) ?? 0) > 0 || (hr ?? 0) > 0;
+  if (!someTrust) return false;
+  if (String(j.description || '').length < 200) return false; // 一句話模糊案不算「明確」
+  return true;
+}
+
+// Connects 紀律:該不該「別 boost / 別投」+ 原因(供 score reason 與 web.js 共用)
+export function connectsDiscipline(j, hotConnects = 16) {
+  const reasons = [];
+  let noBoost = false, avoidApply = false;
+  const lvl = proposalBucketLevel(j.proposals_bucket);
+  const cr = toNum(j.connects_required);
+  const hireZero = toNum(j.client_hire_rate) === 0 && (toNum(j.client_jobs_posted) ?? 0) >= 1;
+  if (isSeniorExpertJob(j)) { noBoost = true; reasons.push('Expert/資深案,boost 也搶不過老手'); }
+  if (lvl === '20-50' || lvl === '50+') { noBoost = true; reasons.push(`提案${lvl},紅海`); }
+  if (Number.isFinite(cr) && cr >= hotConnects) { noBoost = true; reasons.push(`需 ${cr} Connects,boost 成本過高`); }
+  if (hireZero) { avoidApply = true; noBoost = true; reasons.push('客戶 0% 聘用率'); }
+  // 明確「已驗證為未付款」才算;null/undefined(未 enrich)不計負面(抓不到不誤殺)
+  if (j.payment_verified === 0 || j.payment_verified === false) { avoidApply = true; reasons.push('付款未驗證'); }
+  return { noBoost, avoidApply, reasons };
+}
+
 // ① 報酬合理性:預算/時薪是否合理(對齊你的底價與目標)
+// toNum 過濾 Infinity/NaN/字串髒值 → null;倒置時薪(min>max)用 max/min 正規化(Codex challenge)
 function scoreReward(j, rate) {
   if (j.budget_type === 'hourly') {
-    const hi = j.hourly_max ?? j.hourly_min;
-    const lo = j.hourly_min ?? j.hourly_max;
-    if (hi == null) return 55;
+    const vals = [toNum(j.hourly_max), toNum(j.hourly_min)].filter((v) => v != null);
+    if (!vals.length) return 55;
+    const hi = Math.max(...vals), lo = Math.min(...vals);
     if (hi < rate.hourlyFloor) return 10;
     if (lo >= rate.hourlyTarget) return 100;
     if (hi >= rate.hourlyTarget) return 80;
     return 60;
   }
   if (j.budget_type === 'fixed') {
-    const b = j.fixed_budget;
+    const b = toNum(j.fixed_budget); // Infinity/NaN → null → 視為未知
     if (b == null) return 55;
     let s;
     if (b < rate.fixedFloor) s = 25;
@@ -191,7 +289,7 @@ function scoreClient(j) {
 
 // ④ 競爭強度:提案數越少越高分(資料有面試/已hire也納入)
 function scoreCompetition(j) {
-  const b = (j.proposals_bucket || '').toLowerCase();
+  const b = String(j.proposals_bucket || '').toLowerCase();
   let s;
   if (b.includes('less than 5') || b.includes('fewer than 5') || b.includes('0 to 4')) s = 100;
   else if (b.includes('5 to 10') || b.includes('5-9')) s = 75;
@@ -217,7 +315,7 @@ function scoreLongterm(j) {
 
 // ⑥ 需求清晰度:要什麼寫得清不清楚、有沒有 input/output/交付項
 function scoreClarity(j) {
-  const d = j.description || '';
+  const d = String(j.description || '');
   const len = d.length;
   let s = 0;
   if (len >= 1200) s = 80;
@@ -264,6 +362,11 @@ export function scoreJob(j, config) {
     risk: scoreRisk(j, config.rate)
   };
 
+  // 🎯 第一單目標:小而明確好客戶的案。Gemini review:不偽造維度分,改在 verdict 階段直接拉 APPLY。
+  const isNewbie = config.scoring?.mode === 'newbie';
+  const connectsHot = config.scoring?.connectsHot ?? 16; // 可調:超過此 Connects 才算超熱門(2026 漲價)
+  const firstReview = isNewbie && isFirstReviewTarget(j, config);
+
   // 加權總分(權重自動正規化,即使加起來不是 100 也沒關係)
   const totalWeight = Object.values(C).reduce((a, c) => a + (c.weight || 0), 0) || 1;
   let total = 0;
@@ -279,25 +382,46 @@ export function scoreJob(j, config) {
   const lowPay =
     (j.budget_type === 'hourly' && (j.hourly_max ?? j.hourly_min ?? 99) < (floor.hourlyFloor ?? 12)) ||
     (j.budget_type === 'fixed' && j.fixed_budget != null && j.fixed_budget < (floor.fixedFloor ?? 80));
-  const b = (j.proposals_bucket || '').toLowerCase();
+  const b = String(j.proposals_bucket || '').toLowerCase();
   const crowded = /15 to 20|20 to 50|50/.test(b);
 
   // 💀 死亡訊號攔截:命中以下訊號 ≥ 2 個 → 強制 SKIP(新手投了等於燒 Connects)
-  const isNewbie = config.scoring?.mode === 'newbie';
+  // (isNewbie 已於上方計算;客戶數值欄位一律 toNum 防髒資料字串如 "0")
+  const hireRate = toNum(j.client_hire_rate);
+  const jobsPosted = toNum(j.client_jobs_posted) ?? 0;
+  const spentUsd = toNum(j.client_spent_usd);
   const deathSignals = [];
-  if (!j.payment_verified) deathSignals.push('未付款驗證');
-  if (j.client_hire_rate === 0 && (j.client_jobs_posted ?? 0) >= 1) deathSignals.push(`hire rate 0%(${j.client_jobs_posted ?? 0}案`);
-  if (/50/.test((j.proposals_bucket || '').toLowerCase())) deathSignals.push('提案 50+');
-  if (j.client_spent_usd === 0 || j.client_spent_usd == null && !j.client_spent_text) deathSignals.push('客戶未花過錢');
+  // 明確未付款驗證才算;null/undefined(未 enrich)不計(Codex review:抓不到不誤殺)
+  if (j.payment_verified === 0 || j.payment_verified === false) deathSignals.push('未付款驗證');
+  if (hireRate === 0 && jobsPosted >= 1) deathSignals.push(`hire rate 0%(${jobsPosted}案`);
+  if (/50/.test(b)) deathSignals.push('提案 50+');
+  if (spentUsd === 0 || (spentUsd == null && !j.client_spent_text)) deathSignals.push('客戶未花過錢');
+
+  // 🚨 詐騙/違規硬擋(任一命中即 SKIP)— 跳出平台付款/聯絡、加密貨幣、股權分潤替代報酬、無償試做(Codex challenge)
+  const jtext = `${j.title || ''} ${j.description || ''}`.toLowerCase();
+  // 注意:必須是「付款語境」才算,避免誤殺正當的加密/股權「題材」案(如 scrape crypto prices、equity trading dashboard)
+  const scamFlags = [];
+  if (/pay(?:ment|ments)?\s+(?:outside|off)\b|outside\s+(?:of\s+)?upwork|off[\s-]?platform\s+(?:pay|payment)|take (?:this|it) off upwork|move (?:this )?off upwork|contact me (?:on|via) (?:telegram|whatsapp)/.test(jtext)) scamFlags.push('要求跳出 Upwork 付款/聯絡');
+  // 加密貨幣:只在「付款」語境(pay/paid/payment/salary/compensation 鄰近)才算,不抓題材
+  if (/(?:pay(?:ment|ments|ing)?|paid|salary|compensat\w*|wage)[^.]{0,30}\b(?:usdt|btc|eth|crypto|cryptocurrency|bitcoin|tether)\b|\b(?:usdt|crypto|bitcoin)\b[^.]{0,20}(?:payment|only|wallet|per task)/.test(jtext)) scamFlags.push('加密貨幣付款');
+  if (/equity[\s-]?only|in exchange for equity|equity[\s-]?based (?:pay|comp)|(?:paid|pay|compensat\w*)[^.]{0,20}(?:equity|revenue[\s-]?share|profit[\s-]?share)|revenue[\s-]?share (?:instead|in lieu|only)/.test(jtext)) scamFlags.push('股權/分潤替代報酬');
+  if (/unpaid\s+(?:test|task|trial|assessment|sample)|free\s+(?:test|trial)\s+(?:task|project|work)|no payment for (?:the )?test|test task[^.]{0,30}(?:unpaid|free|no pay)/.test(jtext)) scamFlags.push('無償試做');
 
   // 🥊 新手競爭可行性訊號(can-win,與「客戶品質」無關)——
   // 抓住「②能力分很高、客戶也 OK,但 0 評價新手實際搶不到」這類案。資料抓不到的訊號不計(不誤殺)。
   const competeSignals = [];
   if (isNewbie) {
-    const exp = String(j.experience_level || '').toLowerCase();
-    if (exp.includes('expert')) competeSignals.push('Expert 等級(0 評價搶不過老手)');
-    const cr = Number(j.connects_required);
-    if (Number.isFinite(cr) && cr >= 15) competeSignals.push(`需 ${cr} Connects(超熱門,新手提案沉底)`);
+    if (isSeniorExpertJob(j)) competeSignals.push('Expert/資深等級(0 評價搶不過老手)');
+    const cr = toNum(j.connects_required);
+    // Gemini review:2026 Upwork connects 漲價 → 門檻用 config.connectsHot(預設16),避免餓死 leads
+    if (cr != null && cr >= connectsHot) competeSignals.push(`需 ${cr} Connects(超熱門,新手提案沉底)`);
+    const lvl = proposalBucketLevel(j.proposals_bucket);
+    if (lvl === '20-50') competeSignals.push('提案 20-50(紅海,新手難被看到)');
+    if (isLargeScope(j)) competeSignals.push('大型/長期案無明確第一里程碑(新手吃不下)');
+    // 貼出超過 24h → 可見度已降(只在 posted_at 可得時計,抓不到不誤殺)
+    if (j.posted_at && !isNaN(Date.parse(j.posted_at)) && (Date.now() - Date.parse(j.posted_at)) > 24 * 3600 * 1000) {
+      competeSignals.push('貼出超過 24h(可見度已降)');
+    }
     // 客戶上限低到「連你的底價都低於它」→ 你得跌破底價才進得了範圍 = 贏不了(非報酬好壞,是搶不到)
     // 用 hourlyFloor 而非 target,避免把一堆 $15-24 仍可投的案誤降(那些只是報酬偏低,不是搶不到)
     const floor = config.rate?.hourlyFloor;
@@ -306,16 +430,40 @@ export function scoreJob(j, config) {
     }
   }
 
+  // 🥊 新帳號硬擋(hardWinBlocks)— 命中即強制 SKIP(newbie)。接既有 can-win,不另建系統。
+  const hardWinBlocks = [];
+  if (isNewbie) {
+    const expertSenior = isSeniorExpertJob(j);
+    const lvl = proposalBucketLevel(j.proposals_bucket);
+    const cr = toNum(j.connects_required);
+    const crHigh = cr != null && cr >= connectsHot; // Gemini review:connect 漲價,門檻用 config.connectsHot
+    const hireZero = hireRate === 0 && jobsPosted >= 1;
+    if (expertSenior && (lvl === '20-50' || lvl === '50+')) hardWinBlocks.push(`Expert/資深 + 提案${lvl}(陪榜)`);
+    if (expertSenior && hireZero) hardWinBlocks.push('Expert/資深 + 客戶 0% 聘用');
+    if (expertSenior && crHigh) hardWinBlocks.push(`Expert/資深 + 需 ${cr} Connects`);
+    if (lvl === '50+' && ((j.payment_verified === 0 || j.payment_verified === false) || (spentUsd != null && spentUsd < 100) || crHigh)) {
+      hardWinBlocks.push('提案 50+ 且 付款未驗證/花費<$100/高Connects');
+    }
+    // 註:hireZero + spentZero 已由既有 deathSignals ≥2 涵蓋,不重複加。
+  }
+
   let verdict, reason;
-  const deadClient = j.client_hire_rate === 0 && (j.client_jobs_posted ?? 0) >= 3;
+  const deadClient = hireRate === 0 && jobsPosted >= 3;
   const deathHit = deathSignals.length;
-  // 新手模式 ≥ 2 死亡訊號 = 直接 SKIP;標準模式 ≥ 3 才 SKIP
-  if ((isNewbie && deathHit >= 2) || deathHit >= 3) {
+  // 🚨 詐騙/違規 = 最高優先,任一命中即 SKIP(對新手傷害最大,先擋)
+  if (scamFlags.length) {
+    verdict = 'SKIP';
+    reason = `🚨 詐騙/違規訊號:${scamFlags.join('、')} — 絕對別投`;
+  } else if ((isNewbie && deathHit >= 2) || deathHit >= 3) {
     verdict = 'SKIP';
     reason = `💀 死亡訊號攔截 (${deathHit}個):${deathSignals.join('、')} — 新手不投`;
   } else if (deadClient) {
     verdict = 'SKIP';
     reason = `排除:雇用率0%(發了${j.client_jobs_posted}案沒雇人)`;
+  } else if (hardWinBlocks.length) {
+    // 🥊 新帳號硬擋:Expert/資深 × 高競爭/爛客戶/高 Connects 的致命組合 → 直接 SKIP,別燒 Connects
+    verdict = 'SKIP';
+    reason = `🥊 新帳號搶不到 (${hardWinBlocks.length}):${hardWinBlocks.join('、')} — 別燒 Connects`;
   } else if (competeSignals.length >= 2) {
     // 🥊 第四道防線:能力分高但新手搶不到(命中 ≥ 2 競爭訊號)→ 不投,省 Connects
     verdict = 'SKIP';
@@ -357,6 +505,21 @@ export function scoreJob(j, config) {
   if (competeSignals.length === 1 && (verdict === 'APPLY' || verdict === 'MAYBE')) {
     if (verdict === 'APPLY') verdict = 'MAYBE';
     reason = `🥊 ${competeSignals[0]} — ${reason}`;
+  }
+
+  // 🎯 第一單目標:直接拉 verdict 到 APPLY(Gemini review:不偽造維度分,只調 verdict)
+  // 條件:沒被擋下、非低薪雷案、分數過 maybe 門檻、無 can-win 紅旗 → 這種小而明確好客戶的案就是該投
+  if (firstReview && !blocked && !lowPay && verdict === 'MAYBE'
+      && total >= (config.scoring.maybeThreshold ?? 45) && competeSignals.length === 0) {
+    verdict = 'APPLY';
+  }
+  if (firstReview && !blocked && (verdict === 'APPLY' || verdict === 'MAYBE')) {
+    reason = `🎯 第一單目標 — ${reason}`;
+  }
+  // 🚫 不要 boost 提示(可投但不值得 boost 的案;web.js 另有完整顯示)
+  const cd = connectsDiscipline(j, connectsHot);
+  if (cd.noBoost && (verdict === 'APPLY' || verdict === 'MAYBE')) {
+    reason = `${reason} ｜🚫 不要 boost(${cd.reasons[0]})`;
   }
 
   return { scores, total_score: total, verdict, reason, blocked, matched_skills: sk.matched };

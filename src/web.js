@@ -15,7 +15,7 @@ function loadProfileWithLessons() {
   } catch (e) { p.lessons = []; p.anchors = []; }
   return p;
 }
-import { scoreJob, parseSpentUsd } from './score.js';
+import { scoreJob, parseSpentUsd, connectsDiscipline, isFirstReviewTarget } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
 import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates, preflightCheck } from './verify.js';
@@ -569,6 +569,7 @@ function pageJobs() {
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
           ${j.blocked ? '<span class="badge SKIP" title="被第二道門擋下,不進 AI 分析">🚫 超綱</span>' : ''}
           ${j.ai_win != null ? `<span class="winbadge ${winCls(j.ai_win)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${j.ai_win}%</span>` : ''}
+          ${firstWinChips(j, cfg)}
           <button class="favbtn ${j.favorited ? 'on' : ''}" onclick="favJob('${j.id}',this)" title="收藏" style="background:none;border:0;cursor:pointer;font-size:18px;padding:0 4px">${j.favorited ? '❤️' : '🤍'}</button>
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
         </div>
@@ -1903,6 +1904,25 @@ if(new URLSearchParams(location.search).get('autoanalyze')==='1'&&!${parsed ? 't
 }
 
 // 勝率估計 — 有 AI 中標機率(ai_win)就用它,否則用規則粗估
+// 第一單 / Connects 紀律 chip(卡片頂部精簡標籤)— 接 score.js 的 can-win 判斷
+function firstWinChips(job, cfg) {
+  const chip = (txt, bg, fg, title) => `<span title="${esc(title || '')}" style="font-size:11px;padding:2px 7px;border-radius:10px;background:${bg};color:${fg};font-weight:600;white-space:nowrap">${txt}</span>`;
+  const chips = [];
+  let firstTarget = false;
+  try { firstTarget = isFirstReviewTarget(job, cfg); } catch { /* 缺欄位就略過 */ }
+  const cd = connectsDiscipline(job, cfg?.scoring?.connectsHot ?? 16);
+  if (firstTarget) chips.push(chip('🎯 第一單目標', '#16321c', '#7ee787', '小而明確、好客戶、低競爭 — 適合衝第一個評價'));
+  if (cd.avoidApply) chips.push(chip('🔴 別投', '#3d1e1e', '#f85149', cd.reasons.join('；')));
+  else if (cd.noBoost) chips.push(chip('🚫 不要 boost', '#3a2e15', '#e3b341', cd.reasons.join('；')));
+  // 技術可但難贏:能力高但勝率低(新帳號搶不到)
+  const skill = job.score_skill ?? 0;
+  const winPct = job.ai_win != null ? job.ai_win : winRateHint(job).pct;
+  if (skill >= 70 && winPct < 40 && !firstTarget && !cd.avoidApply) {
+    chips.push(chip('🟡 技術可但難贏', '#3a2e15', '#e3b341', '能力夠但新帳號勝率低,別期待太高'));
+  }
+  return chips.join('');
+}
+
 function winRateHint(job) {
   if (job.ai_win != null) {
     const pct = job.ai_win;
@@ -1947,12 +1967,30 @@ function winRateAnalysis(job, ev) {
   factors.push({ label: '客戶', detail: cli >= 60 ? '條件佳' : '普通', good: cli >= 60 });
   if (job.client_hire_rate != null) factors.push({ label: '雇用率', detail: job.client_hire_rate + '%' + (job.client_hire_rate < 40 ? '(常發案少聘)' : ''), good: job.client_hire_rate >= 50 });
 
-  // 值不值得投(連結 connects 成本框架):好案×難搶 → 賭但要差異化;爛案×難搶 → 省 connects
+  // 值不值得投(Connects 紀律框架,接 score.js can-win):新帳號別「賭一把」,把 Connects 留給搶得到的小案
+  let cfgFW = null; try { cfgFW = loadConfig(); } catch { /* ignore */ }
+  const cd = connectsDiscipline(job, cfgFW?.scoring?.connectsHot ?? 16);
+  const firstTarget = cfgFW ? (() => { try { return isFirstReviewTarget(job, cfgFW); } catch { return false; } })() : false;
   let worth, worthCls;
-  if (goodJob && !lowWin) { worth = '🟢 首選 — 案子好、又搶得到,優先投,提案做紮實即可。'; worthCls = 'ok'; }
-  else if (goodJob && lowWin) { worth = '🟡 好案但競爭激烈 — 值得用 connects 賭一把,但提案「必須差異化」,否則錢會白花。重點看下方策略。'; worthCls = 'mid'; }
-  else if (!goodJob && !lowWin) { worth = '🟡 容易接但案子普通 — 適合衝評價/練手,別期待高報酬。'; worthCls = 'mid'; }
-  else { worth = '🔴 又難搶又普通 — 大機率浪費 connects,建議略過,把 connects 留給好案。'; worthCls = 'bad'; }
+  if (cd.avoidApply || win.pct < 30) {
+    worth = `🔴 不要 boost — ${cd.reasons[0] || '勝率過低'}。除非你能用「已完成的 demo」差異化,否則跳過,把 Connects 留給好案。`;
+    worthCls = 'bad';
+  } else if (firstTarget) {
+    worth = '🎯 第一單目標 — 小而明確的好案,可投。但「不要 boost」(或只小額),提案點出客戶痛點 + 提議小額試做降低風險。';
+    worthCls = 'ok';
+  } else if (goodJob && !lowWin) {
+    worth = '🟢 首選 — 案子好、又搶得到,優先投,提案做紮實即可。' + (cd.noBoost ? '(此案不建議 boost)' : '');
+    worthCls = 'ok';
+  } else if (goodJob && lowWin) {
+    worth = '🟡 好案但競爭激烈 — 可投但「不要 boost」,提案必須用真實作品差異化,否則別投。';
+    worthCls = 'mid';
+  } else if (!goodJob && !lowWin) {
+    worth = '🟡 容易接但案子普通 — 適合衝第一個評價/練手,別期待高報酬。';
+    worthCls = 'mid';
+  } else {
+    worth = '🔴 又難搶又普通 — 大機率浪費 Connects,建議略過,把 Connects 留給好案。';
+    worthCls = 'bad';
+  }
 
   // 怎麼脫穎而出(低勝率時的具體戰術)
   const tips = [
@@ -2126,6 +2164,18 @@ function pageJob(id) {
 function pageProposal(id) {
   const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
   if (!job) return notFoundPage('③ 寫提案', '/proposal', id);
+  // Connects 紀律橫幅(接 score.js can-win)— 產提案前先提醒別亂投/別 boost
+  let cfgP = null; try { cfgP = loadConfig(); } catch { /* ignore */ }
+  const cdP = connectsDiscipline(job, cfgP?.scoring?.connectsHot ?? 16);
+  let firstP = false; try { firstP = cfgP ? isFirstReviewTarget(job, cfgP) : false; } catch { /* ignore */ }
+  let warnBanner = '';
+  if (cdP.avoidApply) {
+    warnBanner = `<p class="reason" style="background:#3d1e1e;border:1px solid #f85149;border-radius:8px;padding:10px 12px;color:#f85149">🔴 <b>建議別投這案</b> — ${esc(cdP.reasons.join('；'))}。投了多半石沉大海,把 Connects 留給搶得到的小案;要投也<b>絕不要 boost</b>。</p>`;
+  } else if (cdP.noBoost) {
+    warnBanner = `<p class="reason" style="background:#3a2e15;border:1px solid #e3b341;border-radius:8px;padding:10px 12px;color:#e3b341">🚫 <b>可投,但不要 boost</b> — ${esc(cdP.reasons.join('；'))}。boost 的 Connects 會白燒,提案用真實作品差異化即可。</p>`;
+  } else if (firstP) {
+    warnBanner = `<p class="reason" style="background:#16321c;border:1px solid #3fb950;border-radius:8px;padding:10px 12px;color:#7ee787">🎯 <b>第一單目標</b> — 小而明確的好案,適合衝第一個評價。提案點出客戶痛點 + 提議小額試做降風險,不要 boost。</p>`;
+  }
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>寫提案:${esc(job.title)}</title><style>${CSS}
   .sect{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0}
   .sect h2{margin:0 0 10px;border:0;padding:0}.out{white-space:pre-wrap;font-size:14px;line-height:1.7;margin-top:10px}
@@ -2142,6 +2192,7 @@ function pageProposal(id) {
   <details style="margin:8px 0"><summary style="cursor:pointer;color:var(--mut);font-size:13px">▸ 貼上完整職缺內容(選填,強烈建議)— 抓到影片題/指定專案/篩選問題</summary>
     <textarea id="descOv" placeholder="從 Upwork 投標頁把完整職缺描述(含 To Apply / 影片題 / 指定專案那段)複製貼進來,提案會更完整準確" style="width:100%;min-height:120px;margin-top:8px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:10px;font:13px/1.5 inherit"></textarea>
   </details>
+  ${warnBanner}
   <p>
     <button class="save" id="go" onclick="gen()">✨ 產生提案</button>
     <button class="save" style="background:#6e7681;margin-left:6px" onclick="gen('consensus')" title="3 個 AI 各寫一版求職信,把差異標出來。多花約 30 秒,但能看出 AI 哪邊不確定">🤝 三 AI 比對版</button>
@@ -2847,7 +2898,7 @@ createServer(async (req, res) => {
           detectHallucinations(finalText, prof),
           annotateCitations(finalText, prof),
           skepticCritique(finalText, job, prof),
-          preflightCheck(finalText, prof, prof.lessons || []),
+          preflightCheck(finalText, prof, prof.lessons || [], job),
         ]);
         verify = verifyR.status === 'fulfilled' ? verifyR.value : null;
         citations = citeR.status === 'fulfilled' ? citeR.value : null;
@@ -2870,7 +2921,7 @@ createServer(async (req, res) => {
         detectHallucinations(finalText, prof),
         annotateCitations(finalText, prof),
         skepticCritique(finalText, job, prof),
-        preflightCheck(finalText, prof, prof.lessons || []),
+        preflightCheck(finalText, prof, prof.lessons || [], job),
       ]);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({

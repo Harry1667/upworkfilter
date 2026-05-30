@@ -61,7 +61,7 @@ cover letter:
 }
 
 // ② 雙清單檢核 — 拿成稿 + lessons + SOP 規則,逐條核對是否遵守
-export async function preflightCheck(text, profile, lessons = []) {
+export async function preflightCheck(text, profile, lessons = [], job = null) {
   if (!text || text.length < 30) return { rules: [], summary: 'skipped' };
   const lessonsText = (lessons || []).slice(0, 20).map((l, i) => `L${i + 1}. ${l}`).join('\n') || '(無)';
   const prompt = `你是品質檢驗員。下面是 cover letter 成稿,還有使用者累積的 lessons 硬規則。
@@ -79,8 +79,11 @@ S2. 真實 GitHub URL / live URL,沒有 [PLACEHOLDER]
 S3. 沒撒謊(沒做過的技術不寫做過)
 S4. JD 有 To Apply / 清單 → 逐條對應
 S5. 結尾推進對話(具體選擇題 / 技術問題,不是 "Ready to start")
-S6. 沒浮誇詞(10x / cutting-edge / vibe coder / passion / I'm confident)
+S6. 沒浮誇詞/罐頭詞(10x / cutting-edge / vibe coder / perfect fit / game-changer / passionate / I'm confident / rockstar / ninja),也沒有「對不上 profile 的假經歷/假公司/灌水數字」
 S7. 提弱點時同時提解法,不只是承認
+S8. 只主打「一個」最相關作品,不堆一長串技能/作品清單
+S9. 有「降低客戶風險」的動作:**>$200 的案**提議小額付費試做/第一里程碑;**小案(≤$200)**用「24-48h 快速交付」即可(別對小案硬提付費試做,會像沒讀預算)
+S10. 長度精簡(預設 120-180 字;除非 JD 明確要 Required Project / 多題長答才放長)
 
 對每條 lesson + SOP 守則,**精準**判斷:
 - ✅ followed: 成稿真的有遵守
@@ -94,12 +97,51 @@ S7. 提弱點時同時提解法,不只是承認
  ],
  "summary":"繁中 1 句:有幾條 broken,整體 OK 不 OK"
 }`;
+  // 🔒 確定性檢查(不靠 AI,保證攔得住 Style B / 外部貼來的爛文)
+  const detRules = [];
+  // 正規化:NFKC + 去零寬字元 + 把 × 類符號正規成 x(破解 "10×" / "v​ibe coder" 之類規避)
+  const lower = text.normalize('NFKC')
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '')
+    .replace(/[\u00D7\u2715\u2717\u2A2F\u2573]/g, 'x')
+    .toLowerCase();
+  const banned = ['vibe coder', '10x', 'perfect fit', 'passionate', 'cutting-edge', 'cutting edge',
+    'game-changer', 'game changer', 'i am confident', "i'm confident", 'rockstar', 'ninja', 'guru', 'one-stop',
+    'top-rated', 'top rated', 'world-class', 'world class', 'fortune 500'];
+  const hitBanned = [...new Set(banned.filter((b) => lower.includes(b)))];
+  detRules.push(hitBanned.length
+    ? { id: 'D-banned', desc: '禁用浮誇/罐頭詞', status: 'broken', quote: hitBanned.join(', '), fix: '刪掉這些詞,換成具體事實' }
+    : { id: 'D-banned', desc: '禁用浮誇/罐頭詞', status: 'followed', quote: '', fix: '' });
+  // JD 是否明確要長答(To Apply 清單 / Required Project / 多題 / 影片題)→ 放寬 >180 限制(有 job context 才判)
+  const jd = String(job?.description || '').toLowerCase();
+  const jdWantsLong = !!jd && /to apply|please share|required project|answer the following|\d+\s*questions|screening question|record a (short )?video|loom|please answer/i.test(jd);
+  const words = (text.trim().match(/\S+/g) || []).length;
+  if (words > 180 && jdWantsLong) detRules.push({ id: 'D-length', desc: '長度 >180 但 JD 要長答(允許)', status: 'na', quote: `${words} 字(JD 有 To Apply/多題)`, fix: '' });
+  else if (words > 180) detRules.push({ id: 'D-length', desc: '長度 ≤180 字(JD 未要求長答)', status: 'broken', quote: `目前 ${words} 字`, fix: '砍到 120-180 字' });
+  else if (words < 60) detRules.push({ id: 'D-length', desc: '長度太短', status: 'broken', quote: `目前 ${words} 字`, fix: '補到 120-180 字:客戶問題+3 交付+1 作品+小額試做+1 問題' });
+  else detRules.push({ id: 'D-length', desc: '長度 120-180 字', status: 'followed', quote: `${words} 字`, fix: '' });
+  // 降低客戶風險(Gemini review:小案 ≤$200「job 本身就是 test」,提付費試做反而像沒讀預算 → 接受「快速交付」當降風險;>$200 才要試做)
+  const fb = Number(String(job?.fixed_budget ?? '').replace(/[^0-9.]/g, ''));
+  const jobBudget = (job?.budget_type === 'fixed' && Number.isFinite(fb) && fb > 0) ? fb : null;
+  const bigJob = jobBudget != null && jobBudget > 200;
+  const hasTest = /paid test|small paid (test|milestone|task)|first milestone|paid (poc|proof of concept|trial)|小額試做|付費試做/i.test(text);
+  const hasFast = /24[\s-]?48|within \d+\s?(?:hours|hrs|days)|fast (?:turnaround|delivery)|quick turnaround|deliver(?:ed)? (?:it )?in \d|same[\s-]?day|next[\s-]?day|by tomorrow|快速交付/i.test(text);
+  const riskOk = bigJob ? hasTest : (hasTest || hasFast);
+  detRules.push({ id: 'D-test', desc: bigJob ? '提議小額付費試做降風險(>$200)' : '降風險:小額試做或快速交付', status: riskOk ? 'followed' : 'broken', quote: riskOk ? '' : (bigJob ? '未提小額試做' : '未提試做/快速交付'), fix: riskOk ? '' : (bigJob ? '加一句:可先做小額付費試做' : '小案加一句「24-48 小時交付」即可,不必硬提付費試做') });
+  // 先剝掉 URL 再找問號(避免 github.com/...?tab=readme 的 ? 被當成「有問題」)
+  const noUrls = text.replace(/https?:\/\/\S+/g, '').replace(/\b[\w.-]+\.(com|io|dev|org|net|app|co)\/\S*/gi, '');
+  const hasQ = /\?/.test(noUrls);
+  detRules.push({ id: 'D-question', desc: '結尾一個具體問題', status: hasQ ? 'followed' : 'broken', quote: hasQ ? '' : '沒有問號/問題', fix: hasQ ? '' : '結尾問一個針對此案的具體技術問題' });
+
   try {
     const raw = await askAI(prompt);
-    return extractJson(raw);
+    const aiRes = extractJson(raw) || {};
+    const rules = [...detRules, ...(aiRes.rules || [])];
+    const detBroken = detRules.filter((r) => r.status === 'broken').length;
+    return { rules, summary: aiRes.summary ? `${aiRes.summary}${detBroken ? `（確定性檢查另抓 ${detBroken} 條）` : ''}` : `${rules.filter((r) => r.status === 'broken').length} 條 broken` };
   } catch (e) {
     console.error('Preflight 失敗:', e.message);
-    return { rules: [], summary: 'check failed' };
+    const detBroken = detRules.filter((r) => r.status === 'broken').length;
+    return { rules: detRules, summary: `AI 檢核失敗,僅確定性檢查:${detBroken} 條 broken` };
   }
 }
 

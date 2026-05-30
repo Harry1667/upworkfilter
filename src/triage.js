@@ -4,6 +4,30 @@
 import { askAI } from './analyze.js';
 import { loadProfile, capabilityBrief } from './assist.js';
 import { taxonomyFeatureNames, taxonomyCategoryNames } from './taxonomy.js';
+import { toNum, isSeniorExpertJob, proposalBucketLevel } from './score.js';
+
+// 🔒 規則式 win 硬上限 — 事後夾住 AI 回傳的 win(防 prompt injection 把 win 灌成 99)。
+// 與 buildPrompt 的硬規則一致;即使 AI 被職缺描述騙了,程式仍把不可能的案壓回現實。
+function winCapFor(j) {
+  let cap = 65;
+  if (j.payment_verified === 0 || j.payment_verified === false) cap = Math.min(cap, 8);
+  if (toNum(j.client_hire_rate) === 0) cap = Math.min(cap, 10);
+  const lvl = proposalBucketLevel(j.proposals_bucket);
+  if (lvl === '50+') cap = Math.min(cap, 12);
+  else if (lvl === '20-50') cap = Math.min(cap, 25);
+  const spent = toNum(j.client_spent_usd);
+  if (spent != null && spent < 100) cap = Math.min(cap, 15);
+  if (isSeniorExpertJob(j)) {
+    // Gemini review:乾淨的小 Expert 案(提案<5+付款驗證+客戶有花費)放寬,別一律壓 15%
+    const clean = proposalBucketLevel(j.proposals_bucket) === '<5' && j.payment_verified === 1 && (toNum(j.client_spent_usd) ?? 0) > 0;
+    cap = Math.min(cap, clean ? 30 : 15);
+  }
+  const cr = toNum(j.connects_required);
+  // Gemini review:connect 漲價,門檻 12/15 → 16/18
+  if (cr != null && cr >= 18) cap -= 15;
+  else if (cr != null && cr >= 16) cap -= 10;
+  return Math.max(0, cap);
+}
 
 // 快篩用的便宜模型(可用 .env 覆蓋)
 const PROVIDER = process.env.AI_TRIAGE_PROVIDER || 'openai';
@@ -58,13 +82,19 @@ function buildPrompt(jobs, p, parents, needs, outcomeNote = '') {
 - 提案數 50+(proposals_bucket 含 "50") → **win ≤ 12%**(50 人在搶,新手不在前段班)
 - 提案數 20-50 → **win ≤ 25%**
 - 客戶 spent=0 或 < $100 → **win ≤ 15%**(新客戶不知道怎麼挑人)
-- 經驗等級 = Expert(experience_level)且他 0 評價 → **win ≤ 15%**(Expert 案客戶要老手,新手陪榜)
-- 投案需 Connects ≥ 15(connects_required)→ **win 再 -10%**(超熱門案,一堆人搶,新手提案沉到底沒人看)
+- 經驗等級 = Expert(experience_level)**或標題出現 Senior/資深字眼**,且他 0 評價 → **win ≤ 15%**(Expert/資深案客戶要老手,新手陪榜);**但**若該案提案 <5、付款驗證、客戶有花費 → 客戶只是想要穩,新手仍有機會,可放寬到 **≤ 30%**
+- 投案需 Connects ≥ 16(connects_required)→ **win 再 -10%**;**≥ 18 → 再 -15%**(2026 connect 漲價,16+ 才算超熱門;一堆人搶,新手提案沉到底沒人看)
 - 命中多項上述條件 → 取**最低**值,再 -5%
 - 即使案子完美,新手 win 上限 65%(現實情況沒人會給 0 評價 80%+)
 - 只有「客戶有評價 + 付款驗證 + 提案 < 10 + 雇用率 > 50%」這種完美組合才能給 50%+
 
 win 的目的不是讓使用者覺得有希望,是讓他不要燒 Connects 在不可能的案子。誠實壓低 = 幫他省錢。
+
+🎯 【第一單友善訊號 — 規則層抓不到,靠你判讀;score = 現在值不值得花 Connects 投,不只技術契合】
+這位新手的首要目標是「拿到第一個 Upwork 評價」。以下要在 reason 點出並反映到 score:
+- 交付明確且小(一句話講得完、估 1-3 天可做完)→ 第一單友善,score 可偏高(win 仍受上面硬上限約束)
+- 案子適合「先做小額付費試做(paid test / POC)」降低客戶風險 → 加分
+- 反之:範圍模糊、要長期才見成果、需先簽 NDA / 大量前置工作 / 整套系統 from scratch → score 下修
 
 使用者背景:
 ${userBrief(p)}
@@ -77,7 +107,7 @@ ${jobs.map(jobLine).join('\n')}
 - 子功能/小類(挑 0-5 個此案需要的功能):${needs.join('、')}
 
 只輸出一個 JSON 陣列,每個職缺一個物件,不要任何解說或 markdown 圍欄:
-[{"id":"原樣回傳該案 id","score":0到10一位小數(整體值不值得),"win":0到100整數(這位新手實際中標機率,綜合競爭/契合/客戶願不願給新手機會),"verdict":"強力接|可接|觀望|略過","reason":"≤20字繁中,點出關鍵理由","parent":"母類別1個","children":["子功能,0-5個"]}]`;
+[{"id":"原樣回傳該案 id","score":0到10一位小數(現在值不值得花 Connects 投,綜合技術契合+第一單友善度),"win":0到100整數(這位新手實際中標機率,綜合競爭/契合/客戶願不願給新手機會),"verdict":"強力接|可接|觀望|略過","reason":"≤40字繁中,點出第一單關鍵(例:第一單小案/Expert+競爭高別投/0%hire別投/可小額試做)","parent":"母類別1個","children":["子功能,0-5個"]}]`;
 }
 
 function extractArray(s) {
@@ -97,6 +127,7 @@ export async function triageJobs(jobs, { batchSize = 10, onProgress, outcomeNote
   const results = [];
   for (let i = 0; i < jobs.length; i += batchSize) {
     const batch = jobs.slice(i, i + batchSize);
+    const byId = new Map(batch.map((j) => [String(j.id), j])); // 給 win 硬上限查 job 用
     try {
       const raw = await askAI(buildPrompt(batch, p, parents, children, outcomeNote), { provider: PROVIDER, tier: TIER });
       const arr = extractArray(raw);
@@ -106,6 +137,9 @@ export async function triageJobs(jobs, { batchSize = 10, onProgress, outcomeNote
         if (Number.isNaN(score)) continue;
         let win = Math.round(Number(r.win));
         win = Number.isNaN(win) ? null : Math.max(0, Math.min(100, win));
+        // 🔒 規則硬上限夾住 win(防 prompt injection 把 win 灌高);抓不到 job 就不夾
+        const jobForCap = byId.get(String(r.id));
+        if (win != null && jobForCap) win = Math.min(win, winCapFor(jobForCap));
         // 母類別(1,受控):無效就留空;子功能(受控清單,去重)
         const parent = parentSet.has(String(r.parent || '').trim()) ? String(r.parent).trim() : '';
         const children2 = [...new Set((r.children || []).map((t) => String(t).trim()).filter((t) => childSet.has(t)))];
