@@ -15,7 +15,7 @@ function loadProfileWithLessons() {
   } catch (e) { p.lessons = []; p.anchors = []; }
   return p;
 }
-import { scoreJob, parseSpentUsd, connectsDiscipline, isFirstReviewTarget } from './score.js';
+import { scoreJob, parseSpentUsd, connectsDiscipline, isFirstReviewTarget, stripChrome } from './score.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
 import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates, preflightCheck } from './verify.js';
@@ -2495,7 +2495,7 @@ function normalizeIngest(raw) {
   const url = pick(raw, 'url', 'jobUrl', 'link', 'job_url', 'permalink', 'href') || '';
   const idm = String(url).match(ID_RE);
   const id = (idm ? idm[1] : null) || pick(raw, 'id', 'jobId', 'ciphertext', 'uid') || ('h' + Math.abs([...String(url || JSON.stringify(raw))].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)));
-  let desc = pick(raw, 'description', 'descriptionText', 'snippet', 'summary', 'jobDescription', 'text') || '';
+  let desc = stripChrome(pick(raw, 'description', 'descriptionText', 'snippet', 'summary', 'jobDescription', 'text') || ''); // 剝掉 Upwork 頁面 chrome 雜訊
   const skills = pick(raw, 'skills', 'skillsList', 'tags');
   if (Array.isArray(skills) && skills.length) desc += '\n技能: ' + skills.join(', '); // 併入 skills 幫助技能匹配
   const exp = pick(raw, 'experienceLevel', 'tier', 'contractorTier');

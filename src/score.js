@@ -62,6 +62,17 @@ export function proposalBucketLevel(bucket) {
   return 'unknown';
 }
 
+// 剝掉 scraper 抓進來的 Upwork 頁面 chrome(導覽列 + footer),只留職缺正文。
+// 只在偵測到明確 chrome 標記時才動,乾淨輸入不受損(冪等)。在 ingestion 清一次,下游全受惠。
+export function stripChrome(desc) {
+  let d = String(desc || '');
+  // 去頭:Upwork 導覽列 "Skip to content...Toggle Search : Posted... : Summary :"
+  d = d.replace(/^[\s\S]*?Toggle Search[\s\S]{0,200}?:\s*Summary\s*\n?\s*:?\s*/i, '');
+  // 去尾:footer / 結構化欄位區(這些另有專欄,且含 Enterprise Solutions 等雜訊)
+  d = d.split(/Enterprise Solutions|Trust, Safety|Follow Us|©\s*201\d|: Experience Level/i)[0];
+  return d.trim();
+}
+
 // 髒資料防護:把 "13 Connects"/"200 USD"/"0"/數字 都安全轉成數值(抓不到回 null)
 export function toNum(v) {
   if (v == null) return null;
