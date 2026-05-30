@@ -105,6 +105,8 @@ const loadConfig = () => {
   return cfg;
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// id 安全化:用於 onclick/URL 等 JS 語境,只留安全字元(Upwork job/lesson/application id 本就是英數~-_),擋 XSS
+const jid = (s) => String(s ?? '').replace(/[^a-zA-Z0-9_~-]/g, '');
 
 const CRIT_ORDER = ['reward', 'skill', 'client', 'competition', 'longterm', 'clarity', 'risk'];
 const COL = { reward: 'score_reward', skill: 'score_skill', client: 'score_client', competition: 'score_competition', longterm: 'score_longterm', clarity: 'score_clarity', risk: 'score_risk' };
@@ -559,28 +561,31 @@ function pageJobs() {
       else if (/20\s*to\s*50/.test(propStr)) compNum = 35;
       else if (/50\+|over\s*50/.test(propStr)) compNum = 80;
       else { const m = propStr.match(/(\d+)/); if (m) compNum = Number(m[1]); }
-      const spent = j.client_spent_usd || -1;
-      const skillScore = j.score_skill ?? -1;
+      const spent = Number(j.client_spent_usd) || -1;
+      const skillScore = Number(j.score_skill) ?? -1;
       const postedAt = j.posted_at || j.last_seen || '';
+      const sid = jid(j.id); // XSS 安全化:id 用於 onclick / URL
+      const aiWin = Number.isFinite(Number(j.ai_win)) ? Number(j.ai_win) : null; // 防非數值注入
+      const sortScore = Number(ev.isAi ? ev.score * 10 : ev.score) || 0;
       return `
-      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied}" data-favorited="${j.favorited ? 1 : 0}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${j.ai_win ?? -1}" data-sortscore="${ev.isAi ? ev.score * 10 : ev.score}" data-seen="${esc(j.last_seen || '')}" data-pay="${pay}" data-comp="${compNum}" data-spent="${spent}" data-skill="${skillScore}" data-posted="${esc(postedAt)}" data-pv="${j.payment_verified ? 1 : 0}">
+      <article class="card v-${ev.cls}" data-verdict="${ev.cls}" data-applied="${j.applied ? 1 : 0}" data-favorited="${j.favorited ? 1 : 0}" data-blocked="${j.blocked ? 1 : 0}" data-fit="${fit.c}" data-parent="${esc(parent)}" data-tags="${esc(jtags.join(','))}" data-win="${aiWin ?? -1}" data-sortscore="${sortScore}" data-seen="${esc(j.last_seen || '')}" data-pay="${Number(pay) || -1}" data-comp="${Number(compNum) || 999}" data-spent="${spent}" data-skill="${Number(skillScore) || -1}" data-posted="${esc(postedAt)}" data-pv="${j.payment_verified ? 1 : 0}">
         <div class="top">
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
           ${j.blocked ? '<span class="badge SKIP" title="被第二道門擋下,不進 AI 分析">🚫 超綱</span>' : ''}
-          ${j.ai_win != null ? `<span class="winbadge ${winCls(j.ai_win)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${j.ai_win}%</span>` : ''}
+          ${aiWin != null ? `<span class="winbadge ${winCls(aiWin)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${aiWin}%</span>` : ''}
           ${firstWinChips(j, cfg)}
-          <button class="favbtn ${j.favorited ? 'on' : ''}" onclick="favJob('${j.id}',this)" title="收藏" style="background:none;border:0;cursor:pointer;font-size:18px;padding:0 4px">${j.favorited ? '❤️' : '🤍'}</button>
-          <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${j.id}',this.checked)"> 已投</label>
+          <button class="favbtn ${j.favorited ? 'on' : ''}" onclick="favJob('${sid}',this)" title="收藏" style="background:none;border:0;cursor:pointer;font-size:18px;padding:0 4px">${j.favorited ? '❤️' : '🤍'}</button>
+          <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${sid}',this.checked)"> 已投</label>
         </div>
-        <h2><a href="/job?id=${j.id}">${esc(j.title)}</a></h2>
+        <h2><a href="/job?id=${sid}">${esc(j.title)}</a></h2>
         <p class="reason">${esc(j.reason)}</p>
         <div class="atags"><span class="fit ${fit.c}">${fit.t}</span>${parentHtml}${childHtml}</div>
         <div class="tags">${tags.map((t) => `<span>${t}</span>`).join('')}</div>
         <details class="dim"><summary>展開 7 維評分</summary><div class="grid7">${metrics}</div></details>
         <div class="acts">
-          <a class="open primary" href="/job?id=${j.id}">② 評估案件 →</a>
-          <a class="open" href="/proposal?id=${j.id}">③ 寫提案 →</a>
+          <a class="open primary" href="/job?id=${sid}">② 評估案件 →</a>
+          <a class="open" href="/proposal?id=${sid}">③ 寫提案 →</a>
           <a class="open" href="${esc(cleanUrl(j))}" data-url="${esc(cleanUrl(j))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
         </div>
       </article>`;
@@ -2005,16 +2010,17 @@ function winRateAnalysis(job, ev) {
 
 // 共用:單一案頂部資訊列(評估/提案頁共用)
 function jobBarHtml(job, active) {
-  const back = active === '/proposal' ? `<a href="/job?id=${job.id}">← 回評估</a>` : `<a href="/">← 回列表</a>`;
+  const sid = jid(job.id); // XSS 安全化
+  const back = active === '/proposal' ? `<a href="/job?id=${sid}">← 回評估</a>` : `<a href="/">← 回列表</a>`;
   const outcomes = ['', '已投待回', '已回覆', '面試中', '已錄取', '沒回/落選'];
-  const opts = outcomes.map((o) => `<option value="${o}"${(job.outcome || '') === o ? ' selected' : ''}>${o || '— 投標結果 —'}</option>`).join('');
+  const opts = outcomes.map((o) => `<option value="${esc(o)}"${(job.outcome || '') === o ? ' selected' : ''}>${o || '— 投標結果 —'}</option>`).join('');
   return `<div class="jobbar">
     ${back}
     <a href="${esc(cleanUrl(job))}" data-url="${esc(cleanUrl(job))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
-    <label class="applied"><input type="checkbox" ${job.applied ? 'checked' : ''} onchange="markJob('${job.id}',this.checked)"> 標記已投</label>
-    <button id="favBtn" onclick="favThis('${job.id}')" title="收藏案件" style="background:none;border:1px solid var(--bd);border-radius:6px;padding:4px 12px;font-size:14px;cursor:pointer">${job.favorited ? '❤️ 已收藏' : '🤍 收藏'}</button>
-    <button onclick="markPrivate('${job.id}')" title="點進去發現 Access denied / 私案 / 已 hire?點這個直接 SKIP" style="background:#3d1e1e;color:#f85149;border:1px solid #f85149;border-radius:6px;padding:4px 10px;font-size:13px;cursor:pointer">🔒 標為私案 / 已關閉</button>
-    <select onchange="setOutcome('${job.id}',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:13px">${opts}</select>
+    <label class="applied"><input type="checkbox" ${job.applied ? 'checked' : ''} onchange="markJob('${sid}',this.checked)"> 標記已投</label>
+    <button id="favBtn" onclick="favThis('${sid}')" title="收藏案件" style="background:none;border:1px solid var(--bd);border-radius:6px;padding:4px 12px;font-size:14px;cursor:pointer">${job.favorited ? '❤️ 已收藏' : '🤍 收藏'}</button>
+    <button onclick="markPrivate('${sid}')" title="點進去發現 Access denied / 私案 / 已 hire?點這個直接 SKIP" style="background:#3d1e1e;color:#f85149;border:1px solid #f85149;border-radius:6px;padding:4px 10px;font-size:13px;cursor:pointer">🔒 標為私案 / 已關閉</button>
+    <select onchange="setOutcome('${sid}',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:13px">${opts}</select>
   </div>
   <script>
     function setOutcome(id,v){fetch('/api/outcome?id='+id+'&outcome='+encodeURIComponent(v),{method:'POST'});}
@@ -2118,7 +2124,7 @@ function pageJob(id) {
   <details class="howwin"${wr.lowWin ? ' open' : ''}>
     <summary>🏆 就算勝率低,怎麼脫穎而出 / 值不值得花 connects</summary>
     <ul>${wr.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
-    <p class="reason">想要這個案子的「客製化中標策略 + 求職信」→ <a href="/proposal?id=${job.id}">去 ③ 寫提案</a>(AI 會針對此案給差異化打法)。</p>
+    <p class="reason">想要這個案子的「客製化中標策略 + 求職信」→ <a href="/proposal?id=${jid(job.id)}">去 ③ 寫提案</a>(AI 會針對此案給差異化打法)。</p>
   </details>
 
   <h2>7 維評分(規則式)</h2>
@@ -2127,10 +2133,10 @@ function pageJob(id) {
   <h2>工作內容</h2>
   <div class="desc">${esc(job.description || '(擴充套件未帶描述)')}</div>
 
-  <p style="margin-top:18px"><a class="cta" href="/proposal?id=${job.id}">③ 決定投了 → 去寫提案</a></p>
+  <p style="margin-top:18px"><a class="cta" href="/proposal?id=${jid(job.id)}">③ 決定投了 → 去寫提案</a></p>
 </main>
 <script>
-  const ID=${JSON.stringify(job.id)}, AID=${JSON.stringify(aid)};
+  const ID=${JSON.stringify(jid(job.id))}, AID=${JSON.stringify(aid)};
   let anTimer;
   async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
   function fit(f){try{f.style.height=(f.contentWindow.document.body.scrollHeight+40)+'px';}catch(e){}}
@@ -2254,7 +2260,7 @@ function pageProposal(id) {
   </div>
 </main>
 <script>
-  const ID=${JSON.stringify(job.id)};
+  const ID=${JSON.stringify(jid(job.id))};
   async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
   // 🎯 篩選問題作戰區渲染(用 DOM textContent,避免轉義/XSS 問題)
   function renderScreening(d){
@@ -2456,6 +2462,34 @@ function cleanUrl(j) {
   return `https://www.upwork.com/jobs/~${id}`;
 }
 
+// 🤖 把一筆 job 整理成「CLI AI 友善」的精簡 JSON(/api/agent/read/* 用)。verdict 以 AI 為準。
+function agentJobView(j) {
+  const ev = effectiveVerdict(j);
+  return {
+    id: j.id,
+    title: j.title,
+    url: cleanUrl(j),
+    verdict: ev.verdict,            // APPLY/MAYBE/SKIP(有 AI 分數就以 AI 為準)
+    score: ev.isAi ? ev.score : (j.total_score != null ? Math.round(j.total_score / 10 * 10) / 10 : null),
+    total_score: j.total_score,
+    ai_score: j.ai_score,
+    ai_win: j.ai_win,
+    reason: j.reason,
+    budget: j.budget_text,
+    proposals: j.proposals_bucket,
+    payment_verified: !!j.payment_verified,
+    client: { spent: j.client_spent_text, hire_rate: j.client_hire_rate, rating: j.client_rating, jobs_posted: j.client_jobs_posted },
+    experience_level: j.experience_level,
+    connects_required: j.connects_required,
+    posted_at: j.posted_at,
+    tags: String(j.tags || '').split(',').map((t) => t.trim()).filter(Boolean),
+    category: j.category,
+    blocked: !!j.blocked,
+    applied: !!j.applied,
+    favorited: !!j.favorited
+  };
+}
+
 // 把外部 webhook 送來的一筆職缺,正規化成我們的 job 物件
 function normalizeIngest(raw) {
   const url = pick(raw, 'url', 'jobUrl', 'link', 'job_url', 'permalink', 'href') || '';
@@ -2595,10 +2629,44 @@ createServer(async (req, res) => {
     const refreshWithKey = url.pathname === '/api/refresh-job' && process.env.INGEST_KEY && url.searchParams.get('key') === process.env.INGEST_KEY;
     // 擴充功能也可以用 INGEST_KEY 直接 push invites(不用登入)
     const inviteIngestWithKey = url.pathname === '/api/invites/ingest' && req.method === 'POST' && process.env.INGEST_KEY && (url.searchParams.get('key') === process.env.INGEST_KEY || req.headers['x-ingest-key'] === process.env.INGEST_KEY);
-    if (url.pathname !== '/api/ingest' && !refreshWithKey && !inviteIngestWithKey) {
+    // 🤖 CLI AI 唯讀通道:/api/agent/read/* 帶正確 AGENT_KEY 免登入(只讀,不改任何東西)
+    const agentRead = url.pathname.startsWith('/api/agent/read/') && req.method === 'GET'
+      && process.env.AGENT_KEY && (url.searchParams.get('key') === process.env.AGENT_KEY || req.headers['x-agent-key'] === process.env.AGENT_KEY);
+    if (url.pathname !== '/api/ingest' && !refreshWithKey && !inviteIngestWithKey && !agentRead) {
       const user = await requireAuth(req, res, url.pathname.startsWith('/api/'));
       if (!user) return;
     }
+
+    // 🤖 CLI AI 唯讀通道(需 AGENT_KEY,只讀不改)。讓終端機的 AI agent 直接讀網站的案+評分。
+    if (url.pathname === '/api/agent/read/summary') {
+      const rows = db.prepare('SELECT * FROM jobs').all();
+      const counts = {};
+      for (const j of rows) { const v = effectiveVerdict(j).verdict; counts[v] = (counts[v] || 0) + 1; }
+      const topApply = rows
+        .filter((j) => effectiveVerdict(j).verdict === 'APPLY' && !j.applied && !j.blocked)
+        .sort((a, b) => (b.ai_score ?? (b.total_score || 0) / 10) - (a.ai_score ?? (a.total_score || 0) / 10))
+        .slice(0, 15).map(agentJobView);
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ ok: true, total: rows.length, counts, top_apply_unapplied: topApply }, null, 2));
+    }
+    if (url.pathname === '/api/agent/read/jobs') {
+      const want = (url.searchParams.get('verdict') || '').toUpperCase();
+      const limit = Math.min(Number(url.searchParams.get('limit')) || 100, 500);
+      let rows = db.prepare('SELECT * FROM jobs ORDER BY COALESCE(ai_score * 10, total_score) DESC, last_seen DESC').all();
+      if (want) rows = rows.filter((j) => effectiveVerdict(j).verdict === want);
+      if (url.searchParams.get('unapplied') === '1') rows = rows.filter((j) => !j.applied);
+      if (url.searchParams.get('exclude_blocked') === '1') rows = rows.filter((j) => !j.blocked);
+      const jobs = rows.slice(0, limit).map(agentJobView);
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ ok: true, count: jobs.length, jobs }, null, 2));
+    }
+    if (url.pathname === '/api/agent/read/job') {
+      const j = db.prepare('SELECT * FROM jobs WHERE id = ?').get(url.searchParams.get('id'));
+      if (!j) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"not found"}'); }
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ ok: true, job: { ...agentJobView(j), description: j.description } }, null, 2));
+    }
+
     if (url.pathname === '/api/mark') {
       markApplied(db, url.searchParams.get('id'), url.searchParams.get('applied') === '1');
       res.writeHead(200, { 'content-type': 'application/json' });
