@@ -115,6 +115,17 @@ export function isLargeScope(j) {
   return fromScratch || wholeProduct || enterprise || team || longNoFirst;
 }
 
+// 🙅 非開發角色:標題明顯是招募/小編/行政/客服/業務/VA 等「找人做非開發工作」的案。
+// 就算內文有 AI/automation buzzword(掛羊頭)也不是你的領域。標題若有開發職稱則不算(可能是「找工程師建招募工具」)。
+export function isNonDevRole(j) {
+  const title = String(j.title || '').toLowerCase();
+  const NONDEV = /\b(recruiter|talent sourcer|sourcer|headhunter|content creator|copywriter|social media manager|community manager|virtual assistant|data entry|appointment setter|customer (support|service)|sales (rep|representative)|\bsdr\b|\bbdr\b|telemarket|cold caller|human resources|\bhr\b|admin(?:istrative)? (assistant|support)|executive assistant|bookkeeper|voice ?over|transcription(?:ist)?|proofreader|seo writer|brand ambassador|moderator)\b/;
+  if (!NONDEV.test(title)) return false;
+  // 標題同時有「開發職稱」→ 是開發案,不算非開發角色
+  const devRole = /\b(developer|engineer|programmer|coder|architect|full[\s-]?stack|back[\s-]?end|front[\s-]?end|software)\b/;
+  return !devRole.test(title);
+}
+
 // 第一單目標:小而明確、低競爭、付款驗證、客戶非全新爛,且非 Expert/大型 → 新手搶得到的案
 export function isFirstReviewTarget(j, config) {
   if (isSeniorExpertJob(j) || isLargeScope(j)) return false;
@@ -425,6 +436,9 @@ export function scoreJob(j, config) {
   if (/equity[\s-]?only|in exchange for equity|equity[\s-]?based (?:pay|comp)|(?:paid|pay|compensat\w*)[^.]{0,20}(?:equity|revenue[\s-]?share|profit[\s-]?share)|revenue[\s-]?share (?:instead|in lieu|only)/.test(jtext)) scamFlags.push('股權/分潤替代報酬');
   if (/unpaid\s+(?:test|task|trial|assessment|sample)|free\s+(?:test|trial)\s+(?:task|project|work)|no payment for (?:the )?test|test task[^.]{0,30}(?:unpaid|free|no pay)/.test(jtext)) scamFlags.push('無償試做');
 
+  // 🙅 非開發角色(招募/小編/行政/客服等掛羊頭案)— 不是你的領域,直接擋
+  const nonDevRole = isNonDevRole(j);
+
   // 🥊 新手競爭可行性訊號(can-win,與「客戶品質」無關)——
   // 抓住「②能力分很高、客戶也 OK,但 0 評價新手實際搶不到」這類案。資料抓不到的訊號不計(不誤殺)。
   const competeSignals = [];
@@ -472,6 +486,9 @@ export function scoreJob(j, config) {
   if (scamFlags.length) {
     verdict = 'SKIP';
     reason = `🚨 詐騙/違規訊號:${scamFlags.join('、')} — 絕對別投`;
+  } else if (nonDevRole) {
+    verdict = 'SKIP';
+    reason = '🙅 非開發角色(招募/小編/行政/客服/業務等)— 不是你的領域,別投';
   } else if ((isNewbie && deathHit >= 2) || deathHit >= 3) {
     verdict = 'SKIP';
     reason = `💀 死亡訊號攔截 (${deathHit}個):${deathSignals.join('、')} — 新手不投`;
@@ -507,6 +524,7 @@ export function scoreJob(j, config) {
   // 🚪 第二道門(能力)硬攔截:在進 AI 分析前先擋掉。blocked=1 → AI 快篩/分析會跳過(省成本)。
   // ① 命中紅線(不碰)技能 ② 完全在能力圈外(無任何技能命中)→ 一律 SKIP。
   let blocked = 0;
+  if (nonDevRole) blocked = 1; // 非開發角色:不進 AI 快篩(省成本),verdict 已在上面設 SKIP
   if (sk.overscope) {
     verdict = 'SKIP'; blocked = 1;
     reason = `🚫 第二道門·紅線「${sk.redHit.join('/')}」(核心技術,不碰)— ${reason}`;
