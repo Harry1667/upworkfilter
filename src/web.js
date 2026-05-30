@@ -16,6 +16,7 @@ function loadProfileWithLessons() {
   return p;
 }
 import { scoreJob, parseSpentUsd, connectsDiscipline, isFirstReviewTarget, stripChrome } from './score.js';
+import { normalizeIngest, ID_RE } from './ingest.js';
 import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
 import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates, preflightCheck } from './verify.js';
@@ -1145,9 +1146,14 @@ function pageScoring() {
 </script></body></html>`;
 }
 
-async function readBody(req) {
+async function readBody(req, maxBytes = 512 * 1024) {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > maxBytes) throw new Error('request body too large'); // 防大 body 打爆記憶體(Codex review)
+    chunks.push(c);
+  }
   return Buffer.concat(chunks).toString('utf8');
 }
 
@@ -1161,6 +1167,7 @@ function navBar(active, jobId) {
     <div class="brand">📋 Upwork Filter <small>v2</small></div>
     <div class="group">接案流程</div>
     ${link('/', '① 找案子', active === '/')}
+    ${link('/analyze', '🔎 即時分析', active === '/analyze')}
     ${link('/job' + q, '② 評估案件', active === '/job')}
     ${link('/proposal' + q, '③ 寫提案', active === '/proposal')}
     ${link('/reply', '④ 回客戶訊息', active === '/reply')}
@@ -2438,16 +2445,7 @@ function pageProposal(id) {
 </script></body></html>`;
 }
 
-// 寬容取值:從多個可能的 key 取第一個有值的
-const pick = (o, ...keys) => {
-  for (const k of keys) {
-    const v = k.split('.').reduce((a, kk) => (a == null ? a : a[kk]), o);
-    if (v != null && v !== '') return v;
-  }
-  return undefined;
-};
-
-const ID_RE = /~([0-9a-f]+)/i;
+// pick / ID_RE / normalizeIngest / parseBudget 等已抽到 src/ingest.js(共用,避免雙份解析)
 
 // 職缺連結 → /jobs/~ID(實證:貼到網址列會登入並直接進該案完整詳情頁:About the client/評分/hire rate/Connects)。
 // 跨站「點擊」跳轉拿不到 Upwork 登入(SameSite/referrer),故 UI 一律「複製連結、自己貼」。
@@ -2490,77 +2488,9 @@ function agentJobView(j) {
   };
 }
 
-// 把外部 webhook 送來的一筆職缺,正規化成我們的 job 物件
-function normalizeIngest(raw) {
-  const url = pick(raw, 'url', 'jobUrl', 'link', 'job_url', 'permalink', 'href') || '';
-  const idm = String(url).match(ID_RE);
-  const id = (idm ? idm[1] : null) || pick(raw, 'id', 'jobId', 'ciphertext', 'uid') || ('h' + Math.abs([...String(url || JSON.stringify(raw))].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)));
-  let desc = stripChrome(pick(raw, 'description', 'descriptionText', 'snippet', 'summary', 'jobDescription', 'text') || ''); // 剝掉 Upwork 頁面 chrome 雜訊
-  const skills = pick(raw, 'skills', 'skillsList', 'tags');
-  if (Array.isArray(skills) && skills.length) desc += '\n技能: ' + skills.join(', '); // 併入 skills 幫助技能匹配
-  const exp = pick(raw, 'experienceLevel', 'tier', 'contractorTier');
-  if (exp) desc += `\n經驗等級: ${exp}`;
-  const budgetText = pick(raw, 'budget', 'budgetText', 'price', 'hourlyRange', 'amount') || '';
-  const jobType = String(pick(raw, 'jobType', 'type', 'contractType') || '');
-  const spentText = pick(raw, 'clientTotalSpent', 'clientSpent', 'totalSpent', 'spent', 'client.totalSpent') || '';
-  const pv = pick(raw, 'paymentVerified', 'payment_verified', 'paymentMethod', 'paymentStatus');
-  const job = {
-    id: String(id).replace(/[^\w-]/g, '').slice(0, 32) || 'j' + Date.now(),
-    title: pick(raw, 'title', 'jobTitle', 'name') || '(無標題)',
-    url: url || (idm ? `https://www.upwork.com/jobs/_~${idm[1]}/` : ''),
-    description: String(desc).slice(0, 8000), // 放寬:長描述的「To Apply/影片題」常在後段,別切掉
-    posted_text: pick(raw, 'datePosted', 'posted', 'postedOn', 'publishedDate', 'createdAt') || null, // 原始相對字串(僅參考,會過期)
-    posted_at: normalizePostedAt(raw), // 絕對時間戳(ISO)— 顯示一律用這個重算,才不會過期
+// normalizeIngest / numOrNull / normalizePostedAt 已抽到 src/ingest.js
 
-    payment_verified: pv === true || /verified|^true$|是/i.test(String(pv ?? '')),
-    proposals_bucket: String(pick(raw, 'proposals', 'proposalsBucket', 'applicants', 'totalApplicants') ?? '') || null,
-    client_spent_text: spentText ? String(spentText) : null,
-    client_spent_usd: parseSpentUsd(spentText),
-    client_hire_rate: numOrNull(pick(raw, 'hireRate', 'clientHireRate', 'client.hireRate')),
-    client_rating: numOrNull(pick(raw, 'clientRating', 'rating', 'client.rating', 'feedback')),
-    client_reviews: numOrNull(pick(raw, 'reviews', 'reviewsCount', 'clientReviews', 'client.reviews')),
-    client_jobs_posted: numOrNull(pick(raw, 'jobsPosted', 'clientJobsPosted', 'client.jobsPosted', 'postedJobs')),
-    enriched: true
-  };
-  // 評分時把 clientRating=0 視為「無評價」(新客戶),避免被當成 0 分
-  if (job.client_rating === 0) job.client_rating = null;
-  Object.assign(job, parseBudget(budgetText));
-  if (job.budget_type === 'unknown' && /hourly/i.test(jobType)) job.budget_type = 'hourly';
-  if (job.budget_type === 'unknown' && /fixed/i.test(jobType)) job.budget_type = 'fixed';
-  return job;
-}
-
-function numOrNull(v) {
-  if (v == null) return null;
-  const n = parseFloat(String(v).replace(/[^\d.]/g, ''));
-  return isNaN(n) ? null : n;
-}
-
-// 從 ingest payload 取「發布絕對時間戳」(ISO)。優先用擴充功能算好的 postedAtIso / postedAtMs,
-// 都沒有才從相對字串(Posted N minutes ago)以 scrapedAt(或現在)為錨點回推。
-function normalizePostedAt(raw) {
-  const iso = pick(raw, 'postedAtIso', 'postedAtISO', 'postedAtISOString');
-  if (iso && !isNaN(Date.parse(iso))) return new Date(iso).toISOString();
-  const ms = Number(pick(raw, 'postedAtMs', 'postedAtMS'));
-  if (ms > 0) return new Date(ms).toISOString();
-  const rel = pick(raw, 'datePosted', 'posted', 'postedOn');
-  const anchorRaw = pick(raw, 'scrapedAt', 'scraped_at');
-  const anchor = anchorRaw && !isNaN(Date.parse(anchorRaw)) ? new Date(anchorRaw).getTime() : Date.now();
-  return parseRelativePosted(rel, anchor);
-}
-
-// 把「Posted 8 minutes ago / yesterday / 3 days ago」以錨點時間回推成 ISO
-function parseRelativePosted(str, anchorMs) {
-  if (!str) return null;
-  const s = String(str).toLowerCase();
-  if (/just now|seconds? ago|moments? ago/.test(s)) return new Date(anchorMs).toISOString();
-  if (/yesterday/.test(s)) return new Date(anchorMs - 86400000).toISOString();
-  const m = s.match(/(\d+)\s*(second|minute|hour|day|week|month)s?\s*ago/);
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  const unit = { second: 1e3, minute: 6e4, hour: 36e5, day: 864e5, week: 6048e5, month: 2592e6 }[m[2]];
-  return new Date(anchorMs - n * unit).toISOString();
-}
+// parseRelativePosted 已抽到 src/ingest.js
 
 // 資料新鮮度:距 last_seen(最後一次抓到)多久。超過 3 小時 → 提案/競爭數據可能已過時。
 function ageInfo(iso) {
@@ -2581,16 +2511,129 @@ function formatPosted(job) {
   return `${rel}(${abs})`;
 }
 
-function parseBudget(text) {
-  const t = String(text || '');
-  if (!t) return { budget_type: 'unknown' };
-  if (/hourly|\/hr|\/ hr/i.test(t)) {
-    const nums = [...t.matchAll(/\$?\s*([\d.]+)/g)].map((m) => parseFloat(m[1])).filter((n) => !isNaN(n));
-    return { budget_type: 'hourly', budget_text: t.slice(0, 30), hourly_min: nums[0] ?? null, hourly_max: nums[1] ?? nums[0] ?? null };
+// parseBudget 已抽到 src/ingest.js
+
+// 🔎 Quick Analyze 頁:貼上或 bookmarklet 一鍵分析任意 Upwork 職缺(不寫 DB,按鈕才存)
+const ANALYZE_SITE = process.env.PUBLIC_URL || 'https://upworkfilter.looptw.com';
+function analyzeBookmarklet() {
+  // best-effort 抓當前 Upwork 職缺頁 DOM,把關鍵欄位 base64 塞進 fragment,開 /analyze。
+  // 描述只取前 6000 字(避免 URL 爆量)。抓不到的欄位留空,後端規則解析降級。
+  const openUrl = JSON.stringify(ANALYZE_SITE + '/analyze#data='); // 安全序列化,避免 site 含 ' 破壞/注入
+  const code = "javascript:(function(){try{var t=(document.querySelector('h1')||{}).innerText||document.title;var b=document.body.innerText||'';var g=function(r){var m=b.match(r);return m?(m[1]||m[0]):''};var d={url:location.href,title:t,description:b.slice(0,5000),budget:g(/\\$[0-9.,]+\\s*(?:-\\s*\\$[0-9.,]+)?\\s*(?:\\/hr)?/i),proposals:g(/(Less than [0-9]+|Fewer than [0-9]+|[0-9]+ to [0-9]+|[0-9]+\\+)\\s*proposals?/i)||g(/Proposals[^0-9]{0,8}(Less than [0-9]+|[0-9]+ to [0-9]+|[0-9]+\\+)/i),paymentVerified:/payment verified/i.test(b),clientTotalSpent:g(/\\$[0-9.,kKmM]+\\s*(?:total )?spent/i),experienceLevel:g(/\\b(Entry|Intermediate|Expert)\\b\\s*\\n?\\s*Experience Level/i)};var enc=btoa(unescape(encodeURIComponent(JSON.stringify(d))));window.open(" + openUrl + "+enc,'_blank');}catch(e){alert('抓取失敗:'+e.message);}})();";
+  return code;
+}
+function pageAnalyze() {
+  const bm = analyzeBookmarklet();
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>🔎 Quick Analyze</title><style>${CSS}
+  .qa-form{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0}
+  .qa-form label{display:block;font-size:13px;color:var(--mut);margin:8px 0 3px}
+  .qa-form input,.qa-form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px;font:13px/1.5 inherit;box-sizing:border-box}
+  .qa-row{display:flex;gap:10px;flex-wrap:wrap}.qa-row>div{flex:1;min-width:120px}
+  .light{display:inline-block;padding:6px 16px;border-radius:20px;font-size:18px;font-weight:700}
+  .light.APPLY{background:#16321c;color:#7ee787}.light.MAYBE{background:#3a2e15;color:#e3b341}.light.SKIP{background:#3d1e1e;color:#f85149}
+  .flag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:10px;margin:2px;font-weight:600}
+  .bar{height:6px;background:#21262d;border-radius:3px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--ac)}
+  .dim7{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:8px}
+  .bmk{display:inline-block;background:var(--ac);color:#fff;padding:6px 14px;border-radius:8px;text-decoration:none;font-weight:600;cursor:grab}</style></head><body>
+<header><h1>🔎 Quick Analyze <span class="sub">投案准駁器 · 投之前先擋掉燒 Connects 的案</span></h1>${navBar('/analyze')}</header>
+<main>
+  <p class="reason">貼上你在 Upwork 看到的職缺(或用下面的書籤一鍵帶入),立刻知道:🟢衝 / 🟡考慮 / 🔴別浪費 Connects + 風險旗標。不寫進列表,按「存進列表」才存。</p>
+
+  <details style="margin:10px 0"><summary style="cursor:pointer;color:var(--ac)">⚡ 一鍵分析書籤(bookmarklet)— 點開看怎麼裝</summary>
+    <div class="qa-form">
+      <p class="reason">把下面這顆按鈕<b>拖到瀏覽器書籤列</b>。之後在任何 Upwork 職缺頁點它 → 自動抓內容、跳來這裡分析(用你的登入 session,不被 CF 擋)。</p>
+      <p><a class="bmk" href="${esc(bm)}" onclick="return false">🔎 Analyze this job</a> ← 拖我到書籤列</p>
+      <p class="reason" style="color:var(--mut)">抓不到的欄位會留空,你可以在下面手動補。</p>
+    </div>
+  </details>
+
+  <div class="qa-form">
+    <label>職缺網址(選填)</label><input id="qa-url" placeholder="https://www.upwork.com/jobs/~...">
+    <label>標題</label><input id="qa-title" placeholder="職缺標題">
+    <label>職缺描述(整段貼上)</label><textarea id="qa-desc" style="min-height:120px" placeholder="把 Upwork 職缺描述整段複製貼進來"></textarea>
+    <div class="qa-row">
+      <div><label>預算</label><input id="qa-budget" placeholder="Fixed $200 / Hourly $15-30"></div>
+      <div><label>提案數</label><input id="qa-prop" placeholder="Less than 5 / 5 to 10"></div>
+      <div><label>客戶花費</label><input id="qa-spent" placeholder="$1.5K spent"></div>
+      <div><label>聘用率%</label><input id="qa-hire" placeholder="80"></div>
+    </div>
+    <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px"><input type="checkbox" id="qa-pv" style="width:auto"> 付款已驗證</label>
+    <p style="margin-top:12px"><button class="save" onclick="qaRun()">🔎 分析</button> <span id="qa-msg" class="reason"></span></p>
+  </div>
+
+  <div id="qa-result" style="display:none"></div>
+</main>
+<script>
+(function(){
+  function val(id){return document.getElementById(id).value.trim();}
+  function payload(){return {url:val('qa-url'),title:val('qa-title'),description:val('qa-desc'),budget:val('qa-budget'),proposals:val('qa-prop'),clientTotalSpent:val('qa-spent'),hireRate:val('qa-hire'),paymentVerified:document.getElementById('qa-pv').checked};}
+  var lastPayload=null;
+  window.qaRun=async function(){
+    var p=payload(); lastPayload=p;
+    if(!p.description && !p.title){document.getElementById('qa-msg').textContent='請至少貼上標題或描述';return;}
+    document.getElementById('qa-msg').textContent='分析中…';
+    try{
+      var r=await fetch('/api/quick-analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p)});
+      var d=await r.json();
+      if(!d.ok){document.getElementById('qa-msg').textContent='失敗';return;}
+      document.getElementById('qa-msg').textContent='';
+      render(d);
+    }catch(e){document.getElementById('qa-msg').textContent='錯誤:'+e.message;}
+  };
+  function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}
+  function render(d){
+    var box=document.getElementById('qa-result'); box.innerHTML=''; box.style.display='block';
+    var j=d.job||{}; var v=j.verdict||'SKIP';
+    var card=el('div','sect'); card.style.cssText='background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0';
+    // 紅綠燈
+    var lightTxt=v==='APPLY'?'🟢 衝 (APPLY)':v==='MAYBE'?'🟡 考慮 (MAYBE)':'🔴 別浪費 Connects (SKIP)';
+    var light=el('span','light '+v,lightTxt); card.appendChild(light);
+    if(d.firstReview){var fr=el('span','flag',' 🎯 第一單目標');fr.style.cssText='background:#16321c;color:#7ee787;margin-left:8px';card.appendChild(fr);}
+    // 勝率
+    if(d.win){var w=el('div','reason','🎯 估計勝率 '+d.win.pct+'% ('+d.win.level+') — '+(d.win.note||''));w.style.marginTop='10px';card.appendChild(w);}
+    // 標題
+    var h=el('h2',null,j.title||'(無標題)');h.style.cssText='margin:10px 0 4px;border:0;padding:0;font-size:16px';card.appendChild(h);
+    // reason
+    if(j.reason){card.appendChild(el('div','reason',j.reason));}
+    // Connects 紀律旗標
+    var cd=d.connects||{};
+    if(cd.avoidApply){var f=el('div','flag','🔴 建議別投');f.style.cssText='background:#3d1e1e;color:#f85149';card.appendChild(f);}
+    else if(cd.noBoost){var f2=el('div','flag','🚫 可投但不要 boost');f2.style.cssText='background:#3a2e15;color:#e3b341';card.appendChild(f2);}
+    if(cd.reasons&&cd.reasons.length){card.appendChild(el('div','reason','— '+cd.reasons.join('；')));}
+    // 7 維
+    var dims={reward:'報酬',skill:'技能',client:'客戶',competition:'競爭',longterm:'長期',clarity:'清晰',risk:'風險'};
+    var grid=el('div','dim7'); var sc=j.scores||{};
+    Object.keys(dims).forEach(function(k){var c=el('div',null);c.appendChild(el('b',null,dims[k]+' '+(sc[k]??0)));var bar=el('div','bar');var i=el('i');i.style.width=(sc[k]||0)+'%';bar.appendChild(i);c.appendChild(bar);grid.appendChild(c);});
+    var det=el('details');det.appendChild(el('summary',null,'7 維評分'));det.appendChild(grid);card.appendChild(det);
+    // 存進列表
+    var saveBtn=el('button','save','💾 存進列表 + 看完整 AI 分析/寫提案 →');saveBtn.style.marginTop='12px';
+    saveBtn.onclick=async function(){saveBtn.textContent='儲存中…';try{var r=await fetch('/api/quick-analyze/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(lastPayload)});var s=await r.json();if(s.ok&&s.id){location.href='/job?id='+encodeURIComponent(s.id);}else{saveBtn.textContent='存檔失敗';}}catch(e){saveBtn.textContent='錯誤';}};
+    card.appendChild(saveBtn);
+    box.appendChild(card);
   }
-  const fx = t.match(/\$\s*([\d.,]+)/);
-  if (fx) return { budget_type: 'fixed', budget_text: t.slice(0, 30), fixed_budget: parseFloat(fx[1].replace(/,/g, '')) };
-  return { budget_type: 'unknown', budget_text: t.slice(0, 30) };
+  // fragment bootstrap:bookmarklet 帶資料進來 → 驗證 → 填表 → 清掉 hash → 自動分析
+  function bootstrap(){
+    var h=location.hash||''; var m=h.match(/[#&]data=([^&]+)/); if(!m)return;
+    var data=null;
+    try{ data=JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); }catch(e){ try{data=JSON.parse(atob(m[1]));}catch(e2){} }
+    history.replaceState(null,'','/analyze'); // 立刻清掉 fragment(別留在歷史/網址列)
+    if(!data||typeof data!=='object')return;
+    // schema 驗證:只取白名單字串欄位,長度上限
+    var s=function(x,n){return (x==null?'':String(x)).slice(0,n||500);};
+    document.getElementById('qa-url').value=s(data.url,300);
+    document.getElementById('qa-title').value=s(data.title,300);
+    document.getElementById('qa-desc').value=s(data.description,8000);
+    document.getElementById('qa-budget').value=s(data.budget,40);
+    document.getElementById('qa-prop').value=s(data.proposals,40);
+    document.getElementById('qa-spent').value=s(data.clientTotalSpent,40);
+    document.getElementById('qa-hire').value=s(data.hireRate,10);
+    document.getElementById('qa-pv').checked=!!data.paymentVerified;
+    qaRun(); // 自動分析
+  }
+  bootstrap();
+})();
+</script></body></html>`;
 }
 
 createServer(async (req, res) => {
@@ -2665,6 +2708,33 @@ createServer(async (req, res) => {
       if (!j) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"not found"}'); }
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
       return res.end(JSON.stringify({ ok: true, job: { ...agentJobView(j), description: j.description } }, null, 2));
+    }
+
+    // 🔎 Quick Analyze:貼上/bookmarklet 來的任意職缺 → 即時規則評分(不寫 DB)。已登入才到得了這。
+    if (url.pathname === '/api/quick-analyze' && req.method === 'POST') {
+      let raw; try { raw = JSON.parse((await readBody(req)) || '{}'); } catch { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"bad request"}'); }
+      const cfg = loadConfig();
+      const job = normalizeIngest(raw); // 已含 stripChrome + slice(0,8000),防爆量
+      Object.assign(job, scoreJob(job, cfg));
+      // winRateHint 讀 score_X 欄位(DB 風格),quick-analyze 沒經 upsert → 手動映射
+      const _s = job.scores || {};
+      job.score_competition = _s.competition; job.score_skill = _s.skill; job.score_client = _s.client;
+      const cd = connectsDiscipline(job, cfg.scoring?.connectsHot ?? 16);
+      let firstReview = false; try { firstReview = isFirstReviewTarget(job, cfg); } catch { /* ignore */ }
+      const win = winRateHint(job);
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ ok: true, job, connects: cd, firstReview, win }));
+    }
+    // 💾 存進列表(落庫),回 id → 前端跳 /job?id= 看完整 AI 快篩 + 寫提案(重用現有流程)
+    if (url.pathname === '/api/quick-analyze/save' && req.method === 'POST') {
+      let raw; try { raw = JSON.parse((await readBody(req)) || '{}'); } catch { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"bad request"}'); }
+      const cfg = loadConfig();
+      const job = normalizeIngest(raw);
+      Object.assign(job, scoreJob(job, cfg));
+      upsertJob(db, job);
+      if (process.env.AI_TRIAGE_ON_INGEST !== '0') autoTriageIngested([job.id]); // 背景補 AI 快篩
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      return res.end(JSON.stringify({ ok: true, id: job.id }));
     }
 
     if (url.pathname === '/api/mark') {
@@ -3192,6 +3262,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/proposal') { // ③ 提案(生產)
       return serveHtml(res, pageProposal((url.searchParams.get('id') || '').replace(/[^\w-]/g, '')));
+    }
+    if (url.pathname === '/analyze') { // 🔎 Quick Analyze:貼上/bookmarklet 一鍵分析任意職缺
+      return serveHtml(res, pageAnalyze());
     }
     if (url.pathname === '/profile') {
       return serveHtml(res, pageProfile());
