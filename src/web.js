@@ -2467,7 +2467,8 @@ function agentJobView(j) {
     id: j.id,
     title: j.title,
     url: cleanUrl(j),
-    verdict: ev.verdict,            // APPLY/MAYBE/SKIP(有 AI 分數就以 AI 為準)
+    verdict: ev.cls,                // 正規化 APPLY/MAYBE/SKIP(AI 中文 verdict 也映射成這個)
+    ai_label: ev.isAi ? ev.verdict : null, // AI 原始判斷(強力接/可接/觀望/略過),供參考
     score: ev.isAi ? ev.score : (j.total_score != null ? Math.round(j.total_score / 10 * 10) / 10 : null),
     total_score: j.total_score,
     ai_score: j.ai_score,
@@ -2684,9 +2685,9 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/agent/read/summary') {
       const rows = db.prepare('SELECT * FROM jobs').all();
       const counts = {};
-      for (const j of rows) { const v = effectiveVerdict(j).verdict; counts[v] = (counts[v] || 0) + 1; }
+      for (const j of rows) { const v = effectiveVerdict(j).cls; counts[v] = (counts[v] || 0) + 1; }
       const topApply = rows
-        .filter((j) => effectiveVerdict(j).verdict === 'APPLY' && !j.applied && !j.blocked)
+        .filter((j) => effectiveVerdict(j).cls === 'APPLY' && !j.applied && !j.blocked)
         .sort((a, b) => (b.ai_score ?? (b.total_score || 0) / 10) - (a.ai_score ?? (a.total_score || 0) / 10))
         .slice(0, 15).map(agentJobView);
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -2696,7 +2697,7 @@ createServer(async (req, res) => {
       const want = (url.searchParams.get('verdict') || '').toUpperCase();
       const limit = Math.min(Number(url.searchParams.get('limit')) || 100, 500);
       let rows = db.prepare('SELECT * FROM jobs ORDER BY COALESCE(ai_score * 10, total_score) DESC, last_seen DESC').all();
-      if (want) rows = rows.filter((j) => effectiveVerdict(j).verdict === want);
+      if (want) rows = rows.filter((j) => effectiveVerdict(j).cls === want);
       if (url.searchParams.get('unapplied') === '1') rows = rows.filter((j) => !j.applied);
       if (url.searchParams.get('exclude_blocked') === '1') rows = rows.filter((j) => !j.blocked);
       const jobs = rows.slice(0, limit).map(agentJobView);
