@@ -693,10 +693,12 @@ function pageJobs() {
     b.disabled=true;let s=0;m.textContent=' 快篩中…(便宜 AI 批次,勿關閉) 0s';
     const t=setInterval(()=>{m.textContent=' 快篩中…(便宜 AI 批次,勿關閉) '+(++s)+'s';},1000);
     try{const r=await fetch('/api/triage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({all:!!all})});
-      const j=await r.json();clearInterval(t);
+      clearInterval(t);
+      if(!r.ok){m.textContent=' ❌ '+(r.status>=502?'AI 太久或伺服器忙,請再按一次':'失敗('+r.status+')');b.disabled=false;return;}
+      let j;try{j=await r.json();}catch(e){m.textContent=' ❌ AI 回應異常,請再試一次';b.disabled=false;return;}
       if(j.ok){m.textContent=' ✅ 已快篩 '+j.triaged+' 案,重整中…';setTimeout(()=>location.reload(),800);}
       else m.textContent=' ❌ '+(j.error||'失敗');}
-    catch(e){clearInterval(t);m.textContent=' ❌ '+e.message;}b.disabled=false;}
+    catch(e){clearInterval(t);m.textContent=' ❌ 連線中斷,請再試一次';}b.disabled=false;}
 </script></body></html>`;
 }
 
@@ -2296,9 +2298,12 @@ function pageProposal(id) {
     btn.disabled=true;st.textContent='產生中…('+(mode==='consensus'?'🤝 3 模型共識,約 60-90 秒':'求職信 + 策略 + 篩選問題作戰區,約30-60秒')+')';
     const body=JSON.stringify({id:ID,descOverride:descOverride});
     const clUrl='/api/cover-letter'+(mode?'?mode='+mode:'?skipverify=1');
-    const cover=fetch(clUrl,{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
-    const adv=fetch('/api/advice',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json());
-    const scr=fetch('/api/screening',{method:'POST',headers:{'content-type':'application/json'},body:body}).then(r=>r.json()).catch(function(){return{ok:false};});
+    // 安全解析:502/504 會回 HTML,直接 r.json() 會噴「Unexpected token <」→ 改成檢查 r.ok + try/catch,回友善訊息
+    const sj=async function(url,opt){try{const r=await fetch(url,opt);if(!r.ok)return{ok:false,error:(r.status>=502?'AI 太久或伺服器忙':'錯誤')+'('+r.status+'),請再按一次產生'};try{return await r.json();}catch(e){return{ok:false,error:'AI 回應異常,請再試一次'};}}catch(e){return{ok:false,error:'連線中斷,請再試一次'};}};
+    const opt={method:'POST',headers:{'content-type':'application/json'},body:body};
+    const cover=sj(clUrl,opt);
+    const adv=sj('/api/advice',opt);
+    const scr=sj('/api/screening',opt);
     try{
       const [c,a,sc]=await Promise.all([cover,adv,scr]);
       if(sc&&sc.ok&&sc.data)renderScreening(sc.data);
