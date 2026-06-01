@@ -2744,7 +2744,25 @@ createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/mark') {
-      markApplied(db, url.searchParams.get('id'), url.searchParams.get('applied') === '1');
+      const jid = url.searchParams.get('id');
+      const isApplied = url.searchParams.get('applied') === '1';
+      markApplied(db, jid, isApplied);
+      // 自動接上投案追蹤迴路:標記已投時,若追蹤表還沒這筆就建立。
+      // (之前迴路會空,就是因為「標記已投」與「建追蹤紀錄」是分開兩步,使用者只做前者。)
+      if (isApplied && jid) {
+        const exists = db.prepare('SELECT 1 FROM applications WHERE job_id = ?').get(jid);
+        if (!exists) {
+          const j = db.prepare('SELECT * FROM jobs WHERE id = ?').get(jid);
+          if (j) addApplication(db, {
+            job_id: j.id,
+            job_title: j.title || '',
+            applied_at: new Date().toISOString(),
+            rate: j.budget_text || '',
+            connects_used: 0,
+            notes: '標記已投時自動建立',
+          });
+        }
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
