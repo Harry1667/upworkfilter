@@ -205,6 +205,11 @@ const CSS = `
   aside.sidebar a.on{background:var(--ac);color:#fff;font-weight:600}
   aside.sidebar .logout{margin-top:auto;border-top:1px solid var(--bd);padding-top:10px}
   aside.sidebar .logout a{color:#8b949e;font-size:12px}
+  /* 子分頁列:融合進同區段的細功能,顯示在頁面 header 標題下 */
+  nav.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 4px;border-bottom:1px solid var(--bd);padding-bottom:0}
+  nav.subtabs a{padding:7px 14px;border-radius:8px 8px 0 0;color:var(--mut);text-decoration:none;font-size:13px;border:1px solid transparent;border-bottom:0;margin-bottom:-1px}
+  nav.subtabs a:hover{color:var(--tx);background:#161b22}
+  nav.subtabs a.on{color:var(--tx);background:var(--card);border-color:var(--bd);font-weight:600}
   aside.sidebar .logout a:hover{color:#f85149;background:transparent}
   @media (max-width: 720px){
     body{display:block}
@@ -1163,36 +1168,44 @@ async function readBody(req, maxBytes = 512 * 1024) {
 // 統一導航 — 6 個職責單一的獨立介面。
 // 流程:① 列表 → ② 評估 → ③ 提案 → ④ 溝通 ｜ 設定:👤 檔案 · ⚖️ 評分
 // jobId:目前在看的案(讓「② 評估 / ③ 提案」連到該案);沒有則連到無 id 頁(提示挑案)
+// 🧭 資訊架構:把 19 個細頁融合成 7 個區段。每個區段底下用「子分頁列」切換細功能。
+// 細頁的 render 函式都不動,只靠 navBar(已知當前 path)集中吐出 sidebar + 子分頁,
+// serveHtml 只抽走 <aside>,子分頁列就留在頁面 header。
+const SUBTABS = {
+  find:     [['/worklist', '🚀 該做'], ['/', '📋 全部案件'], ['/?fav=1', '❤️ 收藏'], ['/analyze', '🔎 即時分析']],
+  client:   [['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回客戶訊息']],
+  results:  [['/today', '🌅 今日'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺']],
+  ai:       [['/lessons', '📌 AI 糾錯'], ['/anchors', '⭐ 信件範本']],
+  settings: [['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/backup', '💾 備份']],
+};
+// 當前 path 屬於哪個區段(決定 sidebar 高亮 + 顯示哪組子分頁)。/invite(單)歸 client。
+function sectionOf(active) {
+  if (active === '/invite') return 'client';
+  for (const [sec, tabs] of Object.entries(SUBTABS)) if (tabs.some(([p]) => p === active)) return sec;
+  return null;
+}
+
 function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
+  const sec = sectionOf(active);
+  // 子分頁列:該區段有多個細頁時,在 header 顯示一排可切換的分頁
+  const tabs = SUBTABS[sec];
+  const subtabs = tabs ? `<nav class="subtabs">${tabs.map(([p, label]) => `<a href="${p}"${p === active ? ' class="on"' : ''}>${label}</a>`).join('')}</nav>` : '';
   return `<aside class="sidebar">
     <div class="brand">📋 Upwork Filter <small>v2</small></div>
-    <div class="group">接案流程</div>
-    ${link('/', '① 找案子', active === '/')}
-    ${link('/analyze', '🔎 即時分析', active === '/analyze')}
-    ${link('/job' + q, '② 評估案件', active === '/job')}
+    <div class="group">接案</div>
+    ${link('/worklist', '🔍 找案子', sec === 'find')}
+    ${link('/job' + q, '② 評估', active === '/job')}
     ${link('/proposal' + q, '③ 寫提案', active === '/proposal')}
-    ${link('/reply', '④ 回客戶訊息', active === '/reply')}
-    ${link('/invites', '⑤ 客戶邀請', active === '/invites' || active === '/invite')}
-    <div class="group">每日</div>
-    ${link('/worklist', '🚀 該做的項目', active === '/worklist')}
-    ${link('/today', '🌅 今日待辦', active === '/today')}
-    ${link('/?fav=1', '❤️ 收藏案件', false)}
-    ${link('/applications', '📊 投案追蹤', active === '/applications')}
-    ${link('/track', '🌱 經驗存摺', active === '/track')}
-    <div class="group">我的設定</div>
-    ${link('/me', '🎯 我的能力', active === '/me')}
-    ${link('/profile', '🪪 我的身分檔', active === '/profile')}
-    ${link('/scoring', '⚖️ 評分設定', active === '/scoring')}
-    ${link('/features', '🧩 功能需求地圖', active === '/features')}
-    ${link('/agents', '🤖 AI 設定', active === '/agents')}
-    <div class="group">學習工具</div>
-    ${link('/lessons', '📌 AI 糾錯紀錄', active === '/lessons')}
-    ${link('/anchors', '⭐ 信件範本', active === '/anchors')}
-    ${link('/backup', '💾 備份/還原', active === '/backup')}
+    ${link('/invites', '💬 客戶往來', sec === 'client')}
+    <div class="group">追蹤</div>
+    ${link('/today', '📊 成果', sec === 'results')}
+    <div class="group">工具</div>
+    ${link('/lessons', '🧠 調教 AI', sec === 'ai')}
+    ${link('/me', '⚙️ 設定', sec === 'settings')}
     <div class="logout"><a href="/logout">→ 登出</a></div>
-  </aside>`;
+  </aside>${subtabs}`;
 }
 
 // 📌 Lessons 頁:使用者抓到 AI 錯就存,**所有 AI prompt 自動讀取啟用中的 lessons** 當硬規則
