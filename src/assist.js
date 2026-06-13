@@ -51,6 +51,15 @@ function profileBrief(p) {
     capBrief,
     `作品集:\n${port}`,
     proven ? `已證明能力(GitHub 真實 repo,優先當證據):\n${proven}` : '',
+    // 🌱 經驗存摺 — 已完成的 Upwork/接案實戰(有評價/收入,是最強的社會證明,寫信時優先引用)
+    (p.trackRecord || []).length ? `\n🌱 Upwork 實戰戰績(已交付完成、真實發生過 — 這是最強證據,比 GitHub 更打動客戶,適合時優先引用,但**只能講真的、別誇大評價或收入**):\n${(p.trackRecord).slice(0, 6).map((t, i) => {
+      const bits = [t.title];
+      if (t.rating) bits.push(`${t.rating}★`);
+      if (t.skills) bits.push(`技能:${t.skills}`);
+      if (t.summary) bits.push(t.summary);
+      if (t.review_text) bits.push(`客戶評語:"${String(t.review_text).slice(0, 160)}"`);
+      return `[${i + 1}] ${bits.filter(Boolean).join(' — ')}`;
+    }).join('\n')}` : '',
     `求職信規則:${(p.coverLetterStyle?.rules || []).join(';')}`,
     // 📌 Lessons — 使用者抓過 AI 錯而存的學習,**強制遵守**,違反 = 嚴重錯誤
     (p.lessons || []).length ? `\n⚠️ Lessons(使用者從過去錯誤累積的硬規則,違反任何一條 = 嚴重錯誤,必須照做):\n${(p.lessons).map((l, i) => `[${i + 1}] ${l}`).join('\n')}` : '',

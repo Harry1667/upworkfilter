@@ -146,6 +146,29 @@ export function openDb() {
     );
   `);
 
+  // ── 🌱 經驗存摺(track_record)— 做完的項目 = Upwork 實戰戰績。
+  //    跟 applications(投案漏斗)不同:這記「已交付完成」的案,回填當 proven 證據注入提案 AI。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS track_record (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      title           TEXT NOT NULL,      -- 項目名稱
+      client          TEXT,               -- 客戶/平台名
+      skills          TEXT,               -- 證明了哪些技能(逗號分隔)
+      summary         TEXT,               -- 一句話:做了什麼(會注入提案 AI)
+      rating          REAL,               -- 客戶評價星數 0-5
+      review_text     TEXT,               -- 客戶評語原文
+      earned_usd      REAL,               -- 賺多少 USD
+      hours           REAL,               -- 花多少時數
+      deliverable_url TEXT,               -- 成品/repo 連結
+      source          TEXT DEFAULT 'upwork', -- 來源平台(upwork/外部)
+      app_id          INTEGER,            -- 若由 applications 標記完成而來,記原 id
+      completed_at    TEXT,               -- 完成日期
+      notes           TEXT,
+      created_at      TEXT,
+      enabled         INTEGER DEFAULT 1   -- 0 = 暫不注入提案(保留紀錄)
+    );
+  `);
+
   return db;
 }
 
@@ -256,6 +279,65 @@ export function applicationStats(db) {
     hireRate: total ? (hired / total * 100).toFixed(1) : '0',
     totalConnects: db.prepare('SELECT COALESCE(SUM(connects_used),0) as n FROM applications').get().n || 0,
   };
+}
+
+// ── 🌱 track_record helpers(經驗存摺)──
+export function addTrackRecord(db, t) {
+  const now = new Date().toISOString();
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+  return db.prepare(`INSERT INTO track_record
+    (title, client, skills, summary, rating, review_text, earned_usd, hours, deliverable_url, source, app_id, completed_at, notes, created_at, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+    String(t.title || '').trim().slice(0, 300),
+    t.client || '',
+    Array.isArray(t.skills) ? t.skills.join(', ') : (t.skills || ''),
+    String(t.summary || '').slice(0, 600),
+    num(t.rating),
+    String(t.review_text || '').slice(0, 2000),
+    num(t.earned_usd),
+    num(t.hours),
+    t.deliverable_url || '',
+    t.source || 'upwork',
+    t.app_id ?? null,
+    t.completed_at || now.slice(0, 10),
+    t.notes || '',
+    now,
+  );
+}
+export function listTrackRecord(db, onlyEnabled = false) {
+  const q = onlyEnabled
+    ? 'SELECT * FROM track_record WHERE enabled=1 ORDER BY COALESCE(completed_at, created_at) DESC'
+    : 'SELECT * FROM track_record ORDER BY COALESCE(completed_at, created_at) DESC';
+  return db.prepare(q).all();
+}
+export function getTrackRecord(db, id) {
+  return db.prepare('SELECT * FROM track_record WHERE id=?').get(id);
+}
+export function updateTrackRecord(db, id, patch) {
+  const allowed = ['title', 'client', 'skills', 'summary', 'rating', 'review_text', 'earned_usd', 'hours', 'deliverable_url', 'source', 'completed_at', 'notes', 'enabled'];
+  const fields = [], vals = [];
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (!allowed.includes(k)) continue;
+    fields.push(`${k}=?`);
+    vals.push(k === 'skills' && Array.isArray(v) ? v.join(', ') : (k === 'enabled' ? (v ? 1 : 0) : v));
+  }
+  if (!fields.length) return;
+  vals.push(id);
+  db.prepare(`UPDATE track_record SET ${fields.join(', ')} WHERE id=?`).run(...vals);
+}
+export function deleteTrackRecord(db, id) {
+  db.prepare('DELETE FROM track_record WHERE id=?').run(id);
+}
+export function trackRecordStats(db) {
+  const rows = db.prepare('SELECT * FROM track_record').all();
+  const total = rows.length;
+  const fiveStars = rows.filter((r) => Number(r.rating) >= 5).length;
+  const rated = rows.filter((r) => Number(r.rating) > 0);
+  const avgRating = rated.length ? (rated.reduce((s, r) => s + Number(r.rating), 0) / rated.length).toFixed(2) : '0';
+  const earned = rows.reduce((s, r) => s + (Number(r.earned_usd) || 0), 0);
+  const hours = rows.reduce((s, r) => s + (Number(r.hours) || 0), 0);
+  const skills = [...new Set(rows.flatMap((r) => String(r.skills || '').split(',').map((x) => x.trim()).filter(Boolean)))];
+  return { total, fiveStars, avgRating, earned, hours, skills };
 }
 
 export function incrementLessonHit(db, ids) {

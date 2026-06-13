@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats } from './db.js';
 
 // 📌 loadProfileWithLessons — profile + 啟用中的 lessons + anchors,每個 prompt 都會看到
 function loadProfileWithLessons() {
@@ -12,7 +12,8 @@ function loadProfileWithLessons() {
     const db = openDb();
     p.lessons = listLessons(db, true).map((l) => l.content);
     p.anchors = listAnchors(db, true).slice(0, 3); // 最多 3 個範本,避免 prompt 爆
-  } catch (e) { p.lessons = []; p.anchors = []; }
+    p.trackRecord = listTrackRecord(db, true); // 🌱 已完成的 Upwork 戰績,當實戰證據注入提案
+  } catch (e) { p.lessons = []; p.anchors = []; p.trackRecord = []; }
   return p;
 }
 import { scoreJob, parseSpentUsd, connectsDiscipline, isFirstReviewTarget, stripChrome } from './score.js';
@@ -1175,9 +1176,11 @@ function navBar(active, jobId) {
     ${link('/reply', '④ 回客戶訊息', active === '/reply')}
     ${link('/invites', '⑤ 客戶邀請', active === '/invites' || active === '/invite')}
     <div class="group">每日</div>
+    ${link('/worklist', '🚀 該做的項目', active === '/worklist')}
     ${link('/today', '🌅 今日待辦', active === '/today')}
     ${link('/?fav=1', '❤️ 收藏案件', false)}
     ${link('/applications', '📊 投案追蹤', active === '/applications')}
+    ${link('/track', '🌱 經驗存摺', active === '/track')}
     <div class="group">我的設定</div>
     ${link('/me', '🎯 我的能力', active === '/me')}
     ${link('/profile', '🪪 我的身分檔', active === '/profile')}
@@ -1347,6 +1350,275 @@ function pageToday() {
   ${stats.total === 0 ? '<div style="background:#13233b;border-left:3px solid #d29922;border-radius:8px;padding:14px;color:var(--tx);font-size:14px;line-height:1.65;margin-top:20px"><b>💡 還沒投過案?</b><br>系統再強,沒投案 = 沒資料 = 沒學習。<br>建議:今天去 <a href="/" style="color:var(--ac)">① 找案子</a> 點 🦴 撿漏 → 投 1-3 個爛單。第一個 5★ 比第 10 個功能重要。</div>' : ''}
 
 </main></body></html>`;
+}
+
+// 🚀 該做的項目 — 把「通過三道門 + 值得投 + 還沒投」的案排成一條「現在就去做」的工作清單。
+// 排序是「練功導向」(支柱 B):可交付 × 可贏 × 能加分,且依新手階段(支柱 A)動態調整權重。
+function pageWorklist() {
+  const db = openDb();
+  const cfg = loadConfig();
+  const proven = (cfg.provenTechs || []).map((t) => String(t).toLowerCase()).filter(Boolean);
+  // 源源不絕:只要「沒投過 + 沒被能力門擋下(做得來)」就排進來,不再只收 APPLY。
+  // 預設顯示「值得做」(APPLY+MAYBE);按「全部」連較弱(SKIP)的也一起出,清單永遠一長串。
+  const rows = db.prepare(`SELECT * FROM jobs WHERE applied=0 AND blocked=0`).all();
+  let triagedCount = 0;
+  const items = rows
+    .map((j) => {
+      const ev = effectiveVerdict(j);
+      if (ev.isAi) triagedCount++;
+      const tier = (ev.cls === 'APPLY' || ev.cls === 'MAYBE') ? 'do' : 'more'; // do=值得做, more=較弱/被排除
+      // 適配度:案子文字命中幾個「有 GitHub 證據」的技術(profile.provenTechs)
+      const jtext = `${j.title || ''} ${j.description || ''}`.toLowerCase();
+      const provenHits = proven.filter((t) => jtext.includes(t)).length;
+      const fitTier = provenHits >= 2 ? 2 : provenHits === 1 ? 1 : 0;
+      const fit = fitTier === 2 ? { t: '🟢 強項命中', c: 'hit' } : fitTier === 1 ? { t: '🟡 部分符合', c: 'partial' } : { t: '⚪ 需補技能', c: 'none' };
+      // 中標機率(AI 估;沒跑快篩時為 null)
+      const win = Number.isFinite(Number(j.ai_win)) ? Number(j.ai_win) : null;
+      // 競爭:提案數越少越好(沿用列表頁的桶→數字對照)
+      const propStr = String(j.proposals_bucket || '').toLowerCase();
+      let comp = 999;
+      if (/fewer than 5|less than 5|0\s*to\s*5|<\s*5/.test(propStr)) comp = 2;
+      else if (/5\s*to\s*10/.test(propStr)) comp = 7;
+      else if (/10\s*to\s*15/.test(propStr)) comp = 12;
+      else if (/15\s*to\s*20/.test(propStr)) comp = 17;
+      else if (/20\s*to\s*50/.test(propStr)) comp = 35;
+      else if (/50\+|over\s*50/.test(propStr)) comp = 80;
+      else { const m = propStr.match(/(\d+)/); if (m) comp = Number(m[1]); }
+      const scoreN = Number(ev.isAi ? ev.score * 10 : ev.score) || 0;
+      const pay = j.budget_text || (j.fixed_budget ? `$${j.fixed_budget}` : j.hourly_max ? `$${j.hourly_min || 0}-${j.hourly_max}/hr` : '');
+      const payNum = Math.max(Number(j.fixed_budget) || 0, Number(j.hourly_max) || 0);
+
+      // 該做分:可交付(命中你會的技術) × 可贏(中標率 + 低競爭 + 付款驗證) × 評分
+      const reasons = [];
+      const deliver = fitTier * 20; // 0 / 20 / 40
+      if (fitTier >= 2) reasons.push('✅ 你做得來');
+      let canWin = win != null ? win * 0.25 : 6; // 沒快篩給中性 6
+      if (comp <= 5) { canWin += 15; reasons.push('🪶 競爭很少'); }
+      else if (comp <= 10) { canWin += 10; reasons.push('🪶 競爭少'); }
+      else if (comp <= 20) canWin += 5;
+      else if (comp >= 50) canWin -= 8;
+      if (j.payment_verified) { canWin += 10; reasons.push('💵 付款已驗'); }
+      const small = payNum > 0 && payNum <= 300 ? 5 : 0; // 小而快的案略加分(好上手)
+      const doScore = deliver + canWin + scoreN * 0.2 + small;
+      return { j, ev, fit, win, comp, scoreN, doScore, pay, reasons, tier };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.doScore - a.doScore);
+
+  const doCount = items.filter((it) => it.tier === 'do').length;
+  const total = items.length;
+  const untriaged = items.length - triagedCount;
+
+  const cards = items.map((it, i) => {
+    const { j, ev, fit, win, comp, pay, reasons, tier } = it;
+    const sid = jid(j.id);
+    const rank = i + 1;
+    const vBadge = `<span class="vb v-${ev.cls}">${ev.cls === 'APPLY' ? '🟢 值得投' : ev.cls === 'MAYBE' ? '🟡 可考慮' : '🔴 較弱'}</span>`;
+    const winBadge = win != null ? `<span class="wb ${winCls(win)}">🎯 中標 ${win}%</span>` : '<span class="wb na">🎯 未快篩</span>';
+    const compTxt = comp >= 999 ? '—' : comp <= 5 ? `提案少(~${comp})` : comp >= 50 ? `紅海(${comp}+)` : `提案 ~${comp}`;
+    const scoreHtml = ev.isAi ? `${ev.score}<small>/10</small> <span class="ai">AI</span>` : `${ev.score}<small>/100</small>`;
+    const reasonHtml = reasons.length ? `<div class="why-practice">${reasons.map((r) => `<span class="rchip">${esc(r)}</span>`).join('')}</div>` : '';
+    return `
+    <article class="wl-card fit-${fit.c}" data-tier="${tier}">
+      <div class="rank">#${rank}</div>
+      <div class="body">
+        <div class="hd">
+          <span class="sc">${scoreHtml}</span>
+          ${vBadge}
+          <span class="fitb ${fit.c}">${fit.t}</span>
+          ${winBadge}
+          <span class="meta">${pay ? esc(pay) + ' · ' : ''}${esc(compTxt)}</span>
+        </div>
+        <h2><a href="/job?id=${sid}">${esc(j.title)}</a></h2>
+        ${reasonHtml}
+        <p class="why">${esc(j.ai_verdict || j.reason || '')}</p>
+        <div class="acts">
+          <a class="btn primary" href="/proposal?id=${sid}">③ 開工寫提案 →</a>
+          <a class="btn" href="/job?id=${sid}">② 先評估</a>
+          <a class="btn ghost" href="${esc(cleanUrl(j))}" data-url="${esc(cleanUrl(j))}" onclick="return cp(event,this)" title="複製 Upwork 連結,自己貼到網址列(登入版)">📋 複製連結</a>
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+
+  const empty = `<div class="wl-empty">
+    <p>🪹 清單空了 — 該抓新案了。</p>
+    <p style="color:var(--mut);font-size:13px;line-height:1.7">
+      這裡會排出 <b>所有你做得來、還沒投</b> 的案。空了代表 DB 裡的案都投過或被能力門擋下。<br>
+      去 <a href="/" style="color:var(--ac)">① 找案子</a> 用擴充功能多抓一些新案進來,清單就會再長出來。
+    </p>
+  </div>`;
+
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>🚀 該做的項目</title><style>${CSS}
+  .wl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:18px}
+  .stat{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;text-align:center}
+  .stat .n{font-size:24px;font-weight:700}.stat .l{color:var(--mut);font-size:12px;margin-top:4px}
+  .wl-note{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
+  .wl-card{display:flex;gap:14px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:12px;align-items:flex-start}
+  .wl-card.fit-hit{border-left:4px solid var(--grn)}
+  .wl-card.fit-partial{border-left:4px solid #d29922}
+  .wl-card.fit-none{border-left:4px solid var(--bd)}
+  .wl-card .rank{font-size:22px;font-weight:800;color:var(--mut);min-width:42px;text-align:center;padding-top:2px}
+  .wl-card .body{flex:1;min-width:0}
+  .wl-card .hd{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  .wl-card .sc{font-size:18px;font-weight:700;color:var(--tx)}.wl-card .sc small{color:var(--mut);font-size:11px;font-weight:400}
+  .wl-card .ai{background:var(--ac);color:#fff;border-radius:5px;padding:1px 6px;font-size:11px;font-weight:600}
+  .fitb{font-size:12px;border-radius:6px;padding:2px 8px}
+  .fitb.hit{background:#1c3b25;color:#56d364}.fitb.partial{background:#3a2f14;color:#d29922}.fitb.none{background:#1a1f27;color:#8b949e}
+  .wb{font-size:12px;border-radius:6px;padding:2px 8px;background:#1c3b25;color:#56d364}
+  .wb.win-mid{background:#3a2f14;color:#d29922}.wb.win-lo{background:#3a1a1a;color:#f85149}.wb.na{background:#1a1f27;color:#8b949e}
+  .wl-card .meta{color:var(--mut);font-size:12px}
+  .wl-card h2{font-size:16px;margin:4px 0 6px}.wl-card h2 a{color:var(--tx);text-decoration:none}.wl-card h2 a:hover{color:var(--ac)}
+  .wl-card .why{color:var(--mut);font-size:13px;line-height:1.55;margin:0 0 10px}
+  .wl-card .acts{display:flex;gap:8px;flex-wrap:wrap}
+  .wl-card .btn{font-size:13px;text-decoration:none;border:1px solid var(--bd);border-radius:8px;padding:7px 14px;color:var(--tx);background:#0d1117}
+  .wl-card .btn.primary{background:var(--grn);border-color:var(--grn);color:#fff;font-weight:600}
+  .wl-card .btn.ghost{color:var(--mut)}.wl-card .btn:hover{filter:brightness(1.15)}
+  .wl-empty{text-align:center;padding:40px 20px}.wl-empty p{font-size:16px}
+  .why-practice{margin:2px 0 8px;display:flex;gap:6px;flex-wrap:wrap}
+  .rchip{font-size:11px;border-radius:6px;padding:2px 7px;background:#13233b;color:#79c0ff}
+  .vb{font-size:12px;border-radius:6px;padding:2px 8px;font-weight:600}
+  .vb.v-APPLY{background:#1c3b25;color:#56d364}.vb.v-MAYBE{background:#3a2f14;color:#d29922}.vb.v-SKIP{background:#2a1f1f;color:#a86b6b}
+  .wl-filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .wl-filters button{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:7px 16px;font-size:13px;cursor:pointer}
+  .wl-filters button.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600}
+  </style></head><body>
+<header><h1>🚀 該做的項目 <span class="sub">所有你做得來、還沒投的案,依「可交付 × 可贏 × 評分」排成一長串。從上往下接,源源不絕。</span></h1>${navBar('/worklist')}</header>
+<main class="wide">
+  <div class="wl-grid">
+    <div class="stat"><div class="n" style="color:var(--ac)">${doCount}</div><div class="l">值得做</div></div>
+    <div class="stat"><div class="n" style="color:#8b949e">${total}</div><div class="l">做得來的總數</div></div>
+    <div class="stat"><div class="n" style="color:#d29922">${untriaged}</div><div class="l">還沒 AI 快篩</div></div>
+  </div>
+  <div class="wl-filters">
+    <button data-f="do" class="on" onclick="wlFilter('do',this)">🟢 值得做 (${doCount})</button>
+    <button data-f="all" onclick="wlFilter('all',this)">📋 全部 (${total})</button>
+  </div>
+  ${untriaged > 0 ? `<div class="wl-note">⚠️ 有 <b>${untriaged}</b> 個案還沒 AI 快篩,排序只用規則分(較粗)。去 <a href="/" style="color:var(--ac)">① 找案子</a> 按「🤖 AI 快篩」跑完,中標率會更準。(不在時不自動跑,省 token)</div>` : ''}
+  <div id="wlList">${total ? cards : empty}</div>
+</main>
+<script>
+  // 篩選:do=只看值得做(APPLY+MAYBE), all=連較弱的(SKIP)也看 → 清單更長
+  function wlFilter(f,btn){
+    document.querySelectorAll('.wl-filters button').forEach(function(b){b.classList.remove('on');});
+    btn.classList.add('on');
+    document.querySelectorAll('#wlList .wl-card').forEach(function(c){
+      c.style.display=(f==='all'||c.dataset.tier==='do')?'':'none';
+    });
+  }
+  // 複製 Upwork 連結(沿用列表頁邏輯:自己貼網址列開登入版,避免 referer 問題)
+  async function cp(e,el){e.preventDefault();const u=el.dataset.url;try{await navigator.clipboard.writeText(u);const o=el.textContent;el.textContent='✅ 已複製';setTimeout(()=>{el.textContent=o;},1200);}catch(ex){window.open(u,'_blank');}return false;}
+  wlFilter('do',document.querySelector('.wl-filters button'));
+</script></body></html>`;
+}
+
+// 🌱 經驗存摺 — 「我做過的項目」帳本。完成的案 = Upwork 實戰戰績,
+// 啟用中的紀錄會自動注入提案 AI(profileBrief),變成最強的社會證明,接得到更大的案。
+function pageTrack() {
+  const db = openDb();
+  const rows = listTrackRecord(db, false);
+  const stats = trackRecordStats(db);
+
+  const star = (n) => { const r = Math.round(Number(n) || 0); return r > 0 ? '★'.repeat(r) + '☆'.repeat(Math.max(0, 5 - r)) : '—'; };
+  const list = rows.map((t) => {
+    const skills = String(t.skills || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const skillHtml = skills.map((s) => `<span class="tr-skill">${esc(s)}</span>`).join('');
+    const meta = [];
+    if (t.earned_usd) meta.push('💰 $' + esc(String(t.earned_usd)));
+    if (t.hours) meta.push('⏱ ' + esc(String(t.hours)) + 'h');
+    if (t.client) meta.push('👤 ' + esc(t.client));
+    if (t.completed_at) meta.push('📅 ' + esc(String(t.completed_at).slice(0, 10)));
+    return `
+    <li class="tr-card" style="opacity:${t.enabled ? 1 : 0.5}">
+      <div class="tr-head">
+        <b class="tr-title">${esc(t.title)}</b>
+        <span class="tr-rating" title="客戶評價">${star(t.rating)}${t.rating ? ` ${esc(String(t.rating))}` : ''}</span>
+        <button class="tr-del" onclick="delT(${t.id})" title="刪除">🗑</button>
+      </div>
+      ${skillHtml ? `<div class="tr-skills">${skillHtml}</div>` : ''}
+      ${t.summary ? `<div class="tr-sum">${esc(t.summary)}</div>` : ''}
+      ${t.review_text ? `<div class="tr-review">💬 「${esc(t.review_text)}」</div>` : ''}
+      <div class="tr-meta">${meta.join(' · ')}${t.deliverable_url ? ` · <a href="${esc(t.deliverable_url)}" target="_blank" rel="noopener" style="color:var(--ac)">🔗 成品</a>` : ''}</div>
+      <label class="tr-inject"><input type="checkbox" ${t.enabled ? 'checked' : ''} onchange="tgT(${t.id},this.checked)"> 注入提案 AI 當證據</label>
+    </li>`;
+  }).join('');
+
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>🌱 經驗存摺</title><style>${CSS}
+  .tr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;text-align:center}
+  .stat .n{font-size:24px;font-weight:700}.stat .l{color:var(--mut);font-size:12px;margin-top:4px}
+  .tr-form{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:18px}
+  .tr-form .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .tr-form label{display:block;color:var(--mut);font-size:12px;margin-bottom:3px}
+  .tr-form input,.tr-form select,.tr-form textarea{width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;font:13px/1.5 inherit;box-sizing:border-box}
+  .tr-form textarea{resize:vertical;min-height:48px}
+  .tr-form .f{flex:1;min-width:120px}
+  .tr-form button{background:var(--grn);color:#fff;border:0;border-radius:8px;padding:10px 22px;cursor:pointer;font-size:14px;font-weight:600}
+  ul.tr-list{list-style:none;margin:0;padding:0}
+  .tr-card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin:10px 0}
+  .tr-head{display:flex;align-items:center;gap:10px}
+  .tr-title{flex:1;color:var(--tx);font-size:15px}
+  .tr-rating{color:#d29922;font-size:14px;white-space:nowrap}
+  .tr-del{background:none;border:0;color:#f85149;cursor:pointer;font-size:16px;padding:0 4px}
+  .tr-skills{margin:8px 0 0}.tr-skill{display:inline-block;background:#13233b;color:#79c0ff;border-radius:6px;padding:2px 8px;font-size:12px;margin:3px 4px 0 0}
+  .tr-sum{color:var(--tx);font-size:13px;line-height:1.55;margin-top:8px}
+  .tr-review{color:var(--mut);font-size:13px;font-style:italic;line-height:1.55;margin-top:6px;border-left:2px solid var(--bd);padding-left:10px}
+  .tr-meta{color:var(--mut);font-size:12px;margin-top:8px}
+  .tr-inject{display:inline-flex;align-items:center;gap:6px;color:var(--mut);font-size:12px;margin-top:8px;cursor:pointer}
+  .help{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 14px;color:var(--tx);font-size:13px;line-height:1.65;margin-bottom:18px}
+  .empty{color:var(--mut);text-align:center;padding:30px;font-size:14px}
+  </style></head><body>
+<header><h1>🌱 經驗存摺 <span class="sub">你做過的項目 = Upwork 實戰戰績。啟用中的紀錄會自動注入提案 AI 當證據,接得到更大的案。</span></h1>${navBar('/track')}</header>
+<main class="wide">
+  <div class="tr-grid">
+    <div class="stat"><div class="n" style="color:var(--ac)">${stats.total}</div><div class="l">完成項目</div></div>
+    <div class="stat"><div class="n" style="color:#56d364">${stats.fiveStars}</div><div class="l">⭐ 5★ 數</div></div>
+    <div class="stat"><div class="n" style="color:#d29922">${stats.avgRating}</div><div class="l">平均評價</div></div>
+    <div class="stat"><div class="n" style="color:#79c0ff">$${Math.round(stats.earned)}</div><div class="l">累計收入</div></div>
+    <div class="stat"><div class="n" style="color:#8b949e">${stats.skills.length}</div><div class="l">證明技能數</div></div>
+  </div>
+
+  <div class="help">
+    <b>📖 怎麼用</b>:每做完一個案就來登記一筆。<b>勾「注入提案 AI」</b>的紀錄會自動出現在所有求職信 prompt,當「我真的做過、有評價」的證據 —— 這比 GitHub 更打動客戶。<br>
+    ⚠️ 只記真的:評價 / 收入別灌水,AI 會引用,寫進求職信給客戶看的。
+  </div>
+
+  <div class="tr-form">
+    <div style="color:var(--mut);font-size:13px;margin-bottom:10px">➕ 登記一個完成的項目</div>
+    <div class="row">
+      <div class="f" style="flex:2"><label>項目名稱 *</label><input id="t_title" placeholder="例如:幫 SaaS 客戶接 Stripe 訂閱"></div>
+      <div class="f"><label>客戶/平台</label><input id="t_client" placeholder="Upwork 客戶名 / 公司"></div>
+      <div class="f"><label>評價 (0-5)</label><select id="t_rating"><option value="">—</option><option value="5">5 ★★★★★</option><option value="4.5">4.5</option><option value="4">4 ★★★★</option><option value="3">3</option></select></div>
+    </div>
+    <div class="row">
+      <div class="f"><label>賺多少 (USD)</label><input id="t_earned" type="number" min="0" placeholder="150"></div>
+      <div class="f"><label>花多少時數</label><input id="t_hours" type="number" min="0" placeholder="8"></div>
+      <div class="f"><label>完成日期</label><input id="t_date" type="date"></div>
+    </div>
+    <div class="row"><div class="f" style="flex:1"><label>證明了哪些技能(逗號分隔)</label><input id="t_skills" placeholder="React, Node.js, Stripe"></div></div>
+    <div class="row"><div class="f" style="flex:1"><label>一句話:做了什麼(會注入提案)</label><input id="t_summary" placeholder="兩天內把訂閱付費 + webhook 對帳上線"></div></div>
+    <div class="row"><div class="f" style="flex:1"><label>客戶評語原文(可空)</label><textarea id="t_review" placeholder="貼客戶留的 review,寫信時可引用"></textarea></div></div>
+    <div class="row"><div class="f" style="flex:1"><label>成品/repo 連結(可空)</label><input id="t_url" placeholder="https://..."></div></div>
+    <button onclick="addT()">➕ 加入存摺</button>
+    <span id="t_msg" style="margin-left:10px;color:var(--mut);font-size:13px"></span>
+  </div>
+
+  <ul class="tr-list">${list || '<div class="empty">還沒有任何戰績。做完第一個案就來記一筆 — 它會變成你下一封求職信的彈藥。</div>'}</ul>
+</main>
+<script>
+  async function addT(){
+    var title=document.getElementById('t_title').value.trim();
+    var msg=document.getElementById('t_msg');
+    if(!title){msg.textContent='項目名稱不能空';return;}
+    var body={title:title,client:document.getElementById('t_client').value.trim(),rating:document.getElementById('t_rating').value,earned_usd:document.getElementById('t_earned').value,hours:document.getElementById('t_hours').value,completed_at:document.getElementById('t_date').value,skills:document.getElementById('t_skills').value.trim(),summary:document.getElementById('t_summary').value.trim(),review_text:document.getElementById('t_review').value.trim(),deliverable_url:document.getElementById('t_url').value.trim()};
+    msg.textContent='儲存中…';
+    var r=await fetch('/api/track',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    var j=await r.json();
+    if(j.ok)location.reload();else msg.textContent='失敗:'+(j.error||'?');
+  }
+  async function tgT(id,enabled){await fetch('/api/track/toggle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id,enabled:enabled})});}
+  async function delT(id){if(!confirm('確定刪除這筆戰績?'))return;await fetch('/api/track/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:id})});location.reload();}
+</script></body></html>`;
 }
 
 // 💾 備份 / 還原頁
@@ -2848,6 +3120,32 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
+    // 🌱 經驗存摺(track_record)CRUD
+    if (url.pathname === '/api/track' && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req));
+      if (!body.title || !String(body.title).trim()) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        return res.end('{"ok":false,"error":"項目名稱不能空"}');
+      }
+      const dbi = openDb();
+      addTrackRecord(dbi, body);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/api/track/toggle' && req.method === 'POST') {
+      const { id, enabled } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      updateTrackRecord(dbi, id, { enabled: !!enabled });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/api/track/delete' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      const dbi = openDb();
+      deleteTrackRecord(dbi, id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
     // 📊 Applications CRUD
     if (url.pathname === '/api/applications' && req.method === 'GET') {
       const dbi = openDb();
@@ -3310,6 +3608,12 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/today') {
       return serveHtml(res, pageToday());
+    }
+    if (url.pathname === '/worklist') {
+      return serveHtml(res, pageWorklist());
+    }
+    if (url.pathname === '/track') {
+      return serveHtml(res, pageTrack());
     }
     if (url.pathname === '/backup') {
       return serveHtml(res, pageBackup());
