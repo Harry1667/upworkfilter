@@ -128,7 +128,7 @@ async function autoTriageIngested(ids) {
     _triageBusy = true;
     const { triageJobs } = await import('./triage.js');
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
-    const res = await triageJobs(rows, { outcomeNote: outcomeNoteText(computeOutcomeStats()) });
+    const res = await triageJobs(rows, { batchSize: 1, outcomeNote: outcomeNoteText(computeOutcomeStats()) });
     for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
     console.log(`🤖 自動快篩完成:${res.length} 案`);
   } catch (e) {
@@ -733,11 +733,11 @@ function pageJobs() {
       if(!j.ok){m.textContent=' ❌ '+(j.error||'失敗');b.disabled=false;return;}
       if(j.started===false&&!j.running){m.textContent=' '+(j.msg||'沒有待快篩的案');b.disabled=false;return;}
       // 背景已在跑 → 輪詢進度(每 4 秒)。可離開頁面,跑完重整即看到。
-      m.textContent=' 🤖 背景快篩中… 0/'+(j.total||'?')+'(可離開頁面,跑完重整即看到)';
+      m.textContent=' 🤖 背景快篩中… 0/'+(j.total||'?')+'(proxy 慢,每案約 30 秒;好案排前面先跑,可離開、重整看進度)';
       const poll=async()=>{
         try{
           const pr=await fetch('/api/triage/progress');const p=await pr.json();
-          if(p.running){m.textContent=' 🤖 背景快篩中… '+p.done+'/'+p.total+'(可離開頁面,跑完重整即看到)';setTimeout(poll,4000);}
+          if(p.running){m.textContent=' 🤖 背景快篩中… '+p.done+'/'+p.total+'(proxy 慢,每案約 30 秒;好案排前面先跑,可離開、重整看進度)';setTimeout(poll,4000);}
           else{m.textContent=' ✅ 快篩完成('+(p.done||0)+' 案),重整中…';setTimeout(()=>location.reload(),900);}
         }catch(e){m.textContent=' ⚠️ 進度查詢中斷,稍後重整看結果即可';b.disabled=false;}
       };
@@ -3672,6 +3672,7 @@ createServer(async (req, res) => {
         try {
           const { triageJobs } = await import('./triage.js');
           await triageJobs(rows, {
+            batchSize: 1, // proxy 慢:一次 1 個案約 30s(過 60s 上限);多個會撞 DEADLINE 失敗
             outcomeNote: note,
             onBatch: (batch) => { for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); },
             onProgress: (done, total) => { _triageJob.done = done; _triageJob.total = total; },
