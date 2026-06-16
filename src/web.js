@@ -551,7 +551,8 @@ function pageJobs() {
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayNew = data.filter((j) => (j.first_seen || '').slice(0, 10) === todayStr).length;
   const todo = data.filter((j) => effectiveVerdict(j).cls === 'APPLY' && !j.applied).length;
-  const untriaged = data.filter((j) => j.ai_score == null && !j.blocked).length; // 被第二道門擋下的不算待快篩
+  // 待快篩 = 值得做(APPLY/MAYBE)× 未投 × 還沒 AI 分數(只對這些花 AI,慢 proxy 才跑得完)
+  const untriaged = data.filter((j) => j.ai_score == null && !j.blocked && !j.applied && (j.verdict === 'APPLY' || j.verdict === 'MAYBE')).length;
   const blockedCount = data.filter((j) => j.blocked).length;
   // 收集母類別 + 子功能(給篩選下拉)
   const allParents = [...new Set(data.map((j) => (j.category || '').trim()).filter(Boolean))].sort();
@@ -633,6 +634,7 @@ function pageJobs() {
   ${navBar('/')}
   <div class="flowhint">🆕 今日新案 <b>${todayNew}</b> · ⏳ 待處理(值得投未投) <b>${todo}</b> · 🤖 未 AI 快篩 <b>${untriaged}</b> · 🚫 第二道門擋下 <b>${blockedCount}</b>
     <button class="open" id="triageBtn" style="margin-left:10px" onclick="triage(false)">🤖 AI 快篩${untriaged ? ` (${untriaged})` : ''}</button>
+    <button class="open" id="pruneBtn" style="margin-left:6px;background:#3d1e1e;border-color:#f85149;color:#f85149" onclick="prune()" title="刪掉未投×未收藏的垃圾案(規則SKIP/第二道門擋下/超過7天),保留你投過的、收藏的、近期好案">🗑️ 清垃圾</button>
     <span id="trmsg" style="color:var(--mut)"></span>
   </div>
   <div class="filters">
@@ -741,6 +743,14 @@ function pageJobs() {
       };
       setTimeout(poll,4000);
     }catch(e){m.textContent=' ❌ '+e.message;b.disabled=false;}}
+  async function prune(){
+    if(!confirm('清掉「未投 × 未收藏」的垃圾案?\n(規則 SKIP / 第二道門擋下 / 超過 7 天的舊案)\n\n你投過的、收藏的、近 7 天的好案都會保留。'))return;
+    const m=document.getElementById('trmsg');m.textContent=' 清理中…';
+    try{const r=await fetch('/api/prune',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({days:7})});
+      const j=await r.json();
+      if(j.ok){m.textContent=' ✅ 已清掉 '+j.deleted+' 個垃圾案,重整中…';setTimeout(function(){location.reload();},900);}
+      else m.textContent=' ❌ '+(j.error||'失敗');
+    }catch(e){m.textContent=' ❌ '+e.message;}}
 </script></body></html>`;
 }
 
@@ -3638,12 +3648,14 @@ createServer(async (req, res) => {
       return res.end(JSON.stringify(r));
     }
     if (url.pathname === '/api/triage' && req.method === 'POST') {
-      // AI 快篩:便宜模型批次粗評,重排序。預設只篩「還沒 AI 分數」的案;?all=1 重篩全部。
+      // AI 快篩:便宜模型批次粗評。預設只篩「值得做(APPLY/MAYBE)× 未投 × 還沒 AI 分數」的前 N 名
+      // (規則高分優先)——proxy 慢時也跑得完、拿得到驗證分數;再按一次續下一批。?all=1 才重篩全部。
       const body = JSON.parse((await readBody(req)) || '{}');
-      // 第二道門擋下的案(blocked=1)不浪費 AI 快篩
+      const TRIAGE_CAP = 120; // 每次最多篩這麼多(對齊 proxy 速度,避免一次太多跑不完)
       const rows = body.all
-        ? db.prepare('SELECT * FROM jobs WHERE blocked=0').all()
-        : db.prepare('SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0').all();
+        ? db.prepare('SELECT * FROM jobs WHERE blocked=0 ORDER BY total_score DESC').all()
+        : db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND applied=0
+            AND verdict IN ('APPLY','MAYBE') ORDER BY total_score DESC LIMIT ${TRIAGE_CAP}`).all();
       if (rows.length === 0) {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end('{"ok":true,"started":false,"triaged":0,"msg":"沒有待快篩的案"}');
@@ -3676,6 +3688,17 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/triage/progress' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify(_triageJob || { running: false, done: 0, total: 0 }));
+    }
+    if (url.pathname === '/api/prune' && req.method === 'POST') {
+      // 🗑️ 安全清垃圾:只刪「未投 × 未收藏」且(規則SKIP / 第二道門擋下 / 超過 N 天)的案。
+      // 永不刪 applied / favorited → 戰績、outcome、收藏全保住。
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const days = Math.max(1, Math.min(90, Number(body.days) || 7));
+      const r = db.prepare(`DELETE FROM jobs WHERE applied=0 AND favorited=0 AND (
+          verdict='SKIP' OR blocked=1
+          OR (posted_at IS NOT NULL AND date(posted_at) < date('now', ?)))`).run('-' + days + ' days');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, deleted: r.changes, days }));
     }
     if (url.pathname === '/analysis') { // 提供已產生的 AI 詳細分析 HTML(評估頁 iframe 內嵌)
       const aid = (url.searchParams.get('id') || '').replace(/[^\w-]/g, '');
