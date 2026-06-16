@@ -68,6 +68,14 @@ function profileBrief(p) {
   ].filter(Boolean).join('\n');
 }
 
+// 🤝 協商手冊 — 刻意獨立於 profileBrief,只在 replyPrompt 注入。
+// (守範圍/議價語氣若混進 cover letter,提案會變得防衛、囉嗦,反而扣分)
+function negotiationPlaybookBrief(p) {
+  const plays = p.negotiationPlays || [];
+  if (!plays.length) return '';
+  return `\n🤝 協商手冊(實戰驗證過的回覆策略 — 當客戶議價/想擴範圍要你免費做/用模糊形容詞要你猜/貶低你的貢獻/該收尾時,**優先採用對應情境的措辭與判斷**:語氣溫和但有底氣,守住範圍與事實,任何超出已付範圍的東西一律「很樂意做,但是獨立報價的 milestone」):\n${plays.map((pb, i) => `[${i + 1}|${pb.situation}]${pb.note ? ' — ' + pb.note : ''}\n→ "${pb.phrasing}"`).join('\n')}`;
+}
+
 function jobBrief(job) {
   return [
     `標題:${job.title || ''}`,
@@ -307,6 +315,33 @@ ${(p.provenCapabilities || []).slice(0, 8).map((c) => `- ${c.repo}:${c.capabilit
 }
 
 // ② 投標策略 — 對齊 Upwork 提案表單真正要填的欄位 + 偵測「特殊投標要求」
+// ①c 依「驗證發現」精準修正 — 不重寫整封,只修被 verify/preflight/skeptic 抓到的高風險問題。
+// issues = 後端把 contradicted 主張 / broken SOP 規則 / high-severity 批判彙整成的字串。
+export function coverLetterFixPrompt(draft, job, p, issues) {
+  return `你是 Upwork 求職信的事實與品質修正員。下面是一封英文 cover letter,以及驗證層抓到的「高風險問題清單」。
+請只修正清單上的問題(及其直接牽連的句子),其餘文字、語氣、結構、長度盡量保留——這是精準修正,不是重寫。
+
+最高原則:
+- 🚨 捏造/矛盾的主張(profile 根本沒有的經歷/技術/數字/地區)→ 刪掉,或改成 profile 真有的誠實版本。寧可少講,絕不說謊。
+- ❌ SOP 違規(套版開頭/浮誇詞/主動自爆 Preferred 弱點/缺降風險步驟)→ 照指示修。
+- ⚠️ 高風險批判 → 採納修正建議。
+- 不要新增任何 profile 沒有的事實來「補強」;修正只能往「更誠實、更貼合」走。
+
+【高風險問題清單】
+${issues}
+
+【我的真實 profile(修正只能引用這裡有的)】
+${(p.provenCapabilities || []).slice(0, 8).map((c) => `- ${c.repo}:${c.capability}`).join('\n') || (p.portfolio || []).map((x) => `- ${x.name}:${x.desc}`).join('\n')}
+
+【職缺】
+${jobBrief(job)}
+
+【草稿】
+"""${String(draft).slice(0, 3000)}"""
+
+只輸出修正後的英文 cover letter 本文,不要中文、不要標題、不要引號、不要列出你改了什麼。`;
+}
+
 export function advicePrompt(job, p) {
   const gh = p.githubUser ? `https://github.com/${p.githubUser}` : '';
   // 用完整描述(投標要求/影片題/指定專案常在描述最後,別截斷)
@@ -460,7 +495,7 @@ export function replyPrompt(clientMessage, job, p, tone) {
 ${ctx}
 我的檔案:
 ${profileBrief(p)}
-
+${negotiationPlaybookBrief(p)}
 客戶訊息:
 """${(clientMessage || '').slice(0, 2000)}"""
 

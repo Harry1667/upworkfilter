@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays } from './db.js';
 
 // 📌 loadProfileWithLessons — profile + 啟用中的 lessons + anchors,每個 prompt 都會看到
 function loadProfileWithLessons() {
@@ -13,13 +13,14 @@ function loadProfileWithLessons() {
     p.lessons = listLessons(db, true).map((l) => l.content);
     p.anchors = listAnchors(db, true).slice(0, 3); // 最多 3 個範本,避免 prompt 爆
     p.trackRecord = listTrackRecord(db, true); // 🌱 已完成的 Upwork 戰績,當實戰證據注入提案
-  } catch (e) { p.lessons = []; p.anchors = []; p.trackRecord = []; }
+    p.negotiationPlays = listNegotiationPlays(db, true); // 🤝 協商手冊,只給 replyPrompt 用
+  } catch (e) { p.lessons = []; p.anchors = []; p.trackRecord = []; p.negotiationPlays = []; }
   return p;
 }
 import { scoreJob, parseSpentUsd, connectsDiscipline, isFirstReviewTarget, stripChrome } from './score.js';
 import { normalizeIngest, ID_RE } from './ingest.js';
 import { askAI, analyzeJob } from './analyze.js';
-import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
+import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterFixPrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
 import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates, preflightCheck } from './verify.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
 
@@ -139,22 +140,47 @@ async function autoTriageIngested(ids) {
 // 🔁 學習迴路:從已標記 outcome 的案統計「AI 預測勝率 vs 真實結果」
 // 正向 = 已回覆/面試中/已錄取(有獲得注意);負向 = 沒回/落選;已投待回 = pending(不列入率)
 const _POS_OUTCOMES = new Set(['已回覆', '面試中', '已錄取']);
+// applications.status → 學習迴路語意(decided=已定論才計入率;pos=正向;won=錄取)
+const _APP_STATUS = {
+  replied: { decided: true, pos: true }, interview: { decided: true, pos: true },
+  hired: { decided: true, pos: true, won: true },
+  rejected: { decided: true, pos: false }, no_response: { decided: true, pos: false },
+  viewed: { decided: false }, sent: { decided: false }, // 已閱/已投 = 尚未定論
+};
+// 🔁 學習迴路:合併「兩個 outcome 來源」— jobs.outcome(列表頁下拉)+ applications.status(投案漏斗)。
+// 純讀取、不寫回:同一 job_id 以漏斗為準(較結構化/新);無 job_id 的手動投案各自獨立計。
 function computeOutcomeStats() {
-  const rows = db.prepare(`SELECT ai_win, outcome, category FROM jobs
-    WHERE outcome IS NOT NULL AND outcome != '' AND outcome != '已投待回'`).all();
+  const merged = new Map(); // key=job_id 或 app:<id> → {ai_win, category, pos, won}
+  // 來源一:jobs.outcome
+  for (const r of db.prepare(`SELECT id, ai_win, outcome, category FROM jobs
+    WHERE outcome IS NOT NULL AND outcome != '' AND outcome != '已投待回'`).all()) {
+    if (r.outcome === '沒回/落選') merged.set(r.id, { ai_win: r.ai_win, category: r.category, pos: false, won: false });
+    else if (_POS_OUTCOMES.has(r.outcome)) merged.set(r.id, { ai_win: r.ai_win, category: r.category, pos: true, won: r.outcome === '已錄取' });
+  }
+  // 來源二:applications 漏斗(JOIN jobs 取 ai_win/category)。同 job_id 覆蓋來源一。
+  for (const r of db.prepare(`SELECT a.id, a.job_id, a.status, j.ai_win, j.category
+    FROM applications a LEFT JOIN jobs j ON a.job_id = j.id WHERE a.status IS NOT NULL`).all()) {
+    const st = _APP_STATUS[r.status];
+    if (!st || !st.decided) continue;
+    merged.set(r.job_id || `app:${r.id}`, { ai_win: r.ai_win ?? null, category: r.category, pos: !!st.pos, won: !!st.won });
+  }
+  // 聚合:依 AI 預測 win 分桶 + 依母類別,統計正向率
   const bucketKey = (w) => (w == null ? 'none' : w >= 60 ? 'high' : w >= 40 ? 'mid' : 'low');
   const b = { high: { n: 0, pos: 0 }, mid: { n: 0, pos: 0 }, low: { n: 0, pos: 0 }, none: { n: 0, pos: 0 } };
   const cat = {};
   let won = 0;
-  for (const r of rows) {
-    const pos = _POS_OUTCOMES.has(r.outcome);
-    const k = bucketKey(r.ai_win); b[k].n++; if (pos) b[k].pos++;
-    if (r.outcome === '已錄取') won++;
-    const c = (r.category || '其他').trim() || '其他';
-    (cat[c] = cat[c] || { n: 0, pos: 0 }).n++; if (pos) cat[c].pos++;
+  for (const v of merged.values()) {
+    const k = bucketKey(v.ai_win); b[k].n++; if (v.pos) b[k].pos++;
+    if (v.won) won++;
+    const c = (v.category || '其他').trim() || '其他';
+    (cat[c] = cat[c] || { n: 0, pos: 0 }).n++; if (v.pos) cat[c].pos++;
   }
-  const pending = db.prepare(`SELECT COUNT(*) c FROM jobs WHERE outcome='已投待回'`).get().c;
-  return { decided: rows.length, won, pending, buckets: b, cat };
+  // pending:投了還沒定論。去重(同 job_id 跨兩源不重複)+ 排除已定論(已在 merged 內)
+  const pendingKeys = new Set();
+  for (const r of db.prepare(`SELECT id FROM jobs WHERE outcome='已投待回'`).all()) pendingKeys.add(r.id);
+  for (const r of db.prepare(`SELECT id, job_id FROM applications WHERE status IN ('sent','viewed')`).all()) pendingKeys.add(r.job_id || `app:${r.id}`);
+  for (const k of merged.keys()) pendingKeys.delete(k);
+  return { decided: merged.size, won, pending: pendingKeys.size, buckets: b, cat };
 }
 // 把實績濃縮成一句餵給 AI 快篩(樣本 <5 不餵,避免噪音誤導)
 function outcomeNoteText(s) {
@@ -2521,6 +2547,11 @@ function pageProposal(id) {
     <button class="save" style="background:#9d7cd8;padding:6px 12px;font-size:13px;margin-left:6px" onclick="markAnchor()" title="把這封信存為範本,AI 寫新信會對齊這封 voice">⭐ 標為範本</button>
     <span id="sentmsg" style="color:var(--grn);font-size:13px;margin-left:8px"></span>
     <div class="out" id="clout"></div>
+    <div id="refinebox" style="display:none;margin-top:14px;background:#161b22;border:1px solid #d29922;border-radius:10px;padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="color:#d29922">🔧 自動修正版</b><span id="refinesum" style="color:var(--mut);font-size:13px;flex:1"></span></div>
+      <div id="refinePreview" style="background:#0d1117;border:1px solid #272e3a;border-radius:8px;padding:10px;white-space:pre-wrap;font:13px/1.7 inherit;color:var(--tx);max-height:260px;overflow:auto"></div>
+      <button class="save" style="background:#d29922;padding:6px 12px;font-size:13px;margin-top:10px" onclick="adoptRefined()">✅ 採用修正版(取代上方草稿)</button>
+    </div>
     <div id="vstatus" style="display:none;margin-top:10px;color:var(--mut);font-size:13px"></div>
     <div id="verifybox" style="display:none;margin-top:14px;background:#0d1117;border:1px solid #272e3a;border-radius:10px;padding:14px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><b style="color:var(--ac)">🔍 幻覺偵測 · 事實核查</b><span id="verifysum" style="color:var(--mut);font-size:13px;flex:1"></span></div>
@@ -2699,6 +2730,23 @@ function pageProposal(id) {
       pfsum.textContent='✅'+nO+' ❌'+nB+' ⚪'+nN+(pf.summary?' · '+pf.summary:'');
       document.getElementById('pfbox').style.display='block';
     }
+    var rb=document.getElementById('refinebox');
+    if(c.refinedText){
+      window._clRefined=c.refinedText;
+      document.getElementById('refinesum').textContent='偵測到 '+(c.refinedCount||0)+' 個高風險問題(捏造/SOP 違規/高風險批判),已自動修出一版 — 確認後可採用';
+      document.getElementById('refinePreview').textContent=c.refinedText;
+      if(rb)rb.style.display='block';
+    }else if(rb){rb.style.display='none';}
+  }
+  function adoptRefined(){
+    if(!window._clRefined)return;
+    window._cl=window._clRefined;
+    document.getElementById('clout').textContent=window._clRefined;
+    var rb=document.getElementById('refinebox');if(rb)rb.style.display='none';
+    // 採用後,舊草稿的驗證結果已過時 → 收起(不自動重驗以免多燒 token,要的話再按產生)
+    ['verifybox','citebox','skbox','pfbox'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none';});
+    var vs=document.getElementById('vstatus');if(vs){vs.style.display='block';vs.textContent='✅ 已採用修正版(舊驗證結果已清除;要重新驗證再按一次「產生」)';}
+    var st=document.getElementById('st');if(st)st.textContent='✅ 已採用修正版';
   }
   // 🔍 草稿出來後背景補跑驗證(獨立請求,不阻塞草稿顯示)
   async function fetchVerify(id,text){
@@ -3327,7 +3375,7 @@ createServer(async (req, res) => {
       } else if (mode === 'consensus') {
         // 3 個 provider 平行各自跑單版 cover letter,差異越大 = 越不確定 = 風險
         const providers = ['claude', 'openai', 'gemini'];
-        const results = await Promise.allSettled(providers.map(p => askAI(coverLetterPrompt(job, prof), { provider: p })));
+        const results = await Promise.allSettled(providers.map(p => askAI(coverLetterPrompt(job, prof), { provider: p, noFallback: true })));
         const outputs = results.map((r, i) => ({ provider: providers[i], text: r.status === 'fulfilled' ? r.value.trim() : `(${providers[i]} 失敗)`, ok: r.status === 'fulfilled' }));
         // 預設用 claude 版做主稿,其他 2 個當共識參考
         text = outputs.find(o => o.provider === 'claude' && o.ok)?.text || outputs.find(o => o.ok)?.text || '';
@@ -3396,13 +3444,27 @@ createServer(async (req, res) => {
         skepticCritique(finalText, job, prof),
         preflightCheck(finalText, prof, prof.lessons || [], job),
       ]);
+      const verify = verifyR.status === 'fulfilled' ? verifyR.value : null;
+      const citations = citeR.status === 'fulfilled' ? citeR.value : null;
+      const skeptic = skR.status === 'fulfilled' ? skR.value : null;
+      const preflight = pfR.status === 'fulfilled' ? pfR.value : null;
+      // 🔧 verify→refine 閉環:只在抓到「高風險」問題時才自動修(乾淨信不花這筆 AI 錢)。
+      //    高風險 = 捏造/矛盾主張(contradicted)、SOP broken 規則、high severity 批判。
+      const refinedIssues = [];
+      for (const c of (verify?.claims || []).filter((x) => x.status === 'contradicted')) refinedIssues.push(`🚨 捏造/矛盾:「${c.text}」(${c.evidence || ''})`);
+      for (const r of (preflight?.rules || []).filter((x) => x.status === 'broken')) refinedIssues.push(`❌ SOP 違規:${r.desc || r.id}${r.quote ? ` 原文「${r.quote}」` : ''}${r.fix ? ` → ${r.fix}` : ''}`);
+      for (const i of (skeptic?.issues || []).filter((x) => x.severity === 'high')) refinedIssues.push(`⚠️ 高風險:${i.problem || ''}${i.suggestion ? ` → ${i.suggestion}` : ''}`);
+      let refinedText = null;
+      if (refinedIssues.length) {
+        try {
+          const fixed = String(await askAI(coverLetterFixPrompt(finalText, job, prof, refinedIssues.join('\n')))).trim();
+          if (fixed && fixed.length > 40 && fixed !== finalText) refinedText = fixed;
+        } catch (e) { console.error('verify→refine 失敗:', e.message); }
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({
-        ok: true,
-        verify: verifyR.status === 'fulfilled' ? verifyR.value : null,
-        citations: citeR.status === 'fulfilled' ? citeR.value : null,
-        skeptic: skR.status === 'fulfilled' ? skR.value : null,
-        preflight: pfR.status === 'fulfilled' ? pfR.value : null,
+        ok: true, verify, citations, skeptic, preflight,
+        refinedText, refinedCount: refinedIssues.length,
       }));
     }
     if (url.pathname === '/api/advice' && req.method === 'POST') {

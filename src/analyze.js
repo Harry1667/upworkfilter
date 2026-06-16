@@ -206,7 +206,7 @@ function callProxy(env, prompt, opts = {}) {
       env: childEnv,
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
-      timeout: 200000
+      timeout: opts.timeoutMs || 200000 // 換手重試時用較短逾時,避免多 provider 逾時疊加
     }, (err, stdout, stderr) => {
       if (err) {
         const msg = (stderr || err.message || '').toString().trim();
@@ -220,11 +220,37 @@ function callProxy(env, prompt, opts = {}) {
   });
 }
 
+// provider fallback 鏈:主 provider 失敗(配額爆/逾時/錯誤)時自動換手,避免單一 provider 卡死全系統。
+// 可用 .env AI_PROXY_FALLBACKS 覆蓋(逗號分隔,如 "gemini,openai")。
+const DEFAULT_FALLBACKS = ['claude', 'gemini', 'openai'];
+
 // 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
-// opts.provider/opts.tier:可指定便宜模型(快篩用),預設用 .env 的 provider/tier
+// opts.provider/opts.tier:可指定便宜模型(快篩用),預設用 .env 的 provider/tier。
+// opts.noFallback=true:只試指定 provider、不換手(共識模式 3 provider 比對用,換手會失真)。
 export async function askAI(prompt, opts = {}) {
   const env = loadEnv();
-  return callProxy(env, prompt, opts);
+  if (opts.noFallback) return callProxy(env, prompt, opts);
+  const chain = (process.env.AI_PROXY_FALLBACKS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const fallbacks = chain.length ? chain : DEFAULT_FALLBACKS;
+  // 第一棒:opts.provider(若有)或 null(讓 proxy 用 .env 預設模型)。
+  // 只接「1 個」fallback(上限 2 次):避免多 provider 逾時疊加爆掉 nginx(最壞 ~200s + 90s)。
+  const first = opts.provider || null;
+  const order = [first];
+  for (const f of fallbacks) { if (f && f !== first) { order.push(f); break; } }
+  let lastErr;
+  for (let i = 0; i < order.length; i++) {
+    const provider = order[i];
+    const callOpts = { ...opts };
+    if (provider) callOpts.provider = provider;
+    if (i > 0) callOpts.timeoutMs = 90000; // 換手那次用短逾時
+    try {
+      return await callProxy(env, prompt, callOpts);
+    } catch (e) {
+      lastErr = e;
+      if (i < order.length - 1) console.error(`⚠️ AI provider「${provider || '預設'}」失敗,換手 →「${order[i + 1]}」:${e.message}`);
+    }
+  }
+  throw lastErr || new Error('所有 AI provider 都失敗');
 }
 
 // 主流程:回傳產出的 HTML 路徑

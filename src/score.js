@@ -115,6 +115,39 @@ export function isLargeScope(j) {
   return fromScratch || wholeProduct || enterprise || team || longNoFirst;
 }
 
+// 🎈 畫大餅偵測(期望 ≫ 預算)— Pragyan 型客戶:企業級願景/一長串功能,預算卻補不起來。
+// 只用現有欄位(description + 預算)。回 {hit, severity, reason}。severity:0 無 / 1 輕 / 2 重。
+// ⚠️ 最強訊號是「客戶平均實付 $/hr」(Pragyan $10/hr),但該欄位需擴充功能加抓 client 頁的
+//    "avg hourly rate paid",目前尚未接入 → 這裡只做 post 級「範圍 vs 預算」軟訊號(警示不硬殺)。
+export function scopeBudgetMismatch(j) {
+  const text = `${j.title || ''} ${j.description || ''}`.toLowerCase();
+  // 整套平台/企業級願景詞
+  const grandVision = isLargeScope(j) ||
+    /fully (?:ai[\s-]?powered|automated)|end[\s-]?to[\s-]?end (?:automation|platform|system)|sell (?:it|this) to other|offer (?:it|this) to other|white[\s-]?label|multi[\s-]?compan|scale (?:it|this) (?:into|to) a (?:product|saas)/.test(text);
+  // 功能清單密度:編號功能標記(①②③ / 行首 "1." "2.")或多個 feature/module 字眼
+  const numberedMarkers = (text.match(/[①②③④⑤⑥⑦⑧⑨⑩]/g) || []).length
+    + (String(j.description || '').match(/^\s*\d[.)]\s/gm) || []).length;
+  const featureWords = (text.match(/\b(feature|module|integration|workflow|automation)\b/g) || []).length;
+  const manyFeatures = numberedMarkers >= 3 || featureWords >= 5;
+  if (!(grandVision || manyFeatures)) return { hit: false, severity: 0, reason: '' };
+
+  // 預算側:這份野心配了多小的錢?
+  const fb = toNum(j.fixed_budget);
+  const hi = toNum(j.hourly_max) ?? toNum(j.hourly_min);
+  let small = false, label = '';
+  if (j.budget_type === 'fixed' && fb != null) {
+    if (fb < 1500) { small = true; label = `$${fb} fixed`; }
+  } else if (j.budget_type === 'hourly' && hi != null) {
+    if (hi < 40 && manyFeatures) { small = true; label = `$${hi}/hr 上限`; } // 企業級願景卻低時薪上限
+  }
+  if (!small) return { hit: false, severity: 0, reason: '' };
+
+  const severity = (grandVision && manyFeatures) ? 2 : 1;
+  const feat = numberedMarkers >= 3 ? `${numberedMarkers} 項列點功能`
+    : (featureWords >= 5 ? '多模組需求' : '整套平台願景');
+  return { hit: true, severity, reason: `🎈 期望≫預算(畫大餅):${feat} 卻僅 ${label}` };
+}
+
 // 🙅 非開發角色:標題明顯是招募/小編/行政/客服/業務/VA 等「找人做非開發工作」的案。
 // 就算內文有 AI/automation buzzword(掛羊頭)也不是你的領域。標題若有開發職稱則不算(可能是「找工程師建招募工具」)。
 export function isNonDevRole(j) {
@@ -374,6 +407,9 @@ function scoreRisk(j, rate) {
   if (/per 100|per hundred|\$5 per|commission only/.test(text)) s -= 25; // 壓榨型
   // 跳出 Upwork 詐騙訊號
   if (/telegram|whatsapp|skype|contact me at|email me/.test(text)) s -= 20;
+  // 🎈 期望≫預算(畫大餅):企業級願景/多功能清單卻配小預算 = Pragyan 型,風險升高
+  const sbm = scopeBudgetMismatch(j);
+  if (sbm.hit) s -= sbm.severity >= 2 ? 22 : 12;
   return Math.max(0, Math.min(s, 100));
 }
 
@@ -552,6 +588,14 @@ export function scoreJob(j, config) {
   if (firstReview && !blocked && (verdict === 'APPLY' || verdict === 'MAYBE')) {
     reason = `🎯 第一單目標 — ${reason}`;
   }
+  // 🎈 期望≫預算(畫大餅 / Pragyan 型客戶):surface 警示。放在 firstReview 之後 → 有最終否決權:
+  //    新手 + 重度(整套願景 × 一長串功能 × 小預算)→ APPLY 降 MAYBE,別一頭栽進註定的範圍拉鋸。
+  const sbm = scopeBudgetMismatch(j);
+  if (sbm.hit && (verdict === 'APPLY' || verdict === 'MAYBE')) {
+    if (isNewbie && sbm.severity >= 2 && verdict === 'APPLY') verdict = 'MAYBE';
+    reason = `${sbm.reason} — ${reason}`;
+  }
+
   // 🚫 不要 boost 提示(可投但不值得 boost 的案;web.js 另有完整顯示)
   const cd = connectsDiscipline(j, connectsHot);
   if (cd.noBoost && (verdict === 'APPLY' || verdict === 'MAYBE')) {

@@ -8,6 +8,51 @@ const DB_PATH = path.join(__dirname, '..', 'jobs.db');
 
 const SCORE_COLS = ['score_reward', 'score_skill', 'score_client', 'score_competition', 'score_longterm', 'score_clarity', 'score_risk'];
 
+// 🤝 協商手冊種子 — 萃自 Move On Removals 案(2026-06,$450 全額、漂亮收尾)的實戰句型。
+// 首次建表時注入,之後使用者可自行增刪;phrasing 是客戶回覆用的英文,note 是繁中判斷。
+const NEGOTIATION_SEED = [
+  {
+    situation: '一堆功能塞進低價 milestone',
+    note: '把「多功能=多個獨立軟體」講死,擋住壓價',
+    phrasing: `Let me be clear so we don't set the wrong expectation: $X can't cover a production-ready version of all of these. They're separate modules — built properly, each is its own piece of software. The honest path is one feature done properly now, the rest scoped and quoted on their own later.`,
+  },
+  {
+    situation: '開工前鎖範圍(每個 milestone 必做)',
+    note: '白紙黑字鎖範圍=全身而退的護身符,最後凹免費時靠它',
+    phrasing: `In scope — these items only: [list]. Not in scope for this milestone (separate, properly budgeted later): [list]. When these are done, the milestone is complete. Could you confirm you're happy with this scope?`,
+  },
+  {
+    situation: '客戶用模糊形容詞要你猜(intuitive/像舊系統)',
+    note: '把不可交付的「感覺」逼成具體參照;拿不出=問題在他期望',
+    phrasing: `I understand the feeling, but words like 'intuitive' and 'effortless' aren't instructions I can build from. Send me 2–3 screenshots or a short recording of the exact screens your team uses most, so I can match the target instead of guessing at adjectives.`,
+  },
+  {
+    situation: '你自己改出副作用 / bug',
+    note: '免費修你弄壞那塊買回信任,同時守住新功能要收費',
+    phrasing: `Honest breakdown: (1) root cause — this predates my milestone; (2) where my change made it worse — that side effect I'll fix for free; (3) what's genuinely new — true [feature] never existed and is a new, paid feature.`,
+  },
+  {
+    situation: '客戶想凹免費重做已交付/已付款的工作',
+    note: '把爭論從感覺拉回白紙黑字的記錄;事實不可辯駁',
+    phrasing: `Every milestone was written down, agreed, approved and paid by you before release — it's all in our message history. What you're describing now is a separate project I never quoted and you never paid for. I'll happily do it as its own milestone, scoped and priced separately.`,
+  },
+  {
+    situation: '客戶貶低你的貢獻(說大部分他自己設計)',
+    note: '不卑不亢分開「出主意」與「工程化」;承認他也不讓他抹掉你',
+    phrasing: `You defined the requirements — that's your job, and you did it well. I engineered them into a working system — that's the job you hired me for and approved at every step. Telling me what you want and building it are two different things.`,
+  },
+  {
+    situation: '⭐同一不滿重複出現(第2-3次)→ 早攤牌',
+    note: '重複抱怨=隱性驗收標準=期望/預算鴻溝;早攤牌保護雙方,別逐項拖到爆',
+    phrasing: `I'm hearing the same thing again, so let me be direct rather than open another milestone. What you're describing is a full redesign — a project worth $X over a longer timeline that can't fit this budget. Let's decide that openly now, instead of going milestone by milestone while the gap quietly grows.`,
+  },
+  {
+    situation: '收尾(客戶結案或你決定退出)',
+    note: '不爭最後一口氣;大方收尾保住評價、名聲、氣度(互惠才是要好評最有效的方式)',
+    phrasing: `I respect the decision. It's been a genuine pleasure — the foundation and improvements are all live and yours to build on. You've got a clear vision and deserve someone who matches it exactly. No hard feelings; my door's open if you ever want help down the track. All the best.`,
+  },
+];
+
 export function openDb() {
   const db = new DatabaseSync(DB_PATH);
   // 並發處理:WAL 允許「多讀 + 單寫」,busy_timeout 讓連線遇到鎖時等待而非直接報錯
@@ -169,6 +214,28 @@ export function openDb() {
     );
   `);
 
+  // ── 🤝 協商手冊(negotiation_playbooks)— 守範圍/議價/範圍變動的實戰句型,只注入 replyPrompt ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS negotiation_playbooks (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      situation    TEXT NOT NULL,   -- 情境標籤
+      phrasing     TEXT NOT NULL,   -- 久經驗證的英文措辭(客戶回覆用)
+      note         TEXT,            -- 何時用 / 為什麼有效(繁中)
+      created_at   TEXT,
+      enabled      INTEGER DEFAULT 1,
+      hit_count    INTEGER DEFAULT 0
+    );
+  `);
+  // 首次建立時 seed 八條;已有資料(含使用者後來新增/刪除)就不再動,避免覆蓋
+  try {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM negotiation_playbooks').get().n;
+    if (!n) {
+      const now = new Date().toISOString();
+      const seed = db.prepare('INSERT INTO negotiation_playbooks (situation, phrasing, note, created_at) VALUES (?, ?, ?, ?)');
+      for (const pb of NEGOTIATION_SEED) seed.run(pb.situation, pb.phrasing, pb.note, now);
+    }
+  } catch { /* ignore */ }
+
   return db;
 }
 
@@ -189,6 +256,26 @@ export function setLessonEnabled(db, id, enabled) {
 }
 export function deleteLesson(db, id) {
   db.prepare('DELETE FROM lessons WHERE id=?').run(id);
+}
+// ── 🤝 negotiation_playbooks helpers(協商手冊)──
+export function addNegotiationPlay(db, pb) {
+  return db.prepare('INSERT INTO negotiation_playbooks (situation, phrasing, note, created_at) VALUES (?, ?, ?, ?)').run(
+    String(pb.situation || '').trim().slice(0, 200),
+    String(pb.phrasing || '').trim().slice(0, 1500),
+    String(pb.note || '').trim().slice(0, 500),
+    new Date().toISOString(),
+  );
+}
+export function listNegotiationPlays(db, onlyEnabled = false) {
+  // ASC:讓 seed 的 8 條照邏輯順序(投案→鎖範圍→…→收尾)出現
+  const q = onlyEnabled ? 'SELECT * FROM negotiation_playbooks WHERE enabled=1 ORDER BY id ASC' : 'SELECT * FROM negotiation_playbooks ORDER BY id ASC';
+  return db.prepare(q).all();
+}
+export function setNegotiationPlayEnabled(db, id, enabled) {
+  db.prepare('UPDATE negotiation_playbooks SET enabled=? WHERE id=?').run(enabled ? 1 : 0, id);
+}
+export function deleteNegotiationPlay(db, id) {
+  db.prepare('DELETE FROM negotiation_playbooks WHERE id=?').run(id);
 }
 // ── anchors helpers ──
 export function addAnchor(db, a) {
@@ -410,8 +497,29 @@ export function setInviteStatus(db, id, status) {
   return r.changes > 0;
 }
 
+// 💸 賤單防呆:預算明顯過低的案,AI 再怎麼喜歡都不准標「強力接 / 8+分」。
+// 為什麼:案子「乾淨好做」≠「值得你投」。$30 這種對 0 評價新手的「評價密度÷投入」太差,
+// AI 詳細分析常被「小任務+好客戶+低競爭」沖昏頭給 9.5 強力接,跟規則引擎的 lowPay(MAYBE)打架,誤導使用者去衝。
+// 這是 client-realism 還沒能抓 avg $/hr 之前的防呆。閾值保守(只擋真的小錢),且為單一寫入閘 → triage/大分析全涵蓋。
+const CHEAP_FIXED = 100, CHEAP_HOURLY = 15;
+function isCheapJobRow(j) {
+  const fb = Number(j.fixed_budget);
+  const hi = Number(j.hourly_max ?? j.hourly_min);
+  if (j.budget_type === 'fixed' && Number.isFinite(fb) && fb > 0) return fb < CHEAP_FIXED;
+  if (j.budget_type === 'hourly' && Number.isFinite(hi) && hi > 0) return hi < CHEAP_HOURLY;
+  return false; // 預算未知/0(未解析)→ 不擋,不誤殺
+}
+
 // 寫入 AI 判斷(score、verdict、win、tags 子功能陣列、category 母類別)
 export function setAiVerdict(db, id, score, verdict, win, tags, category) {
+  // 賤單封頂:讀該案預算,過低就把 score 壓回 ≤6.5、強力接→可接(附 💸 標記),其餘照寫
+  try {
+    const j = db.prepare('SELECT budget_type, fixed_budget, hourly_max, hourly_min FROM jobs WHERE id=?').get(id);
+    if (j && isCheapJobRow(j)) {
+      if (score != null && Number(score) > 6.5) score = 6.5;
+      if (typeof verdict === 'string' && /^強力接/.test(verdict)) verdict = verdict.replace(/^強力接/, '可接(💸賤單降級)');
+    }
+  } catch { /* 防呆失敗不擋正常寫入 */ }
   const tagStr = Array.isArray(tags) ? tags.join(',') : (tags ?? null);
   db.prepare('UPDATE jobs SET ai_score = ?, ai_verdict = ?, ai_win = ?, tags = COALESCE(?, tags), category = COALESCE(?, category) WHERE id = ?')
     .run(score ?? null, verdict ?? null, win ?? null, tagStr, category ?? null, id);
