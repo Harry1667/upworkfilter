@@ -263,8 +263,12 @@ export async function askAI(prompt, opts = {}) {
   // 先載入 .env(不丟錯),看有沒有自己的 Gemini key → 有就直連、繞過壞掉的共用 proxy
   try { if (existsSync(ENV_PATH)) process.loadEnvFile(ENV_PATH); } catch { /* ignore */ }
   const gkeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (gkeys.length) return callGeminiDirect(prompt, gkeys, opts);
-  // 否則走共用 proxy(舊路徑,auto-route)
+  if (gkeys.length) {
+    // 直連 Gemini 優先(快);失敗(免費 tier 每分鐘 20 次撞限/額度爆)→ 退回共用 proxy,避免 chat/分析整個 500
+    try { return await callGeminiDirect(prompt, gkeys, opts); }
+    catch (e) { console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy`); }
+  }
+  // 共用 proxy(備援,auto-route)
   const env = loadEnv();
   const first = opts.provider || null;
   if (opts.noFallback || !first) return callProxy(env, prompt, opts);
