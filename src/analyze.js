@@ -245,10 +245,15 @@ async function oneGeminiCall(prompt, key, opts = {}) {
 }
 async function callGeminiDirect(prompt, keys, opts = {}) {
   let lastErr;
-  for (let attempt = 0; attempt < Math.min(keys.length, 3); attempt++) {
+  const maxTries = Math.max(keys.length, 6);
+  for (let attempt = 0; attempt < maxTries; attempt++) {
     const key = keys[_gkIdx++ % keys.length]; // round-robin
     try { return await oneGeminiCall(prompt, key, opts); }
-    catch (e) { lastErr = e; } // 換下一把 key 重試(限流/壞 key)
+    catch (e) {
+      lastErr = e;
+      // 429 = 免費 tier 速率限制 → 退避等一下再換把 key 重試(自動配速,讓所有案都篩得到)
+      if (/\b429\b/.test(String(e.message))) await new Promise((r) => setTimeout(r, 4000 + attempt * 2000));
+    }
   }
   throw lastErr || new Error('Gemini 直連全部失敗');
 }
