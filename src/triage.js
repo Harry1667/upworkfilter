@@ -29,8 +29,10 @@ function winCapFor(j) {
   return Math.max(0, cap);
 }
 
-// 快篩用的便宜模型(可用 .env 覆蓋)
-const PROVIDER = process.env.AI_TRIAGE_PROVIDER || 'openai';
+// 快篩用的便宜模型(可用 .env 覆蓋)。
+// 2026-06-16:正式機 codex(openai)CLI 壞掉一律「Command failed」,claude 也常 60s 超時,
+// 唯一穩定回應的是 gemini-2.5-flash(~10s)→ 預設改 gemini,避免每批失敗。
+const PROVIDER = process.env.AI_TRIAGE_PROVIDER || 'gemini';
 const TIER = process.env.AI_TRIAGE_TIER || 'low';
 
 // 母類別(大類)後備清單 — 功能地圖還沒掃出大類時用
