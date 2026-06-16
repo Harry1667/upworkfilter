@@ -220,21 +220,53 @@ function callProxy(env, prompt, opts = {}) {
   });
 }
 
+// 🔑 直連 Gemini API(用自己的 key)— 繞過共用 proxy(那台慢又會卡死)。
+// 設了 .env GEMINI_API_KEYS(逗號分隔多把)就走這條:快(~1-2s)、穩、可並行。
+// 多把 key 輪替:分散免費額度的速率限制 + 跳過壞/被限流的 key。
+let _gkIdx = 0;
+async function oneGeminiCall(prompt, key, opts = {}) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs || 120000);
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: ctrl.signal,
+      body: JSON.stringify({ contents: [{ parts: [{ text: String(prompt) }] }] }),
+    });
+    if (!r.ok) throw new Error(`Gemini API ${r.status}: ${(await r.text()).slice(0, 160)}`);
+    const data = await r.json();
+    const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+    if (!text.trim()) throw new Error('Gemini 回應為空');
+    return text;
+  } finally { clearTimeout(timer); }
+}
+async function callGeminiDirect(prompt, keys, opts = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < Math.min(keys.length, 3); attempt++) {
+    const key = keys[_gkIdx++ % keys.length]; // round-robin
+    try { return await oneGeminiCall(prompt, key, opts); }
+    catch (e) { lastErr = e; } // 換下一把 key 重試(限流/壞 key)
+  }
+  throw lastErr || new Error('Gemini 直連全部失敗');
+}
+
 // 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
-// opts.provider/opts.tier:可指定模型;不指定 = auto-route(讓 proxy 自己挑健康的)。
-// opts.noFallback=true:只試指定 provider、不換手(共識模式 3 provider 比對用,換手會失真)。
-// 換手策略:2026-06-16 實測強制 gemini/openai CLI 會卡死(SIGTERM),但 auto-route 穩定會回。
-// → 指定 provider 失敗時,退回「不指定 provider」讓 proxy 改挑健康的,而不是硬換到另一個可能也壞的 provider。
 export async function askAI(prompt, opts = {}) {
+  // 先載入 .env(不丟錯),看有沒有自己的 Gemini key → 有就直連、繞過壞掉的共用 proxy
+  try { if (existsSync(ENV_PATH)) process.loadEnvFile(ENV_PATH); } catch { /* ignore */ }
+  const gkeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (gkeys.length) return callGeminiDirect(prompt, gkeys, opts);
+  // 否則走共用 proxy(舊路徑,auto-route)
   const env = loadEnv();
   const first = opts.provider || null;
-  // 沒指定 provider(auto-route)或明確不換手 → 直接一次呼叫
   if (opts.noFallback || !first) return callProxy(env, prompt, opts);
   try {
     return await callProxy(env, prompt, opts);
   } catch (e) {
-    console.error(`⚠️ AI provider「${first}」失敗,換手 → auto-route(不指定,讓 proxy 挑健康的):${e.message}`);
-    const { provider, ...rest } = opts; // 拿掉 provider = auto-route
+    console.error(`⚠️ AI provider「${first}」失敗,換手 → auto-route:${e.message}`);
+    const { provider, ...rest } = opts;
     return await callProxy(env, prompt, { ...rest, timeoutMs: 90000 });
   }
 }

@@ -128,7 +128,7 @@ async function autoTriageIngested(ids) {
     _triageBusy = true;
     const { triageJobs } = await import('./triage.js');
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
-    const res = await triageJobs(rows, { batchSize: 1, outcomeNote: outcomeNoteText(computeOutcomeStats()) });
+    const res = await triageJobs(rows, { batchSize: 5, outcomeNote: outcomeNoteText(computeOutcomeStats()) });
     for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
     console.log(`🤖 自動快篩完成:${res.length} 案`);
   } catch (e) {
@@ -3672,7 +3672,7 @@ createServer(async (req, res) => {
         try {
           const { triageJobs } = await import('./triage.js');
           await triageJobs(rows, {
-            batchSize: 1, // proxy 慢:一次 1 個案約 30s(過 60s 上限);多個會撞 DEADLINE 失敗
+            batchSize: 5, // 直連 Gemini(快、無 60s 上限)→ 一批 5 個案;若無 key 退回 proxy 會較慢但仍可跑
             outcomeNote: note,
             onBatch: (batch) => { for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); },
             onProgress: (done, total) => { _triageJob.done = done; _triageJob.total = total; },
