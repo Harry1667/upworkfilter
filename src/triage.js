@@ -120,7 +120,7 @@ function extractArray(s) {
 }
 
 // 批次快篩。jobs:DB row 陣列。回 [{id, score, verdict, reason}]
-export async function triageJobs(jobs, { batchSize = 10, onProgress, outcomeNote = '' } = {}) {
+export async function triageJobs(jobs, { batchSize = 10, onProgress, onBatch, outcomeNote = '' } = {}) {
   const p = loadProfile();
   const parents = parentVocab(), children = childVocab();
   const parentSet = new Set(parents), childSet = new Set(children);
@@ -128,6 +128,7 @@ export async function triageJobs(jobs, { batchSize = 10, onProgress, outcomeNote
   for (let i = 0; i < jobs.length; i += batchSize) {
     const batch = jobs.slice(i, i + batchSize);
     const byId = new Map(batch.map((j) => [String(j.id), j])); // 給 win 硬上限查 job 用
+    const batchOut = []; // 這一批的結果(供 onBatch 即時回寫,背景跑時可斷點續)
     try {
       const raw = await askAI(buildPrompt(batch, p, parents, children, outcomeNote), { provider: PROVIDER, tier: TIER });
       const arr = extractArray(raw);
@@ -143,11 +144,13 @@ export async function triageJobs(jobs, { batchSize = 10, onProgress, outcomeNote
         // 母類別(1,受控):無效就留空;子功能(受控清單,去重)
         const parent = parentSet.has(String(r.parent || '').trim()) ? String(r.parent).trim() : '';
         const children2 = [...new Set((r.children || []).map((t) => String(t).trim()).filter((t) => childSet.has(t)))];
-        results.push({ id: String(r.id), score, win, verdict: String(r.verdict || '').trim() || '觀望', reason: String(r.reason || '').slice(0, 40), parent, tags: children2 });
+        batchOut.push({ id: String(r.id), score, win, verdict: String(r.verdict || '').trim() || '觀望', reason: String(r.reason || '').slice(0, 40), parent, tags: children2 });
       }
     } catch (e) {
       console.error(`快篩批次 ${i / batchSize + 1} 失敗:${e.message}`);
     }
+    results.push(...batchOut);
+    if (onBatch && batchOut.length) { try { await onBatch(batchOut); } catch (e) { console.error('onBatch 回寫失敗:' + e.message); } }
     if (onProgress) onProgress(Math.min(i + batchSize, jobs.length), jobs.length);
   }
   return results;

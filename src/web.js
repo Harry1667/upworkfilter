@@ -117,6 +117,7 @@ const COL = { reward: 'score_reward', skill: 'score_skill', client: 'score_clien
 // 背景:對剛 ingest 進來、還沒 AI 分數的案自動快篩(便宜 AI),不阻塞 ingest 回應
 // 預設開啟;.env 設 AI_TRIAGE_ON_INGEST=0 可關。錯誤只記 log,不影響 ingest。
 let _triageBusy = false;
+let _triageJob = null; // 手動 AI 快篩的背景進度:{ running, done, total, started_at }
 let _scanBusy = false; // 功能地圖掃描同時只跑一輪
 async function autoTriageIngested(ids) {
   if (_triageBusy || !ids || ids.length === 0) return; // 同時間只跑一輪,避免疊跑
@@ -722,15 +723,24 @@ function pageJobs() {
     card.dataset.applied=a?'1':'0';
     if(a)card.parentNode.appendChild(card);} // 已投 → 沉到列表最底
   async function triage(all){const b=document.getElementById('triageBtn'),m=document.getElementById('trmsg');
-    b.disabled=true;let s=0;m.textContent=' 快篩中…(便宜 AI 批次,勿關閉) 0s';
-    const t=setInterval(()=>{m.textContent=' 快篩中…(便宜 AI 批次,勿關閉) '+(++s)+'s';},1000);
-    try{const r=await fetch('/api/triage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({all:!!all})});
-      clearInterval(t);
-      if(!r.ok){m.textContent=' ❌ '+(r.status>=502?'AI 太久或伺服器忙,請再按一次':'失敗('+r.status+')');b.disabled=false;return;}
-      let j;try{j=await r.json();}catch(e){m.textContent=' ❌ AI 回應異常,請再試一次';b.disabled=false;return;}
-      if(j.ok){m.textContent=' ✅ 已快篩 '+j.triaged+' 案,重整中…';setTimeout(()=>location.reload(),800);}
-      else m.textContent=' ❌ '+(j.error||'失敗');}
-    catch(e){clearInterval(t);m.textContent=' ❌ 連線中斷,請再試一次';}b.disabled=false;}
+    b.disabled=true;m.textContent=' 啟動背景快篩…';
+    try{
+      const r=await fetch('/api/triage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({all:!!all})});
+      if(!r.ok){m.textContent=' ❌ 啟動失敗('+r.status+'),請再按一次';b.disabled=false;return;}
+      let j;try{j=await r.json();}catch(e){m.textContent=' ❌ 回應異常,請再試一次';b.disabled=false;return;}
+      if(!j.ok){m.textContent=' ❌ '+(j.error||'失敗');b.disabled=false;return;}
+      if(j.started===false&&!j.running){m.textContent=' '+(j.msg||'沒有待快篩的案');b.disabled=false;return;}
+      // 背景已在跑 → 輪詢進度(每 4 秒)。可離開頁面,跑完重整即看到。
+      m.textContent=' 🤖 背景快篩中… 0/'+(j.total||'?')+'(可離開頁面,跑完重整即看到)';
+      const poll=async()=>{
+        try{
+          const pr=await fetch('/api/triage/progress');const p=await pr.json();
+          if(p.running){m.textContent=' 🤖 背景快篩中… '+p.done+'/'+p.total+'(可離開頁面,跑完重整即看到)';setTimeout(poll,4000);}
+          else{m.textContent=' ✅ 快篩完成('+(p.done||0)+' 案),重整中…';setTimeout(()=>location.reload(),900);}
+        }catch(e){m.textContent=' ⚠️ 進度查詢中斷,稍後重整看結果即可';b.disabled=false;}
+      };
+      setTimeout(poll,4000);
+    }catch(e){m.textContent=' ❌ '+e.message;b.disabled=false;}}
 </script></body></html>`;
 }
 
@@ -3636,13 +3646,36 @@ createServer(async (req, res) => {
         : db.prepare('SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0').all();
       if (rows.length === 0) {
         res.writeHead(200, { 'content-type': 'application/json' });
-        return res.end('{"ok":true,"triaged":0,"msg":"沒有待快篩的案"}');
+        return res.end('{"ok":true,"started":false,"triaged":0,"msg":"沒有待快篩的案"}');
       }
-      const { triageJobs } = await import('./triage.js');
-      const results = await triageJobs(rows, { outcomeNote: outcomeNoteText(computeOutcomeStats()) });
-      for (const r of results) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
+      // 已在背景跑 → 回現況,不疊跑(789 個案 × ~30s/批 = 數十分鐘,絕不能同步等)
+      if (_triageJob && _triageJob.running) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true, started: false, running: true, done: _triageJob.done, total: _triageJob.total, msg: '快篩已在背景進行中' }));
+      }
+      _triageJob = { running: true, done: 0, total: rows.length, started_at: Date.now() };
+      const note = outcomeNoteText(computeOutcomeStats());
+      // 🔁 背景跑(不 await):每批跑完即 setAiVerdict 回寫 → 可離開頁面/重整看進度,不撞 nginx 逾時
+      (async () => {
+        try {
+          const { triageJobs } = await import('./triage.js');
+          await triageJobs(rows, {
+            outcomeNote: note,
+            onBatch: (batch) => { for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); },
+            onProgress: (done, total) => { _triageJob.done = done; _triageJob.total = total; },
+          });
+        } catch (e) {
+          console.error('背景快篩失敗:' + e.message);
+        } finally {
+          _triageJob.running = false;
+        }
+      })();
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, triaged: results.length, candidates: rows.length }));
+      return res.end(JSON.stringify({ ok: true, started: true, total: rows.length }));
+    }
+    if (url.pathname === '/api/triage/progress' && req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(_triageJob || { running: false, done: 0, total: 0 }));
     }
     if (url.pathname === '/analysis') { // 提供已產生的 AI 詳細分析 HTML(評估頁 iframe 內嵌)
       const aid = (url.searchParams.get('id') || '').replace(/[^\w-]/g, '');
