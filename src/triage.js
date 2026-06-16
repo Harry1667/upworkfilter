@@ -30,9 +30,10 @@ function winCapFor(j) {
 }
 
 // 快篩用的便宜模型(可用 .env 覆蓋)。
-// 2026-06-16:正式機 codex(openai)CLI 壞掉一律「Command failed」,claude 也常 60s 超時,
-// 唯一穩定回應的是 gemini-2.5-flash(~10s)→ 預設改 gemini,避免每批失敗。
-const PROVIDER = process.env.AI_TRIAGE_PROVIDER || 'gemini';
+// 2026-06-16 實測:強制單一 provider 會卡(gemini/codex CLI hang→SIGTERM、claude 偶爾 60s 超時),
+// 但「不指定 provider、讓 proxy 自己挑健康的(auto-route)」穩定會回(~5s,跟 chat 助手同一條路)。
+// → 預設留空 = auto-route。要強制某 provider 才設 .env AI_TRIAGE_PROVIDER。
+const PROVIDER = process.env.AI_TRIAGE_PROVIDER || '';
 const TIER = process.env.AI_TRIAGE_TIER || 'low';
 
 // 母類別(大類)後備清單 — 功能地圖還沒掃出大類時用
