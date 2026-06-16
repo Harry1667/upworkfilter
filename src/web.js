@@ -3673,6 +3673,7 @@ createServer(async (req, res) => {
           const { triageJobs } = await import('./triage.js');
           await triageJobs(rows, {
             batchSize: 10, // 直連 Gemini(快、無 60s 上限)一批 10 個案 → 更少請求數,省免費 tier 每分鐘 20 次額度
+            paceMs: 6000,  // 每批至少間隔 6s → triage 約 10 次/分,壓在 20 RPM 下並留 headroom 給 chat/分析
             outcomeNote: note,
             onBatch: (batch) => { for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); },
             onProgress: (done, total) => { _triageJob.done = done; _triageJob.total = total; },

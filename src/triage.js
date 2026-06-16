@@ -123,12 +123,13 @@ function extractArray(s) {
 }
 
 // 批次快篩。jobs:DB row 陣列。回 [{id, score, verdict, reason}]
-export async function triageJobs(jobs, { batchSize = 10, onProgress, onBatch, outcomeNote = '' } = {}) {
+export async function triageJobs(jobs, { batchSize = 10, paceMs = 0, onProgress, onBatch, outcomeNote = '' } = {}) {
   const p = loadProfile();
   const parents = parentVocab(), children = childVocab();
   const parentSet = new Set(parents), childSet = new Set(children);
   const results = [];
   for (let i = 0; i < jobs.length; i += batchSize) {
+    const _bt = Date.now(); // 配速用
     const batch = jobs.slice(i, i + batchSize);
     const byId = new Map(batch.map((j) => [String(j.id), j])); // 給 win 硬上限查 job 用
     const batchOut = []; // 這一批的結果(供 onBatch 即時回寫,背景跑時可斷點續)
@@ -155,6 +156,11 @@ export async function triageJobs(jobs, { batchSize = 10, onProgress, onBatch, ou
     results.push(...batchOut);
     if (onBatch && batchOut.length) { try { await onBatch(batchOut); } catch (e) { console.error('onBatch 回寫失敗:' + e.message); } }
     if (onProgress) onProgress(Math.min(i + batchSize, jobs.length), jobs.length);
+    // 配速:免費 tier 每分鐘 20 次共用 → 每批至少間隔 paceMs,壓在限額下並留 headroom 給 chat/分析
+    if (paceMs && i + batchSize < jobs.length) {
+      const used = Date.now() - _bt;
+      if (used < paceMs) await new Promise((r) => setTimeout(r, paceMs - used));
+    }
   }
   return results;
 }
