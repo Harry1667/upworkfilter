@@ -744,7 +744,7 @@ function pageJobs() {
       setTimeout(poll,4000);
     }catch(e){m.textContent=' ❌ '+e.message;b.disabled=false;}}
   async function prune(){
-    if(!confirm('清掉「未投 × 未收藏」的垃圾案?\n(規則 SKIP / 第二道門擋下 / 超過 7 天的舊案)\n\n你投過的、收藏的、近 7 天的好案都會保留。'))return;
+    if(!confirm('清掉「未投 × 未收藏」的垃圾案?\\n(規則 SKIP / 第二道門擋下 / 超過 7 天的舊案)\\n\\n你投過的、收藏的、近 7 天的好案都會保留。'))return;
     const m=document.getElementById('trmsg');m.textContent=' 清理中…';
     try{const r=await fetch('/api/prune',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({days:7})});
       const j=await r.json();
