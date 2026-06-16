@@ -233,7 +233,8 @@ async function oneGeminiCall(prompt, key, opts = {}) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: ctrl.signal,
-      body: JSON.stringify({ contents: [{ parts: [{ text: String(prompt) }] }] }),
+      // thinkingBudget:0 關掉 Gemini 2.5 Flash 的思考(triage/分類不需要)→ 大幅降延遲
+      body: JSON.stringify({ contents: [{ parts: [{ text: String(prompt) }] }], generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }),
     });
     if (!r.ok) throw new Error(`Gemini API ${r.status}: ${(await r.text()).slice(0, 160)}`);
     const data = await r.json();
