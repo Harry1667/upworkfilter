@@ -23,6 +23,7 @@ import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterFixPrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
 import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates, preflightCheck } from './verify.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
+import { winCapFor } from './triage.js'; // 規則勝率估計也要套這個新手/Expert/價格硬上限(與 AI 快篩一致)
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
@@ -2335,14 +2336,20 @@ function winRateHint(job) {
   const skill = job.score_skill ?? 0;          // 能力匹配(含作品契合)
   const client = job.score_client ?? 0;
   // 加權:競爭 45%、能力 40%、客戶 15%(能不能被看到 + 做不做得來)
-  const pct = Math.round(comp * 0.45 + skill * 0.40 + client * 0.15);
+  const raw = Math.round(comp * 0.45 + skill * 0.40 + client * 0.15);
+  // 🔒 套用與 AI 快篩一致的硬上限(winCapFor):0 評價新手搶 Expert / 付款未驗證 / 50+ 提案 / 低花費客戶,
+  // 真實勝率被嚴重壓縮。別讓「能力高 + 提案少」就吐 80%+ — 那正是「高勝率卻不該投」自打嘴巴的來源。
+  const cap = winCapFor(job);
+  const pct = Math.min(raw, cap);
   let level, color;
   if (pct >= 70) { level = '高'; color = 'var(--grn)'; }
   else if (pct >= 45) { level = '中'; color = 'var(--ylw)'; }
   else { level = '低'; color = '#f85149'; }
   const bits = [];
-  if (comp >= 75) bits.push('提案數少、容易被看到'); else if (comp <= 30) bits.push('競爭激烈、難出頭');
-  if (skill >= 80) bits.push('能力高度吻合(有作品證據)'); else if (skill < 50) bits.push('技能匹配偏弱');
+  if (raw > cap + 5) bits.push(`新手實際難搶(上限 ${cap}%:Expert/競爭/付款/客戶花費等硬規則)`);
+  else if (comp >= 75) bits.push('提案數少、容易被看到');
+  else if (comp <= 30) bits.push('競爭激烈、難出頭');
+  if (raw <= cap + 5) { if (skill >= 80) bits.push('能力高度吻合(有作品證據)'); else if (skill < 50) bits.push('技能匹配偏弱'); }
   if (client < 40) bits.push('客戶條件普通');
   return { pct, level, color, note: bits.join('、') || '條件中性', isAi: false };
 }
