@@ -1,5 +1,6 @@
 // `npm run web` — 看案子 + 設定評分標準的網頁(讀/寫 jobs.db 與 config.json)
 import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -119,6 +120,7 @@ const COL = { reward: 'score_reward', skill: 'score_skill', client: 'score_clien
 // 預設開啟;.env 設 AI_TRIAGE_ON_INGEST=0 可關。錯誤只記 log,不影響 ingest。
 let _triageBusy = false;
 let _triageJob = null; // 手動 AI 快篩的背景進度:{ running, done, total, started_at }
+const _analyzing = new Set(); // 正在大分析的 job id — 防連點/重觸發疊出並行 analyzeJob(會堆 python 塞死 proxy)
 let _scanBusy = false; // 功能地圖掃描同時只跑一輪
 async function autoTriageIngested(ids) {
   if (_triageBusy || !ids || ids.length === 0) return; // 同時間只跑一輪,避免疊跑
@@ -180,6 +182,12 @@ function msUntilDailyRun() {
   if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
   return next - now;
 }
+// 🧹 殭屍清理:殺掉跑超過 120s 的 proxy_call.py(正常呼叫遠 <90s;更久=卡死,會佔住共用 proxy
+// 連線池讓後續全失敗「Command failed」)。每 90s 掃一次,純保險(根因防護是 _analyzing 鎖)。
+function reapStuckProxyCalls() {
+  execFile('bash', ['-c', "ps -eo pid,etimes,args 2>/dev/null | awk '/[p]roxy_call\\.py/ && $2>120 {print $1}' | xargs -r kill -9"], () => { /* 靜默,失敗不影響服務 */ });
+}
+
 function scheduleDailyTriage() {
   if (process.env.AI_TRIAGE_DAILY === '0') { console.log('⏰ 每日自動快篩:已關閉(AI_TRIAGE_DAILY=0)'); return; }
   const delay = msUntilDailyRun();
@@ -3709,11 +3717,21 @@ createServer(async (req, res) => {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ ok: false, blocked: true, error: '此案被第二道門擋下(紅線/能力圈外),不建議花 AI 分析。如確定要分析,加 ?force=1。' }));
       }
-      const r = await analyzeJob(job); // 抓取(雲端用 DB 描述)+ ProxyCLI AI + 產 HTML
-      // 以 AI 判斷為準:把 AI 的總分/verdict 存進 DB,卡片/評估頁優先顯示
-      if (r.totalScore != null) setAiVerdict(db, id, Number(r.totalScore), r.verdict);
-      res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify(r));
+      // 🔒 同案分析中 → 別疊跑(連點/重整重觸發會堆並行 python、塞死共用 proxy)
+      if (_analyzing.has(String(id))) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, busy: true, error: '此案正在分析中,請稍候(別連點,會塞住 AI)' }));
+      }
+      _analyzing.add(String(id));
+      try {
+        const r = await analyzeJob(job); // 抓取(雲端用 DB 描述)+ ProxyCLI AI + 產 HTML
+        // 以 AI 判斷為準:把 AI 的總分/verdict 存進 DB,卡片/評估頁優先顯示
+        if (r.totalScore != null) setAiVerdict(db, id, Number(r.totalScore), r.verdict);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify(r));
+      } finally {
+        _analyzing.delete(String(id));
+      }
     }
     if (url.pathname === '/api/triage' && req.method === 'POST') {
       // AI 快篩:便宜模型批次粗評。預設只篩「值得做(APPLY/MAYBE)× 未投 × 還沒 AI 分數」的前 N 名
@@ -3888,4 +3906,5 @@ createServer(async (req, res) => {
   console.log(`\n🌐 網頁:http://${HOST}:${PORT}   (① 列表 / ② 評估 / ③ 提案 / ④ 溝通 / ⑤ 邀請 ｜ 檔案 · 評分)`);
   console.log(`   登入:${NO_AUTH ? 'OFF(NO_AUTH)' : 'hdw-auth ' + AUTH_URL} | ingest 金鑰:${process.env.INGEST_KEY ? 'ON' : 'OFF'}\n   Ctrl+C 關閉。\n`);
   scheduleDailyTriage(); // ⏰ 啟動每日定時自動快篩(手動按鈕仍保留)
+  setInterval(reapStuckProxyCalls, 90000); // 🧹 每 90s 清掉卡死的 proxy_call.py,防殭屍塞死 proxy
 });
