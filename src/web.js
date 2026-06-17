@@ -128,7 +128,7 @@ async function autoTriageIngested(ids) {
     _triageBusy = true;
     const { triageJobs } = await import('./triage.js');
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
-    const res = await triageJobs(rows, { batchSize: 10, outcomeNote: outcomeNoteText(computeOutcomeStats()) });
+    const res = await triageJobs(rows, { outcomeNote: outcomeNoteText(computeOutcomeStats()) });
     for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
     console.log(`🤖 自動快篩完成:${res.length} 案`);
   } catch (e) {
@@ -3669,7 +3669,7 @@ createServer(async (req, res) => {
         try {
           const { triageJobs } = await import('./triage.js');
           await triageJobs(rows, {
-            batchSize: 10, // 一批 10 個案 → 更少請求數,省 Gemini 免費 tier 額度(askAI:直連優先,掛了退 claude/fast)
+            // batchSize 用預設 4(小批才不會走慢 proxy 時撞 75s 死線);askAI:直連 Gemini 優先,掛了退 proxy auto-route
             paceMs: 6000,  // 每批至少間隔 6s → 壓在 Gemini 免費 tier 速率下,並留 headroom 給 chat/分析
             outcomeNote: note,
             onBatch: (batch) => { for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); },

@@ -147,7 +147,9 @@ async function scoreBatch(batch, p, parents, children, parentSet, childSet, outc
 }
 
 // 批次快篩。jobs:DB row 陣列。回 [{id, score, verdict, reason}]
-export async function triageJobs(jobs, { batchSize = 10, paceMs = 0, onProgress, onBatch, outcomeNote = '' } = {}) {
+// batchSize 預設 4:一批越大、prompt 越大,走慢 proxy(直連 Gemini 額度爆時)越容易撞 75s 死線後才拆單案、超浪費。
+// 4 案約 45-55s < 75s → 每批直接打完,不必等 timeout。Gemini 健康時 4 案也秒回(只是請求數略多)。
+export async function triageJobs(jobs, { batchSize = 4, paceMs = 0, onProgress, onBatch, outcomeNote = '' } = {}) {
   const p = loadProfile();
   const parents = parentVocab(), children = childVocab();
   const parentSet = new Set(parents), childSet = new Set(children);
