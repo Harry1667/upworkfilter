@@ -206,7 +206,10 @@ function callProxy(env, prompt, opts = {}) {
       env: childEnv,
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
-      timeout: opts.timeoutMs || 200000 // 換手重試時用較短逾時,避免多 provider 逾時疊加
+      timeout: opts.timeoutMs || 200000, // 換手重試時用較短逾時,避免多 provider 逾時疊加
+      // grpc python child 不理 SIGTERM(預設逾時訊號)→ 逾時得用 SIGKILL 真的砍掉,
+      // 否則 child 永不結束、execFile callback 永不觸發 → 這個 await 永久 hang(快篩會整個卡死在某批)
+      killSignal: 'SIGKILL'
     }, (err, stdout, stderr) => {
       if (err) {
         const msg = (stderr || err.message || '').toString().trim();
@@ -273,8 +276,9 @@ export async function askAI(prompt, opts = {}) {
     catch (e) {
       console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy`);
       // 沒指定 provider 的便宜呼叫(快篩):直連掛了就走實測唯一健康的 claude/fast,
-      // 別落到 openai/gemini 的 low tier(實測小 prompt 都要 18~24s,甚至撞 60s 超時)
-      if (!opts.provider) opts = { ...opts, provider: 'claude', tier: 'fast' };
+      // 別落到 openai/gemini 的 low tier(實測小 prompt 都要 18~24s,甚至撞 60s 超時)。
+      // timeoutMs 75s:略高於 proxy 自身 60s deadline → 健康時秒回,卡住時 75s 就被 SIGKILL 砍掉繼續跑,不空等 200s
+      if (!opts.provider) opts = { ...opts, provider: 'claude', tier: 'fast', timeoutMs: opts.timeoutMs || 75000 };
     }
   }
   // 共用 proxy(備援,auto-route)
