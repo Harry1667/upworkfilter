@@ -123,6 +123,29 @@ function extractArray(s) {
   return JSON.parse(t);
 }
 
+// 打一批分:回這批的結果陣列(失敗回 [],不丟錯)。供 triageJobs 主批次 + 拆單案重試共用。
+async function scoreBatch(batch, p, parents, children, parentSet, childSet, outcomeNote) {
+  const byId = new Map(batch.map((j) => [String(j.id), j])); // 給 win 硬上限查 job 用
+  const out = [];
+  const raw = await askAI(buildPrompt(batch, p, parents, children, outcomeNote), { provider: PROVIDER, tier: TIER });
+  const arr = extractArray(raw);
+  for (const r of arr || []) {
+    if (!r || r.id == null) continue;
+    const score = Math.max(0, Math.min(10, Number(r.score)));
+    if (Number.isNaN(score)) continue;
+    let win = Math.round(Number(r.win));
+    win = Number.isNaN(win) ? null : Math.max(0, Math.min(100, win));
+    // 🔒 規則硬上限夾住 win(防 prompt injection 把 win 灌高);抓不到 job 就不夾
+    const jobForCap = byId.get(String(r.id));
+    if (win != null && jobForCap) win = Math.min(win, winCapFor(jobForCap));
+    // 母類別(1,受控):無效就留空;子功能(受控清單,去重)
+    const parent = parentSet.has(String(r.parent || '').trim()) ? String(r.parent).trim() : '';
+    const children2 = [...new Set((r.children || []).map((t) => String(t).trim()).filter((t) => childSet.has(t)))];
+    out.push({ id: String(r.id), score, win, verdict: String(r.verdict || '').trim() || '觀望', reason: String(r.reason || '').slice(0, 40), parent, tags: children2 });
+  }
+  return out;
+}
+
 // 批次快篩。jobs:DB row 陣列。回 [{id, score, verdict, reason}]
 export async function triageJobs(jobs, { batchSize = 10, paceMs = 0, onProgress, onBatch, outcomeNote = '' } = {}) {
   const p = loadProfile();
@@ -132,27 +155,28 @@ export async function triageJobs(jobs, { batchSize = 10, paceMs = 0, onProgress,
   for (let i = 0; i < jobs.length; i += batchSize) {
     const _bt = Date.now(); // 配速用
     const batch = jobs.slice(i, i + batchSize);
-    const byId = new Map(batch.map((j) => [String(j.id), j])); // 給 win 硬上限查 job 用
-    const batchOut = []; // 這一批的結果(供 onBatch 即時回寫,背景跑時可斷點續)
+    let batchOut = []; // 這一批的結果(供 onBatch 即時回寫,背景跑時可斷點續)
     try {
-      const raw = await askAI(buildPrompt(batch, p, parents, children, outcomeNote), { provider: PROVIDER, tier: TIER });
-      const arr = extractArray(raw);
-      for (const r of arr || []) {
-        if (!r || r.id == null) continue;
-        const score = Math.max(0, Math.min(10, Number(r.score)));
-        if (Number.isNaN(score)) continue;
-        let win = Math.round(Number(r.win));
-        win = Number.isNaN(win) ? null : Math.max(0, Math.min(100, win));
-        // 🔒 規則硬上限夾住 win(防 prompt injection 把 win 灌高);抓不到 job 就不夾
-        const jobForCap = byId.get(String(r.id));
-        if (win != null && jobForCap) win = Math.min(win, winCapFor(jobForCap));
-        // 母類別(1,受控):無效就留空;子功能(受控清單,去重)
-        const parent = parentSet.has(String(r.parent || '').trim()) ? String(r.parent).trim() : '';
-        const children2 = [...new Set((r.children || []).map((t) => String(t).trim()).filter((t) => childSet.has(t)))];
-        batchOut.push({ id: String(r.id), score, win, verdict: String(r.verdict || '').trim() || '觀望', reason: String(r.reason || '').slice(0, 40), parent, tags: children2 });
-      }
+      batchOut = await scoreBatch(batch, p, parents, children, parentSet, childSet, outcomeNote);
     } catch (e) {
       console.error(`快篩批次 ${i / batchSize + 1} 失敗:${e.message}`);
+    }
+    // 🩹 大批顆粒無收(多半是 Gemini 額度爆退回 proxy、整批撞 60s 死線)→ 拆單案重試。
+    // 單案 prompt 小(~5KB),claude/fast ~20s 跑得完、不撞死線 → 慢但真的打完分,不再 0 進度。
+    if (batchOut.length === 0 && batch.length > 1) {
+      console.error(`   ↳ 整批失敗,拆 ${batch.length} 個單案逐一重試…`);
+      for (const single of batch) {
+        try {
+          const one = await scoreBatch([single], p, parents, children, parentSet, childSet, outcomeNote);
+          if (one.length) {
+            batchOut.push(...one);
+            if (onBatch) { try { await onBatch(one); } catch (e) { console.error('onBatch 回寫失敗:' + e.message); } }
+          }
+        } catch (e) { console.error(`   ↳ 單案 ${single.id} 快篩失敗:${e.message}`); }
+      }
+      results.push(...batchOut);
+      if (onProgress) onProgress(Math.min(i + batchSize, jobs.length), jobs.length);
+      continue; // 單案已即時回寫,跳過下面整批回寫;不配速(已夠慢)
     }
     results.push(...batchOut);
     if (onBatch && batchOut.length) { try { await onBatch(batchOut); } catch (e) { console.error('onBatch 回寫失敗:' + e.message); } }
