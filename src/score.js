@@ -152,12 +152,13 @@ export function scopeBudgetMismatch(j) {
 // 就算內文有 AI/automation buzzword(掛羊頭)也不是你的領域。標題若有開發職稱則不算(可能是「找工程師建招募工具」)。
 export function isNonDevRole(j) {
   const title = String(j.title || '').toLowerCase();
-  // 2026-06-18 三堂會審補:加 customer success / SDET / QA engineer / test engineer / operations manager
-  // / marketing 系 / growth marketer / sales development representative(這批非開發職原本漏接,tot 衝到 92-97 霸榜)
-  const NONDEV = /\b(recruiter|talent sourcer|sourcer|headhunter|content creator|copywriter|social media manager|community manager|virtual assistant|data entry|appointment setter|customer (support|service|success)|sales (rep|representative|development representative)|\bsdr\b|\bbdr\b|telemarket|cold caller|human resources|\bhr\b|admin(?:istrative)? (assistant|support)|executive assistant|bookkeeper|voice ?over|transcription(?:ist)?|proofreader|seo writer|brand ambassador|moderator|qa engineer|\bsdet\b|test engineer|automation tester|operations manager|marketing (researcher|manager|specialist)|growth marketer)\b/;
+  // 2026-06-18 三堂會審補:加 customer success / operations manager / marketing 系 / growth marketer /
+  // sales development representative(這批非開發職原本漏接)。修複數(reps)與雙空白(operations  manager)。
+  // 註:QA/SDET/test engineer 不列入 — 那是寫程式的相鄰領域(且含 engineer 會被下面 devRole 豁免),交給 AI 判。
+  const NONDEV = /\b(recruiter|talent sourcer|sourcer|headhunter|content creator|copywriter|social media manager|community manager|virtual assistant|data entry|appointment setter|customer (support|service|success)|sales (rep|representative|development representative)s?|\bsdr\b|\bbdr\b|telemarket|cold caller|human resources|\bhr\b|admin(?:istrative)? (assistant|support)|executive assistant|bookkeeper|voice ?over|transcription(?:ist)?|proofreader|seo writer|brand ambassador|moderator|operations\s+manager|marketing (researcher|manager|specialist)|growth marketer)\b/;
   if (!NONDEV.test(title)) return false;
-  // 標題同時有「開發職稱」→ 是開發案,不算非開發角色
-  const devRole = /\b(developer|engineer|programmer|coder|architect|full[\s-]?stack|back[\s-]?end|front[\s-]?end|software)\b/;
+  // 標題同時有「開發職稱」→ 是開發案,不算非開發角色(例:Backend Developer for a CRM)
+  const devRole = /\b(developer|programmer|coder|architect|full[\s-]?stack|back[\s-]?end|front[\s-]?end|software engineer)\b/;
   return !devRole.test(title);
 }
 
