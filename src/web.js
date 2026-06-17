@@ -597,8 +597,10 @@ function pageJobs() {
   const cfg = loadConfig();
   const C = cfg.scoring.criteria;
   // 排序:已投沉到底 → 再依「實際顯示的分數」(AI 分數優先,×10 對齊 0-100,否則規則分)→ 再依最新
+  // 預設「期望值」排序:顯示分數(0-100)× 中標率 → 「好 且 贏得了」的案排前面,
+  // 不再被「高分但新手贏不了」的案霸佔頂端。沒 ai_win 的給中性 35。
   const data = db.prepare(`SELECT * FROM jobs
-    ORDER BY applied ASC, COALESCE(ai_score * 10, total_score) DESC, last_seen DESC`).all();
+    ORDER BY applied ASC, (COALESCE(ai_score * 10, total_score) * COALESCE(ai_win, 35) / 100.0) DESC, last_seen DESC`).all();
   const counts = data.reduce((a, j) => { const c = effectiveVerdict(j).cls; a[c] = (a[c] || 0) + 1; return a; }, {});
   // 動線提示:今日新案 + 未處理(值得投但還沒投)
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -705,7 +707,8 @@ function pageJobs() {
       <option value="">🎯 全部適配</option><option value="hit">🟢 強項命中</option><option value="partial">🟡 部分符合</option><option value="none">⚪ 需補技能</option>
     </select>
     <select id="sortBy" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px" title="排序方式">
-      <option value="combo">↕ 綜合分數</option>
+      <option value="combo">🎯 最值得投(好×贏得了)</option>
+      <option value="score">↕ 純分數(技術契合)</option>
       <option value="win">🎯 勝率(中標率)</option>
       <option value="cp">💎 CP 值(分數÷競爭)</option>
       <option value="pay">💰 報酬高低</option>
@@ -763,7 +766,10 @@ function pageJobs() {
         const cb=(+b.dataset.sortscore)/Math.max(+b.dataset.comp,1);
         return cb-ca;
       }
-      return (+b.dataset.sortscore)-(+a.dataset.sortscore);
+      if(key==='score')return (+b.dataset.sortscore)-(+a.dataset.sortscore); // 純技術分
+      // combo(預設)= 期望值:分數 × 中標率(沒 win 給中性 35)→ 好且贏得了的浮上來
+      const wa=(+a.dataset.win)>=0?(+a.dataset.win):35, wb=(+b.dataset.win)>=0?(+b.dataset.win):35;
+      return (+b.dataset.sortscore)*wb-(+a.dataset.sortscore)*wa;
     }).forEach(c=>main.appendChild(c));}
   document.getElementById('sortBy').onchange=sortCards;
   // 預設 APPLY,但 URL ?fav=1 來的切到收藏

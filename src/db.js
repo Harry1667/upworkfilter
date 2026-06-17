@@ -501,7 +501,8 @@ export function setInviteStatus(db, id, status) {
 // 為什麼:案子「乾淨好做」≠「值得你投」。$30 這種對 0 評價新手的「評價密度÷投入」太差,
 // AI 詳細分析常被「小任務+好客戶+低競爭」沖昏頭給 9.5 強力接,跟規則引擎的 lowPay(MAYBE)打架,誤導使用者去衝。
 // 這是 client-realism 還沒能抓 avg $/hr 之前的防呆。閾值保守(只擋真的小錢),且為單一寫入閘 → triage/大分析全涵蓋。
-const CHEAP_FIXED = 100, CHEAP_HOURLY = 15;
+// 價格底線(2026-06:已完成首案 $450,不再做虧本單)。低於此 → 賤單降級(score≤6.5、強力接→可接)
+const CHEAP_FIXED = 200, CHEAP_HOURLY = 20;
 function isCheapJobRow(j) {
   const fb = Number(j.fixed_budget);
   const hi = Number(j.hourly_max ?? j.hourly_min);

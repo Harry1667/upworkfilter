@@ -9,7 +9,8 @@ import { toNum, isSeniorExpertJob, proposalBucketLevel } from './score.js';
 // 🔒 規則式 win 硬上限 — 事後夾住 AI 回傳的 win(防 prompt injection 把 win 灌成 99)。
 // 與 buildPrompt 的硬規則一致;即使 AI 被職缺描述騙了,程式仍把不可能的案壓回現實。
 export function winCapFor(j) {
-  let cap = 65;
+  // 2026-06:已完成 1 案($450)+ earnings + ID 驗證(但尚無公開星評)→ 上限從 65 小幅放寬到 78
+  let cap = 78;
   if (j.payment_verified === 0 || j.payment_verified === false) cap = Math.min(cap, 8);
   if (toNum(j.client_hire_rate) === 0) cap = Math.min(cap, 10);
   const lvl = proposalBucketLevel(j.proposals_bucket);
@@ -20,7 +21,7 @@ export function winCapFor(j) {
   if (isSeniorExpertJob(j)) {
     // Gemini review:乾淨的小 Expert 案(提案<5+付款驗證+客戶有花費)放寬,別一律壓 15%
     const clean = proposalBucketLevel(j.proposals_bucket) === '<5' && j.payment_verified === 1 && (toNum(j.client_spent_usd) ?? 0) > 0;
-    cap = Math.min(cap, clean ? 30 : 15);
+    cap = Math.min(cap, clean ? 40 : 22); // 已交付1案,Expert 案放寬:乾淨 30→40、其餘 15→22
   }
   const cr = toNum(j.connects_required);
   // Gemini review:connect 漲價,門檻 12/15 → 16/18
@@ -79,20 +80,23 @@ export function buildPrompt(jobs, p, parents, needs, outcomeNote = '') {
 ③ 【能力邊界】案子主要落在他「深度低(1-2)」或「不做」的領域 → win 大幅下修、score 降;命中「紅線」→ verdict 略過、win≈0。落在「深度高(4-5)」且在「能做」範圍 → 才給高 win。win 要誠實反映「他真的接得下來且贏得了嗎」。
 ④ 【Required 覆蓋率(不是只看最強項)】把 JD 的「Must-have / Required」逐項拆出,對照他的能力邊界。只要有「他沒做過或深度 1-2 的核心 Required 項」(例:live voice agent / WebRTC 即時語音),win 就要下修、reason 點名該缺口 —— 能力總分高 ≠ 覆蓋每個 Required,別被 4/5 命中騙高分。
 
-🚨 【新手勝率硬規則 — 必須嚴格遵守】
-這位使用者是 0 評價新手。0 評價在 Upwork 的真實勝率被嚴重壓縮。即使能力 100% 符合,你的 win 估計**必須**套用以下硬上限:
+🚨 【勝率硬規則 — 必須嚴格遵守】
+這位使用者**剛起步**:已完成 1 個案($450 earnings)、ID 已驗證,但**尚無公開星評/JSS**(客戶瀏覽時看起來仍接近新手)。所以勝率仍受壓,但比純 0 評價略好。即使能力 100% 符合,你的 win 估計**必須**套用以下硬上限:
 - 付款未驗證(payment_verified=false) → **win ≤ 8%**(新客戶不付錢風險極高)
 - 雇用率 0%(client_hire_rate=0) → **win ≤ 10%**(只發案不雇人)
-- 提案數 50+(proposals_bucket 含 "50") → **win ≤ 12%**(50 人在搶,新手不在前段班)
+- 提案數 50+(proposals_bucket 含 "50") → **win ≤ 12%**(50 人在搶,排不到前段班)
 - 提案數 20-50 → **win ≤ 25%**
 - 客戶 spent=0 或 < $100 → **win ≤ 15%**(新客戶不知道怎麼挑人)
-- 經驗等級 = Expert(experience_level)**或標題出現 Senior/資深字眼**,且他 0 評價 → **win ≤ 15%**(Expert/資深案客戶要老手,新手陪榜);**但**若該案提案 <5、付款驗證、客戶有花費 → 客戶只是想要穩,新手仍有機會,可放寬到 **≤ 30%**
-- 投案需 Connects ≥ 16(connects_required)→ **win 再 -10%**;**≥ 18 → 再 -15%**(2026 connect 漲價,16+ 才算超熱門;一堆人搶,新手提案沉到底沒人看)
+- 經驗等級 = Expert(experience_level)**或標題出現 Senior/資深字眼**,且他尚無星評 → **win ≤ 22%**(Expert/資深案客戶偏好老手);**但**若該案提案 <5、付款驗證、客戶有花費 → 客戶只是想要穩,他已能秀出 1 個交付案,機會較好,可放寬到 **≤ 40%**
+- 投案需 Connects ≥ 16(connects_required)→ **win 再 -10%**;**≥ 18 → 再 -15%**(2026 connect 漲價,16+ 才算超熱門)
 - 命中多項上述條件 → 取**最低**值,再 -5%
-- 即使案子完美,新手 win 上限 65%(現實情況沒人會給 0 評價 80%+)
-- 只有「客戶有評價 + 付款驗證 + 提案 < 10 + 雇用率 > 50%」這種完美組合才能給 50%+
+- 即使案子完美,目前 win 上限 78%(尚無公開星評,別給 80%+)
+- 「客戶有評價 + 付款驗證 + 提案 < 10 + 雇用率 > 50%」這種乾淨組合可給 50%+
 
 win 的目的不是讓使用者覺得有希望,是讓他不要燒 Connects 在不可能的案子。誠實壓低 = 幫他省錢。
+
+💰 【價格底線 — 已完成首案,不再做虧本單】
+他的底線:**時薪 ≥ $20、fixed ≥ $200**。明顯低於此(時薪 < $20 或 fixed < $200 對應的工作量)→ score **大幅下修、verdict 傾向略過**,reason 點明「低於底線/虧本」。例外:極小、1-2 小時能交付、可當作品/評價跳板的才酌情保留(但仍標註價格偏低)。別再為了搶案建議他接虧本價。
 
 🎯 【第一單友善訊號 — 規則層抓不到,靠你判讀;score = 現在值不值得花 Connects 投,不只技術契合】
 這位新手的首要目標是「拿到第一個 Upwork 評價」。以下要在 reason 點出並反映到 score:
