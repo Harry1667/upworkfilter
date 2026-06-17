@@ -138,6 +138,59 @@ async function autoTriageIngested(ids) {
   }
 }
 
+// 啟動背景 AI 快篩(手動按鈕 + 每日排程共用)。非阻塞,立即回 { started, total, running, done }。
+// 每批跑完即 setAiVerdict 回寫 → 中途掛掉不丟已篩結果;同時只跑一輪(_triageJob.running 擋疊跑)。
+function runBackgroundTriage(source = 'manual', all = false) {
+  if (_triageJob && _triageJob.running) {
+    return { started: false, running: true, done: _triageJob.done, total: _triageJob.total };
+  }
+  const TRIAGE_CAP = 120; // 每次最多篩這麼多(對齊 proxy 速度,避免一次太多跑不完)
+  const rows = all
+    ? db.prepare('SELECT * FROM jobs WHERE blocked=0 ORDER BY total_score DESC').all()
+    : db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND applied=0
+        AND verdict IN ('APPLY','MAYBE') ORDER BY total_score DESC LIMIT ${TRIAGE_CAP}`).all();
+  if (rows.length === 0) return { started: false, total: 0 };
+  _triageJob = { running: true, done: 0, total: rows.length, started_at: Date.now(), source };
+  const note = outcomeNoteText(computeOutcomeStats());
+  (async () => {
+    try {
+      const { triageJobs } = await import('./triage.js');
+      await triageJobs(rows, {
+        // batchSize 用預設(小批才不會走慢 proxy 時撞死線);askAI:直連 Gemini 優先,掛了退 proxy(openai)
+        paceMs: 6000, // 每批至少間隔 6s → 壓在 Gemini 免費 tier 速率下,並留 headroom 給 chat/分析
+        outcomeNote: note,
+        onBatch: (batch) => { for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); },
+        onProgress: (done, total) => { _triageJob.done = done; _triageJob.total = total; },
+      });
+    } catch (e) { console.error(`背景快篩失敗(${source}):` + e.message); }
+    finally { _triageJob.running = false; }
+  })();
+  return { started: true, total: rows.length };
+}
+
+// ⏰ 每日定時自動快篩(省 token 改成排程跑,手動按鈕保留)。
+// server 是 UTC;預設 UTC 08:00 ≈ PT 午夜後(Gemini 免費額度剛重置、直連最快)≈ 台灣 16:00。
+// .env:AI_TRIAGE_DAILY=0 關閉排程;AI_TRIAGE_DAILY_HOUR 改 UTC 時(0-23)。
+const TRIAGE_DAILY_HOUR = Math.max(0, Math.min(23, Number(process.env.AI_TRIAGE_DAILY_HOUR ?? 8)));
+function msUntilDailyRun() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(TRIAGE_DAILY_HOUR, 0, 0, 0);
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  return next - now;
+}
+function scheduleDailyTriage() {
+  if (process.env.AI_TRIAGE_DAILY === '0') { console.log('⏰ 每日自動快篩:已關閉(AI_TRIAGE_DAILY=0)'); return; }
+  const delay = msUntilDailyRun();
+  console.log(`⏰ 每日自動快篩:每天 UTC ${TRIAGE_DAILY_HOUR}:00 跑,下次約 ${(delay / 3600000).toFixed(1)} 小時後`);
+  const fire = () => {
+    const r = runBackgroundTriage('daily');
+    console.log(`⏰ 每日自動快篩觸發:${r.started ? `啟動 ${r.total} 案` : (r.running ? '已在背景跑、略過' : '沒有待篩的案')}`);
+    setTimeout(fire, msUntilDailyRun()); // 每次重算 → 不漂移,固定 UTC 時刻
+  };
+  setTimeout(fire, delay);
+}
+
 // 🔁 學習迴路:從已標記 outcome 的案統計「AI 預測勝率 vs 真實結果」
 // 正向 = 已回覆/面試中/已錄取(有獲得注意);負向 = 沒回/落選;已投待回 = pending(不列入率)
 const _POS_OUTCOMES = new Set(['已回覆', '面試中', '已錄取']);
@@ -633,7 +686,7 @@ function pageJobs() {
   <h1>📋 探索案件 <span class="sub">APPLY ${counts.APPLY || 0} · MAYBE ${counts.MAYBE || 0} · SKIP ${counts.SKIP || 0} · 共 ${data.length} · 門檻 ${cfg.scoring.threshold}</span></h1>
   ${navBar('/')}
   <div class="flowhint">🆕 今日新案 <b>${todayNew}</b> · ⏳ 待處理(值得投未投) <b>${todo}</b> · 🤖 未 AI 快篩 <b>${untriaged}</b> · 🚫 第二道門擋下 <b>${blockedCount}</b>
-    <button class="open" id="triageBtn" style="margin-left:10px" onclick="triage(false)">🤖 AI 快篩${untriaged ? ` (${untriaged})` : ''}</button>
+    <button class="open" id="triageBtn" style="margin-left:10px" onclick="triage(false)" title="每天會自動快篩一次(台灣下午、Gemini 額度最足時);這顆按鈕讓你隨時手動補篩">🤖 AI 快篩${untriaged ? ` (${untriaged})` : ''}</button>
     <button class="open" id="pruneBtn" style="margin-left:6px;background:#3d1e1e;border-color:#f85149;color:#f85149" onclick="prune()" title="刪掉未投×未收藏的垃圾案(規則SKIP/第二道門擋下/超過7天),保留你投過的、收藏的、近期好案">🗑️ 清垃圾</button>
     <span id="trmsg" style="color:var(--mut)"></span>
   </div>
@@ -3648,41 +3701,16 @@ createServer(async (req, res) => {
       // AI 快篩:便宜模型批次粗評。預設只篩「值得做(APPLY/MAYBE)× 未投 × 還沒 AI 分數」的前 N 名
       // (規則高分優先)——proxy 慢時也跑得完、拿得到驗證分數;再按一次續下一批。?all=1 才重篩全部。
       const body = JSON.parse((await readBody(req)) || '{}');
-      const TRIAGE_CAP = 120; // 每次最多篩這麼多(對齊 proxy 速度,避免一次太多跑不完)
-      const rows = body.all
-        ? db.prepare('SELECT * FROM jobs WHERE blocked=0 ORDER BY total_score DESC').all()
-        : db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND applied=0
-            AND verdict IN ('APPLY','MAYBE') ORDER BY total_score DESC LIMIT ${TRIAGE_CAP}`).all();
-      if (rows.length === 0) {
-        res.writeHead(200, { 'content-type': 'application/json' });
+      // 手動按鈕:跟每日排程共用 runBackgroundTriage(背景跑、每批回寫,不撞 nginx 逾時)
+      const r = runBackgroundTriage('manual', !!body.all);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (r.started === false && r.running) {
+        return res.end(JSON.stringify({ ok: true, started: false, running: true, done: r.done, total: r.total, msg: '快篩已在背景進行中' }));
+      }
+      if (r.started === false) {
         return res.end('{"ok":true,"started":false,"triaged":0,"msg":"沒有待快篩的案"}');
       }
-      // 已在背景跑 → 回現況,不疊跑(789 個案 × ~30s/批 = 數十分鐘,絕不能同步等)
-      if (_triageJob && _triageJob.running) {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ ok: true, started: false, running: true, done: _triageJob.done, total: _triageJob.total, msg: '快篩已在背景進行中' }));
-      }
-      _triageJob = { running: true, done: 0, total: rows.length, started_at: Date.now() };
-      const note = outcomeNoteText(computeOutcomeStats());
-      // 🔁 背景跑(不 await):每批跑完即 setAiVerdict 回寫 → 可離開頁面/重整看進度,不撞 nginx 逾時
-      (async () => {
-        try {
-          const { triageJobs } = await import('./triage.js');
-          await triageJobs(rows, {
-            // batchSize 用預設 4(小批才不會走慢 proxy 時撞 75s 死線);askAI:直連 Gemini 優先,掛了退 proxy auto-route
-            paceMs: 6000,  // 每批至少間隔 6s → 壓在 Gemini 免費 tier 速率下,並留 headroom 給 chat/分析
-            outcomeNote: note,
-            onBatch: (batch) => { for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); },
-            onProgress: (done, total) => { _triageJob.done = done; _triageJob.total = total; },
-          });
-        } catch (e) {
-          console.error('背景快篩失敗:' + e.message);
-        } finally {
-          _triageJob.running = false;
-        }
-      })();
-      res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, started: true, total: rows.length }));
+      return res.end(JSON.stringify({ ok: true, started: true, total: r.total }));
     }
     if (url.pathname === '/api/triage/progress' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -3841,4 +3869,5 @@ createServer(async (req, res) => {
 }).listen(PORT, HOST, () => {
   console.log(`\n🌐 網頁:http://${HOST}:${PORT}   (① 列表 / ② 評估 / ③ 提案 / ④ 溝通 / ⑤ 邀請 ｜ 檔案 · 評分)`);
   console.log(`   登入:${NO_AUTH ? 'OFF(NO_AUTH)' : 'hdw-auth ' + AUTH_URL} | ingest 金鑰:${process.env.INGEST_KEY ? 'ON' : 'OFF'}\n   Ctrl+C 關閉。\n`);
+  scheduleDailyTriage(); // ⏰ 啟動每日定時自動快篩(手動按鈕仍保留)
 });
