@@ -274,11 +274,11 @@ export async function askAI(prompt, opts = {}) {
     // 直連 Gemini 優先(快、無 60s 上限);失敗(每分鐘撞限 / 每日額度用罄)→ 退回共用 proxy,避免 chat/分析整個 500
     try { return await callGeminiDirect(prompt, gkeys, opts); }
     catch (e) {
-      console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy(auto-route)`);
-      // 沒指定 provider 的便宜呼叫(快篩):直連掛了就交給 proxy auto-route 自己挑「健康的」provider。
-      // 別寫死某 provider —— 2026-06-17 實測 claude OAuth 401 掛掉,寫死 claude 就全失敗;
-      // auto 讓 proxy 跳過死的、選 gemini/openai(clip /api/health 為準)。timeoutMs 75s:略高於 proxy 60s deadline。
-      if (!opts.provider) opts = { ...opts, provider: 'auto', tier: 'fast', timeoutMs: opts.timeoutMs || 75000 };
+      console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy(openai)`);
+      // 沒指定 provider 的便宜呼叫(快篩):直連掛了就走 proxy openai。
+      // 2026-06-17 實測:claude OAuth 401 掛(別用);auto 會路由到 codex CLI 回「罐頭招呼語」非 JSON(別用);
+      // openai/gemini 健康且穩定回正確 JSON(clip /api/health 為準,openai ~22-36s)。timeoutMs 75s:略高於 proxy 60s deadline。
+      if (!opts.provider) opts = { ...opts, provider: 'openai', tier: 'fast', timeoutMs: opts.timeoutMs || 75000 };
     }
   }
   // 共用 proxy(備援,auto-route)
@@ -288,9 +288,10 @@ export async function askAI(prompt, opts = {}) {
   try {
     return await callProxy(env, prompt, opts);
   } catch (e) {
-    console.error(`⚠️ AI provider「${first}」失敗,換手 → auto-route:${e.message}`);
-    // 明確指定 provider=auto(別只是 strip 掉 → 那樣會落回 .env 預設 provider,可能正好是死的那個)
-    return await callProxy(env, prompt, { ...opts, provider: 'auto', timeoutMs: 90000 });
+    console.error(`⚠️ AI provider「${first}」失敗,換手 → gemini:${e.message}`);
+    // 換到另一個健康 provider gemini(別 strip → 那會落回 .env 預設 claude,正好是死的;也別用 auto → 會路由到 codex 罐頭回應)
+    const next = first === 'gemini' ? 'openai' : 'gemini';
+    return await callProxy(env, prompt, { ...opts, provider: next, timeoutMs: 90000 });
   }
 }
 
