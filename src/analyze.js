@@ -312,7 +312,9 @@ export async function analyzeJob(job) {
   } else {
     snapshot = scrapeJob(job.url); // 本機 fallback(需 gstack)
   }
-  const raw = await callProxy(env, buildPrompt(job, snapshot));
+  // 走 askAI 輪詢鏈(別直接 callProxy 單一 provider → 那個一掛就 Command failed 無後援)。
+  // timeoutMs 90s/provider:大分析輸出長,給足時間;鏈會自動換到當天健康的 provider。
+  const raw = await askAI(buildPrompt(job, snapshot), { timeoutMs: 90000 });
   let data;
   try { data = extractJson(raw); }
   catch { throw new Error('AI 回應無法解析為 JSON:' + raw.slice(0, 200)); }
