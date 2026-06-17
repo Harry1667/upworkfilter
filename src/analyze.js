@@ -271,28 +271,27 @@ export async function askAI(prompt, opts = {}) {
   try { if (existsSync(ENV_PATH)) process.loadEnvFile(ENV_PATH); } catch { /* ignore */ }
   const gkeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean);
   if (gkeys.length) {
-    // 直連 Gemini 優先(快、無 60s 上限);失敗(每分鐘撞限 / 每日額度用罄)→ 退回共用 proxy,避免 chat/分析整個 500
+    // 直連 Gemini 優先(快、無 60s 上限);失敗(每分鐘撞限 / 每日額度用罄)→ 退回共用 proxy
     try { return await callGeminiDirect(prompt, gkeys, opts); }
-    catch (e) {
-      console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy(openai)`);
-      // 沒指定 provider 的便宜呼叫(快篩):直連掛了就走 proxy openai。
-      // 2026-06-17 實測:claude OAuth 401 掛(別用);auto 會路由到 codex CLI 回「罐頭招呼語」非 JSON(別用);
-      // openai/gemini 健康且穩定回正確 JSON(clip /api/health 為準,openai ~22-36s)。timeoutMs 75s:略高於 proxy 60s deadline。
-      if (!opts.provider) opts = { ...opts, provider: 'openai', tier: 'fast', timeoutMs: opts.timeoutMs || 75000 };
-    }
+    catch (e) { console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy 鏈`); }
   }
-  // 共用 proxy(備援,auto-route)
   const env = loadEnv();
-  const first = opts.provider || null;
-  if (opts.noFallback || !first) return callProxy(env, prompt, opts);
-  try {
-    return await callProxy(env, prompt, opts);
-  } catch (e) {
-    console.error(`⚠️ AI provider「${first}」失敗,換手 → gemini:${e.message}`);
-    // 換到另一個健康 provider gemini(別 strip → 那會落回 .env 預設 claude,正好是死的;也別用 auto → 會路由到 codex 罐頭回應)
-    const next = first === 'gemini' ? 'openai' : 'gemini';
-    return await callProxy(env, prompt, { ...opts, provider: next, timeoutMs: 90000 });
+  // 明確指定 provider 且不許 fallback(如共識模式)→ 只打那個
+  if (opts.noFallback && opts.provider) return callProxy(env, prompt, opts);
+  // 🔗 proxy fallback 鏈:輪詢多個 provider,誰先回用誰。
+  // 為什麼是鏈、不寫死單一:共用 proxy 每天「哪個 provider 健康/夠快」會變
+  // (實測 2026-06-17 claude 401 掛、openai 行;06-18 反過來 claude 4s、openai/gemini timeout)。
+  // 每個短逾時 → 慢/掛的快速跳過換下一個;指定了 opts.provider 就把它排第一個試。
+  const chain = [];
+  if (opts.provider) chain.push(opts.provider);
+  for (const p of ['claude', 'openai', 'gemini']) if (!chain.includes(p)) chain.push(p);
+  const perTry = opts.timeoutMs || 35000; // 每個 provider 上限,慢就跳過(claude 健康時 ~4s、openai ~20s)
+  let lastErr;
+  for (const provider of chain) {
+    try { return await callProxy(env, prompt, { ...opts, provider, tier: opts.tier || 'fast', timeoutMs: perTry }); }
+    catch (e) { lastErr = e; console.error(`⚠️ proxy「${provider}」失敗/逾時(${String(e.message).slice(0, 50)})→ 換下一個`); }
   }
+  throw lastErr || new Error('所有 AI provider 都失敗');
 }
 
 // 主流程:回傳產出的 HTML 路徑
