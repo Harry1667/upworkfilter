@@ -1217,16 +1217,15 @@ async function readBody(req, maxBytes = 512 * 1024) {
 // 🧭 資訊架構:把 19 個細頁融合成 7 個區段。每個區段底下用「子分頁列」切換細功能。
 // 細頁的 render 函式都不動,只靠 navBar(已知當前 path)集中吐出 sidebar + 子分頁,
 // serveHtml 只抽走 <aside>,子分頁列就留在頁面 header。
+// 🧭 資訊架構(2026-06 依實際用法收斂):使用者只做兩件事 ——「找案子」+「聊天生成信件」(聊天是右下角浮動的)。
+// 側欄頂層只留:🔍 找案子(含今日/收藏)、🔎 評估(點案看 AI 分),其餘全收進 ⚙️ 進階(寫提案/客戶往來/追蹤/設定…)。
 const SUBTABS = {
-  find:     [['/worklist', '🚀 該做'], ['/', '📋 全部案件'], ['/?fav=1', '❤️ 收藏'], ['/analyze', '🔎 即時分析']],
-  client:   [['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回客戶訊息']],
-  results:  [['/today', '🌅 今日'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺']],
-  ai:       [['/lessons', '📌 AI 糾錯'], ['/anchors', '⭐ 信件範本']],
-  settings: [['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/backup', '💾 備份']],
+  find:  [['/worklist', '🚀 該做'], ['/today', '🌅 今日'], ['/', '📋 全部案件'], ['/?fav=1', '❤️ 收藏'], ['/analyze', '🔎 即時分析']],
+  more:  [['/proposal', '③ 寫提案'], ['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回訊息'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺'], ['/lessons', '📌 調教 AI'], ['/anchors', '⭐ 信件範本'], ['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/backup', '💾 備份']],
 };
-// 當前 path 屬於哪個區段(決定 sidebar 高亮 + 顯示哪組子分頁)。/invite(單)歸 client。
+// 當前 path 屬於哪個區段(決定 sidebar 高亮 + 顯示哪組子分頁)。/invite(單)歸 more。
 function sectionOf(active) {
-  if (active === '/invite') return 'client';
+  if (active === '/invite') return 'more';
   for (const [sec, tabs] of Object.entries(SUBTABS)) if (tabs.some(([p]) => p === active)) return sec;
   return null;
 }
@@ -1235,21 +1234,19 @@ function navBar(active, jobId) {
   const link = (href, label, on) => `<a href="${href}"${on ? ' class="on"' : ''}>${label}</a>`;
   const q = jobId ? `?id=${jobId}` : '';
   const sec = sectionOf(active);
-  // 子分頁列:該區段有多個細頁時,在 header 顯示一排可切換的分頁
+  // 子分頁列:該區段有多個細頁時,在 header 顯示一排可切換的分頁。/proposal 需綁目前看的案 → 補上 ?id
   const tabs = SUBTABS[sec];
-  const subtabs = tabs ? `<nav class="subtabs">${tabs.map(([p, label]) => `<a href="${p}"${p === active ? ' class="on"' : ''}>${label}</a>`).join('')}</nav>` : '';
+  const subtabs = tabs ? `<nav class="subtabs">${tabs.map(([p, label]) => {
+    const href = (p === '/proposal' && jobId) ? p + q : p;
+    return `<a href="${href}"${p === active ? ' class="on"' : ''}>${label}</a>`;
+  }).join('')}</nav>` : '';
   return `<aside class="sidebar">
     <div class="brand">📋 Upwork Filter <small>v2</small></div>
     <div class="group">接案</div>
     ${link('/worklist', '🔍 找案子', sec === 'find')}
-    ${link('/job' + q, '② 評估', active === '/job')}
-    ${link('/proposal' + q, '③ 寫提案', active === '/proposal')}
-    ${link('/invites', '💬 客戶往來', sec === 'client')}
-    <div class="group">追蹤</div>
-    ${link('/today', '📊 成果', sec === 'results')}
-    <div class="group">工具</div>
-    ${link('/lessons', '🧠 調教 AI', sec === 'ai')}
-    ${link('/me', '⚙️ 設定', sec === 'settings')}
+    ${link('/job' + q, '🔎 評估', active === '/job')}
+    <div class="group">其他</div>
+    ${link('/proposal' + q, '⚙️ 進階', sec === 'more')}
     <div class="logout"><a href="/logout">→ 登出</a></div>
   </aside>${subtabs}`;
 }
