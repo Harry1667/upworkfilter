@@ -152,7 +152,9 @@ export function scopeBudgetMismatch(j) {
 // 就算內文有 AI/automation buzzword(掛羊頭)也不是你的領域。標題若有開發職稱則不算(可能是「找工程師建招募工具」)。
 export function isNonDevRole(j) {
   const title = String(j.title || '').toLowerCase();
-  const NONDEV = /\b(recruiter|talent sourcer|sourcer|headhunter|content creator|copywriter|social media manager|community manager|virtual assistant|data entry|appointment setter|customer (support|service)|sales (rep|representative)|\bsdr\b|\bbdr\b|telemarket|cold caller|human resources|\bhr\b|admin(?:istrative)? (assistant|support)|executive assistant|bookkeeper|voice ?over|transcription(?:ist)?|proofreader|seo writer|brand ambassador|moderator)\b/;
+  // 2026-06-18 三堂會審補:加 customer success / SDET / QA engineer / test engineer / operations manager
+  // / marketing 系 / growth marketer / sales development representative(這批非開發職原本漏接,tot 衝到 92-97 霸榜)
+  const NONDEV = /\b(recruiter|talent sourcer|sourcer|headhunter|content creator|copywriter|social media manager|community manager|virtual assistant|data entry|appointment setter|customer (support|service|success)|sales (rep|representative|development representative)|\bsdr\b|\bbdr\b|telemarket|cold caller|human resources|\bhr\b|admin(?:istrative)? (assistant|support)|executive assistant|bookkeeper|voice ?over|transcription(?:ist)?|proofreader|seo writer|brand ambassador|moderator|qa engineer|\bsdet\b|test engineer|automation tester|operations manager|marketing (researcher|manager|specialist)|growth marketer)\b/;
   if (!NONDEV.test(title)) return false;
   // 標題同時有「開發職稱」→ 是開發案,不算非開發角色
   const devRole = /\b(developer|engineer|programmer|coder|architect|full[\s-]?stack|back[\s-]?end|front[\s-]?end|software)\b/;
@@ -601,6 +603,10 @@ export function scoreJob(j, config) {
   if (cd.noBoost && (verdict === 'APPLY' || verdict === 'MAYBE')) {
     reason = `${reason} ｜🚫 不要 boost(${cd.reasons[0]})`;
   }
+
+  // 🔒 第二道門擋下的案(非開發職/紅線/能力圈外)→ 規則總分封頂 35,別讓它們在「AI 還沒評分」的視窗
+  // 用 total_score×35 的 EV 排到真正契合案前面(三堂會審 #2:銷售/招聘/QA/SDET tot 原本 92-97 霸榜)。
+  if (blocked) total = Math.min(total, 35);
 
   return { scores, total_score: total, verdict, reason, blocked, matched_skills: sk.matched };
 }

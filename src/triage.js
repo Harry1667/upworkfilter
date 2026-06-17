@@ -19,9 +19,11 @@ export function winCapFor(j) {
   const spent = toNum(j.client_spent_usd);
   if (spent != null && spent < 100) cap = Math.min(cap, 15);
   if (isSeniorExpertJob(j)) {
-    // Gemini review:乾淨的小 Expert 案(提案<5+付款驗證+客戶有花費)放寬,別一律壓 15%
-    const clean = proposalBucketLevel(j.proposals_bucket) === '<5' && j.payment_verified === 1 && (toNum(j.client_spent_usd) ?? 0) > 0;
-    cap = Math.min(cap, clean ? 40 : 22); // 已交付1案,Expert 案放寬:乾淨 30→40、其餘 15→22
+    // 三堂會審(贏率現實):乾淨的小 Expert 案是新手最搶得到的一類,門檻別設太死。
+    // 提案 <5 或 5-10 都算乾淨(納入「提案5-10+pv+有花費」型,原本被誤壓到 22);乾淨 cap 提到 50。
+    const pl = proposalBucketLevel(j.proposals_bucket);
+    const clean = (pl === '<5' || pl === '5-10') && j.payment_verified === 1 && (toNum(j.client_spent_usd) ?? 0) > 0;
+    cap = Math.min(cap, clean ? 50 : 22); // 乾淨 Expert 小案 50;其餘 Expert 22
   }
   const cr = toNum(j.connects_required);
   // Gemini review:connect 漲價,門檻 12/15 → 16/18
