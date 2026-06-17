@@ -2339,18 +2339,23 @@ function winRateHint(job) {
   const raw = Math.round(comp * 0.45 + skill * 0.40 + client * 0.15);
   // 🔒 套用與 AI 快篩一致的硬上限(winCapFor):0 評價新手搶 Expert / 付款未驗證 / 50+ 提案 / 低花費客戶,
   // 真實勝率被嚴重壓縮。別讓「能力高 + 提案少」就吐 80%+ — 那正是「高勝率卻不該投」自打嘴巴的來源。
-  const cap = winCapFor(job);
+  let cap = winCapFor(job);
+  // AI(讀過完整 JD)若判「略過」→ 勝率欄別跟它打架秀高分(常因擴充功能沒抓到 Expert 等欄位,
+  // 規則層看不出這案難搶,但 AI 讀內文看得出)。壓到 ≤30 並點明,讓整頁一致。
+  const aiSkip = /略過|skip/i.test(String(job.ai_verdict || ''));
+  if (aiSkip) cap = Math.min(cap, 30);
   const pct = Math.min(raw, cap);
   let level, color;
   if (pct >= 70) { level = '高'; color = 'var(--grn)'; }
   else if (pct >= 45) { level = '中'; color = 'var(--ylw)'; }
   else { level = '低'; color = '#f85149'; }
   const bits = [];
-  if (raw > cap + 5) bits.push(`新手實際難搶(上限 ${cap}%:Expert/競爭/付款/客戶花費等硬規則)`);
+  if (aiSkip) bits.push('AI 讀過 JD 判「略過」— 別投');
+  else if (raw > cap + 5) bits.push(`新手實際難搶(上限 ${cap}%:Expert/競爭/付款/客戶花費等硬規則)`);
   else if (comp >= 75) bits.push('提案數少、容易被看到');
   else if (comp <= 30) bits.push('競爭激烈、難出頭');
-  if (raw <= cap + 5) { if (skill >= 80) bits.push('能力高度吻合(有作品證據)'); else if (skill < 50) bits.push('技能匹配偏弱'); }
-  if (client < 40) bits.push('客戶條件普通');
+  if (!aiSkip && raw <= cap + 5) { if (skill >= 80) bits.push('能力高度吻合(有作品證據)'); else if (skill < 50) bits.push('技能匹配偏弱'); }
+  if (!aiSkip && client < 40) bits.push('客戶條件普通');
   return { pct, level, color, note: bits.join('、') || '條件中性', isAi: false };
 }
 
