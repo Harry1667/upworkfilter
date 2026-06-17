@@ -251,8 +251,12 @@ async function callGeminiDirect(prompt, keys, opts = {}) {
     try { return await oneGeminiCall(prompt, key, opts); }
     catch (e) {
       lastErr = e;
-      // 429 = 免費 tier 速率限制 → 退避等一下再換把 key 重試(自動配速,讓所有案都篩得到)
-      if (/\b429\b/.test(String(e.message))) await new Promise((r) => setTimeout(r, 4000 + attempt * 2000));
+      const msg = String(e.message);
+      // 每日額度用罄 / 需計費(429 帶 "current quota" / "plan and billing"):退避再等也不會幾秒內恢復
+      // → 不 sleep,快速換下一把 key;全部用罄就立刻放棄直連、退回 proxy(別空燒 ~40 秒退避)
+      if (/current quota|plan and billing/i.test(msg)) continue;
+      // 每分鐘速率限制(免費 tier RPM 撞限,稍後會恢復)→ 退避一下再換把 key 重試(自動配速)
+      if (/\b429\b/.test(msg)) await new Promise((r) => setTimeout(r, 4000 + attempt * 2000));
     }
   }
   throw lastErr || new Error('Gemini 直連全部失敗');
@@ -264,9 +268,14 @@ export async function askAI(prompt, opts = {}) {
   try { if (existsSync(ENV_PATH)) process.loadEnvFile(ENV_PATH); } catch { /* ignore */ }
   const gkeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean);
   if (gkeys.length) {
-    // 直連 Gemini 優先(快);失敗(免費 tier 每分鐘 20 次撞限/額度爆)→ 退回共用 proxy,避免 chat/分析整個 500
+    // 直連 Gemini 優先(快、無 60s 上限);失敗(每分鐘撞限 / 每日額度用罄)→ 退回共用 proxy,避免 chat/分析整個 500
     try { return await callGeminiDirect(prompt, gkeys, opts); }
-    catch (e) { console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy`); }
+    catch (e) {
+      console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy`);
+      // 沒指定 provider 的便宜呼叫(快篩):直連掛了就走實測唯一健康的 claude/fast,
+      // 別落到 openai/gemini 的 low tier(實測小 prompt 都要 18~24s,甚至撞 60s 超時)
+      if (!opts.provider) opts = { ...opts, provider: 'claude', tier: 'fast' };
+    }
   }
   // 共用 proxy(備援,auto-route)
   const env = loadEnv();

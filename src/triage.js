@@ -30,9 +30,10 @@ function winCapFor(j) {
 }
 
 // 快篩用的便宜模型(可用 .env 覆蓋)。
-// 2026-06-16 實測:強制單一 provider 會卡(gemini/codex CLI hang→SIGTERM、claude 偶爾 60s 超時),
-// 但「不指定 provider、讓 proxy 自己挑健康的(auto-route)」穩定會回(~5s,跟 chat 助手同一條路)。
-// → 預設留空 = auto-route。要強制某 provider 才設 .env AI_TRIAGE_PROVIDER。
+// 實際走法看 askAI:設了 GEMINI_API_KEYS 就「直連 Gemini」優先(快、無 60s 上限);
+// 直連失敗(每分鐘撞限 / 每日額度用罄)才退回共用 proxy,且這類沒指定 provider 的呼叫
+// 直連掛了會改走實測健康的 claude/fast(不落到 openai/gemini 的慢 tier、不空燒退避)。
+// → PROVIDER 留空 = 交給 askAI 上述邏輯;要硬指定某 provider 才設 .env AI_TRIAGE_PROVIDER。
 const PROVIDER = process.env.AI_TRIAGE_PROVIDER || '';
 const TIER = process.env.AI_TRIAGE_TIER || 'low';
 
