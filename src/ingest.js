@@ -77,6 +77,7 @@ export function normalizeIngest(raw) {
     description: String(desc).slice(0, 8000), // 放寬:長描述的「To Apply/影片題」常在後段,別切掉
     posted_text: pick(raw, 'datePosted', 'posted', 'postedOn', 'publishedDate', 'createdAt') || null,
     posted_at: normalizePostedAt(raw),
+    experience_level: exp ? String(exp).trim() : null, // 之前只塞進描述文字、漏設此欄 → winCapFor 的 Expert 上限從沒生效(全 596 案 null)
     payment_verified: pv === true || /verified|^true$|是/i.test(String(pv ?? '')),
     proposals_bucket: String(pick(raw, 'proposals', 'proposalsBucket', 'applicants', 'totalApplicants') ?? '') || null,
     client_spent_text: spentText ? String(spentText) : null,
