@@ -387,7 +387,7 @@ export function advicePrompt(job, p) {
  "winStrategy":"根據上面中標率的務實建議(1-2句,繁中):低→值不值得投+差異化或略過;中→提高勝算一招;高→穩拿提醒",
  "visibility":"從 Activity 段抓出 4 個數字並評可見度(繁中):格式『Proposals X · Interviewing Y · Boost 1st Z Connects · 評級:極低/低/中/高』。如果 Interviewing ≥ 6 或 Boost 1st ≥ 100 → 加一句『新手不建議投,燒 Connects 無回報』。沒抓到資料就回『未提供,建議去 Upwork 查 Activity』",
  "applyRequirements":["這案的特殊投標要求,逐條短列(繁中,每條≤30字)。**重點偵測**:Required Video Questions(幾題、各題大綱)、Required Project + 多少 bullet(常見 12 點)、地區/經驗等級偏好、其他客戶自訂 screening。沒特殊要求回空陣列"],
- "videoScripts":["如果 JD 要錄影,**每題各給一段英文講稿大綱**(每段 30-100 字),套 SOP 標準回答模板:Q1 自我介紹用『Taiwan / CS background / Claude Code daily / 29 repos / new on Upwork → overdeliver』。Q2 依問題客製,但講具體做法+數字。Q3 工時用『30-40 hrs/week sustained / UTC+8 flexible / priority list』。沒影片題回空陣列"],
+ "videoScripts":["如果 JD 要錄影,**每題各給一段英文講稿大綱**(每段 30-100 字),套 SOP 標準回答模板:Q1 自我介紹用『Taiwan / CS background / Claude Code daily / ${(p.provenCapabilities||[]).length || 20}+ repos on GitHub / new on Upwork → overdeliver』。Q2 依問題客製,但講具體做法+數字。Q3 工時用『30-40 hrs/week sustained / UTC+8 flexible / priority list』。沒影片題回空陣列"],
  "requiredProjectAnswer":"如果 JD 要求『describe one project』類的 Required Project 答案(尤其列 12 點細節),**回 1 段繁中告訴使用者**:『建議獨立寫一份 .md 當附件,主打 AgentsHub(最強全端 + Claude 範例)。12 點是:short desc / what built / frontend / backend / complexity / UI strength / Claude tools / how used / AI-assisted / your reviews / time / time with Claude Code』。沒要求回空字串"
 }
 
@@ -552,7 +552,7 @@ Step 4 Cover Letter(複雜案套 5 段結構):
 Step 5 Required Project(如果 JD 要求 12 點):勸他獨立寫 .md 當附件,主打最強全端專案。
 
 Step 6 影片題(如果 JD 要求 Video Questions):必錄,不錄自動 disqualified。3 題標準回答:
-  Q1 自我介紹 30-40 秒:Taiwan/CS/Claude Code 每天/29 repos/新手 overdeliver
+  Q1 自我介紹 30-40 秒:Taiwan/CS/Claude Code 每天/${(p.provenCapabilities||[]).length || 20}+ repos on GitHub/新手 overdeliver
   Q2 客製問題 60-90 秒:講具體做法+數字
   Q3 工時 30 秒:30-40 hrs/week / UTC+8 flexible / priority list
   Loom 連結放 cover letter 第一行。

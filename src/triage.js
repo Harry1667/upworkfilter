@@ -13,6 +13,8 @@ export function winCapFor(j) {
   let cap = 78;
   if (j.payment_verified === 0 || j.payment_verified === false) cap = Math.min(cap, 8);
   if (toNum(j.client_hire_rate) === 0) cap = Math.min(cap, 10);
+  // 抓不到聘用率時不給滿 78(未知 ≠ 好)→ 保守折扣,卡片標「樂觀估計」
+  if (j.client_hire_rate == null) cap = Math.min(cap, 62);
   const lvl = proposalBucketLevel(j.proposals_bucket);
   if (lvl === '50+') cap = Math.min(cap, 12);
   else if (lvl === '20-50') cap = Math.min(cap, 25);

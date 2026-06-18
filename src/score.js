@@ -263,6 +263,23 @@ function wordHit(text, kw) {
   catch { return text.includes(esc); }
 }
 
+// 紅線詞是否為 JD 核心需求:出現在描述前 400 字、或全文出現 ≥2 次 → 是核心、不能軟標放行
+function redlineIsCoreReq(descText, redHit) {
+  const desc = String(descText || '').toLowerCase();
+  const first400 = desc.slice(0, 400);
+  for (const kw of redHit) {
+    const esc = kw.toLowerCase().trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!esc) continue;
+    let re;
+    try { re = new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, 'g'); }
+    catch { re = new RegExp(esc, 'g'); }
+    if (re.test(first400)) return true;
+    re.lastIndex = 0;
+    if ((desc.match(re) || []).length >= 2) return true;
+  }
+  return false;
+}
+
 function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
   const text = `${j.title || ''} ${j.description || ''}`.toLowerCase();
   const inText = (kw) => wordHit(text, kw);
@@ -311,9 +328,11 @@ function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
     if (redInTitle) {
       // 紅線出現在 title = 核心需求,不論其他多強都硬擋
       score = Math.min(score, 22); overscope = true;
-    } else if (coreStrong) {
+    } else if (coreStrong && !redlineIsCoreReq(j.description, redHit)) {
+      // 核心強項命中 + 紅線只是 JD 順帶提到(不在描述前段、只出現一次)→ 軟標提醒即可
       redlineSoft = true;
     } else {
+      // 紅線詞出現在描述核心位置或多次 → 這個案的核心就是紅線工具,硬擋
       score = Math.min(score, 22); overscope = true;
     }
   }
