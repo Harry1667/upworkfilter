@@ -113,6 +113,8 @@ export function openDb() {
   try { db.exec('ALTER TABLE jobs ADD COLUMN outcome TEXT'); } catch { /* 已存在 */ }
   // 🚪 第二道門(能力)硬攔截旗標:1=紅線/能力圈外被擋,AI 快篩/分析會跳過(省成本)
   try { db.exec('ALTER TABLE jobs ADD COLUMN blocked INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
+  // 🗑️ 使用者 skip 掉的案:記 id(墓碑),刪掉 jobs 列 + 之後重抓不再寫回(見 upsertJob 守門)
+  try { db.exec('CREATE TABLE IF NOT EXISTS dismissed_jobs (id TEXT PRIMARY KEY, ts TEXT)'); } catch { /* 已存在 */ }
   // 發布時間「絕對時間戳」(ISO):擴充功能算好的 postedAtIso。posted_text 是會過期的相對字串,顯示一律用這個重算。
   try { db.exec('ALTER TABLE jobs ADD COLUMN posted_at TEXT'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN favorited INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
@@ -512,6 +514,14 @@ function isCheapJobRow(j) {
 }
 
 // 寫入 AI 判斷(score、verdict、win、tags 子功能陣列、category 母類別)
+// 🗑️ Skip 一個案:記墓碑(之後重抓不再寫回)+ 從 jobs 刪掉。回刪掉幾列。
+export function dismissJob(db, id) {
+  const sid = String(id);
+  try { db.exec('CREATE TABLE IF NOT EXISTS dismissed_jobs (id TEXT PRIMARY KEY, ts TEXT)'); } catch { /* 已存在 */ }
+  db.prepare('INSERT OR IGNORE INTO dismissed_jobs (id, ts) VALUES (?, ?)').run(sid, new Date().toISOString());
+  return db.prepare('DELETE FROM jobs WHERE id = ?').run(sid).changes;
+}
+
 export function setAiVerdict(db, id, score, verdict, win, tags, category) {
   // 賤單封頂:讀該案預算,過低就把 score 壓回 ≤6.5、強力接→可接(附 💸 標記),其餘照寫
   try {
@@ -537,6 +547,8 @@ export function allJobs(db) {
 }
 
 export function upsertJob(db, j) {
+  // 🗑️ 已被使用者 skip 的案 → 不再寫回(免得擴充功能重抓又冒出來)
+  try { if (db.prepare('SELECT 1 FROM dismissed_jobs WHERE id=?').get(String(j.id))) return; } catch { /* 表還沒建就略過 */ }
   const now = new Date().toISOString();
   const existing = db.prepare('SELECT applied, first_seen FROM jobs WHERE id = ?').get(j.id);
   const sc = j.scores || {};

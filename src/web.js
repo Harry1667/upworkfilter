@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays, dismissJob } from './db.js';
 
 // 📌 loadProfileWithLessons — profile + 啟用中的 lessons + anchors,每個 prompt 都會看到
 function loadProfileWithLessons() {
@@ -687,6 +687,7 @@ function pageJobs() {
           <a class="open primary" href="/job?id=${sid}">② 評估案件 →</a>
           <a class="open" href="/proposal?id=${sid}">③ 寫提案 →</a>
           <a class="open" href="${esc(cleanUrl(j))}" data-url="${esc(cleanUrl(j))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
+          <button class="open" onclick="skipJob('${sid}',this)" style="background:#3d1e1e;border-color:#f85149;color:#f85149" title="Skip:從資料庫刪掉這個案,不再出現(重抓也不會冒回來)">🗑️ Skip</button>
         </div>
       </article>`;
     })
@@ -788,6 +789,14 @@ function pageJobs() {
     var card=btn.closest('.card');var on=card.dataset.favorited==='1';var newVal=on?0:1;
     await fetch('/api/job/favorite?id='+id+'&fav='+newVal,{method:'POST'});
     card.dataset.favorited=String(newVal);btn.textContent=newVal?'❤️':'🤍';btn.classList.toggle('on',!!newVal);
+  }
+  async function skipJob(id,btn){
+    if(!confirm('Skip 並刪掉這個案?\\n會從資料庫移除、不再出現(重抓也不會冒回來)。'))return;
+    btn.disabled=true;btn.textContent='刪除中…';
+    try{var r=await fetch('/api/job/skip?id='+id,{method:'POST'});var j=await r.json();
+      if(j.ok){var card=btn.closest('.card');if(card){card.style.transition='.2s';card.style.opacity='0';setTimeout(function(){card.remove();},200);}}
+      else{btn.disabled=false;btn.textContent='🗑️ Skip';alert('失敗:'+(j.error||''));}
+    }catch(e){btn.disabled=false;btn.textContent='🗑️ Skip';alert('❌ '+e.message);}
   }
   async function mark(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});
     const card=document.querySelector('input[onchange*="'+id+'"]').closest('.card');
@@ -3457,6 +3466,15 @@ createServer(async (req, res) => {
       dbi.prepare("UPDATE jobs SET verdict='SKIP', reason='🔒 私案/已關閉 — Access denied', blocked=1, ai_verdict='略過 — 私案/已關閉' WHERE id=?").run(id);
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
+    }
+    // 🗑️ Skip:從 DB 刪掉這個案 + 記墓碑(重抓不再冒出來)
+    if (url.pathname === '/api/job/skip' && req.method === 'POST') {
+      const id = url.searchParams.get('id');
+      if (!id) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"缺 id"}'); }
+      const dbi = openDb();
+      const n = dismissJob(dbi, id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, deleted: n }));
     }
     // 🔄 從 jobs.applied=1 匯入 — 把列表頁勾過「已投」但 applications 表還沒紀錄的案子補上
     if (url.pathname === '/api/applications/import-applied' && req.method === 'POST') {
