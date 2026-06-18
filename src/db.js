@@ -115,6 +115,8 @@ export function openDb() {
   try { db.exec('ALTER TABLE jobs ADD COLUMN blocked INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
   // 🗑️ 使用者 skip 掉的案:記 id(墓碑),刪掉 jobs 列 + 之後重抓不再寫回(見 upsertJob 守門)
   try { db.exec('CREATE TABLE IF NOT EXISTS dismissed_jobs (id TEXT PRIMARY KEY, ts TEXT)'); } catch { /* 已存在 */ }
+  // 💬 聊天 agent 對話紀錄(原本只在瀏覽器 localStorage,清掉/換裝置就沒)→ 存 DB 持久化、可回看
+  try { db.exec('CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, convo_id TEXT, role TEXT, content TEXT, ts TEXT)'); } catch { /* 已存在 */ }
   // 發布時間「絕對時間戳」(ISO):擴充功能算好的 postedAtIso。posted_text 是會過期的相對字串,顯示一律用這個重算。
   try { db.exec('ALTER TABLE jobs ADD COLUMN posted_at TEXT'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN favorited INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
@@ -520,6 +522,26 @@ export function dismissJob(db, id) {
   try { db.exec('CREATE TABLE IF NOT EXISTS dismissed_jobs (id TEXT PRIMARY KEY, ts TEXT)'); } catch { /* 已存在 */ }
   db.prepare('INSERT OR IGNORE INTO dismissed_jobs (id, ts) VALUES (?, ?)').run(sid, new Date().toISOString());
   return db.prepare('DELETE FROM jobs WHERE id = ?').run(sid).changes;
+}
+
+// 💬 聊天紀錄持久化(原本只在 localStorage)。每輪存使用者訊息 + 助手回覆。
+export function addChatMessage(db, convoId, role, content) {
+  try { db.exec('CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, convo_id TEXT, role TEXT, content TEXT, ts TEXT)'); } catch { /* 已存在 */ }
+  db.prepare('INSERT INTO chat_messages (convo_id, role, content, ts) VALUES (?,?,?,?)')
+    .run(String(convoId || ''), String(role || ''), String(content || ''), new Date().toISOString());
+}
+// 列出對話(每個 convo 一列:訊息數、最後時間、第一句使用者訊息當標題)
+export function listChatConvos(db, limit = 100) {
+  try {
+    return db.prepare(`SELECT convo_id,
+        COUNT(*) n, MAX(ts) last_ts,
+        (SELECT content FROM chat_messages b WHERE b.convo_id=a.convo_id AND b.role='user' ORDER BY id ASC LIMIT 1) first_user
+      FROM chat_messages a WHERE convo_id<>'' GROUP BY convo_id ORDER BY last_ts DESC LIMIT ?`).all(limit);
+  } catch { return []; }
+}
+export function getChatMessages(db, convoId) {
+  try { return db.prepare('SELECT role, content, ts FROM chat_messages WHERE convo_id=? ORDER BY id ASC').all(String(convoId)); }
+  catch { return []; }
 }
 
 export function setAiVerdict(db, id, score, verdict, win, tags, category) {

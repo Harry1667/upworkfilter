@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays, dismissJob } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays, dismissJob, addChatMessage, listChatConvos, getChatMessages } from './db.js';
 
 // 📌 loadProfileWithLessons — profile + 啟用中的 lessons + anchors,每個 prompt 都會看到
 function loadProfileWithLessons() {
@@ -500,7 +500,7 @@ body.chat-open #cwPanel.big ~ * #pagecontent,body.chat-open.big-chat #pageconten
     if(c.title==='新對話'||!c.title)c.title=titleFrom(t);
     c.ts=Date.now();saveConvos();
     var b=bubble('bot','…');
-    fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:c.msgs,context:ctx()})})
+    fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:c.msgs,context:ctx(),convoId:c.id})})
       .then(function(r){return r.json();}).then(function(j){if(j.ok){setText(b,'bot',j.reply);c.msgs.push({role:'assistant',content:j.reply});c.ts=Date.now();saveConvos();}else{b.textContent='❌ '+(j.error||'失敗');}})
       .catch(function(e){b.textContent='❌ '+e.message;});}
   // 沒任何對話 → 開一個空的
@@ -1094,6 +1094,47 @@ function pageMe() {
 }
 
 // 🤖 Agents 中控台:列出所有 agent 的設定資料 + 學到的東西 + 聊天機器人
+// 💬 聊天紀錄頁:看過去跟 agent 的對話(存在 DB,跨裝置可看)
+function pageChatLog() {
+  const db = openDb();
+  const convos = listChatConvos(db);
+  const list = convos.map((c) => `<li class="cv" onclick="loadCv('${jid(c.convo_id)}',this)">
+      <div class="t">${esc((c.first_user || '(空對話)').slice(0, 44))}</div>
+      <div class="meta">${c.n} 則 · ${esc(String(c.last_ts || '').slice(0, 16).replace('T', ' '))}</div>
+    </li>`).join('') || '<li class="meta" style="padding:10px">還沒有紀錄。這功能上線後的新對話才會存進 DB(舊的只在你瀏覽器裡)。</li>';
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>聊天紀錄</title><style>${CSS}
+  .cl{display:grid;grid-template-columns:300px 1fr;gap:16px}
+  ul.cvs{list-style:none;margin:0;padding:0;max-height:80vh;overflow-y:auto}
+  .cv{background:var(--card);border:1px solid var(--bd);border-radius:9px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
+  .cv:hover{border-color:var(--ac)}.cv.on{border-color:var(--ac);background:#13233b}
+  .cv .t{font-size:13px;color:var(--tx);font-weight:600;line-height:1.4}
+  .cv .meta{font-size:11px;color:var(--mut);margin-top:4px}
+  .msgs{background:#0d1117;border:1px solid var(--bd);border-radius:10px;padding:14px;min-height:60vh;display:flex;flex-direction:column;gap:8px}
+  .bub{max-width:80%;padding:8px 12px;border-radius:10px;font-size:14px;white-space:pre-wrap;line-height:1.55}
+  .bub.u{align-self:flex-end;background:var(--ac);color:#fff}
+  .bub.a{align-self:flex-start;background:var(--card);border:1px solid var(--bd)}
+  </style></head><body>
+<header><h1>💬 聊天紀錄 <span class="sub">跟 agent 的對話,存在 DB(清瀏覽器/換裝置都還在)。點左邊看內容。</span></h1>${navBar('/chat-log')}</header>
+<main class="wide">
+  <div class="cl">
+    <ul class="cvs" id="cvlist">${list}</ul>
+    <div class="msgs" id="cvmsgs"><span class="reason">← 點左邊一個對話看內容</span></div>
+  </div>
+</main>
+<script>
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  async function loadCv(id,el){
+    document.querySelectorAll('.cv').forEach(function(x){x.classList.remove('on');});el.classList.add('on');
+    var box=document.getElementById('cvmsgs');box.innerHTML='<span class="reason">載入中…</span>';
+    try{var r=await fetch('/api/chat-log?convo='+encodeURIComponent(id));var j=await r.json();
+      if(!j.ok||!j.messages.length){box.innerHTML='<span class="reason">這個對話沒有訊息</span>';return;}
+      box.innerHTML=j.messages.map(function(m){return '<div class="bub '+(m.role==='user'?'u':'a')+'">'+esc(m.content)+'</div>';}).join('');
+    }catch(e){box.innerHTML='<span class="reason">❌ '+e.message+'</span>';}
+  }
+</script>
+</body></html>`;
+}
+
 function pageAgents() {
   const p = loadProfile();
   const cfg = loadConfig();
@@ -1331,7 +1372,7 @@ async function readBody(req, maxBytes = 512 * 1024) {
 // 側欄頂層只留:🔍 找案子(含今日/收藏)、🔎 評估(點案看 AI 分),其餘全收進 ⚙️ 進階(寫提案/客戶往來/追蹤/設定…)。
 const SUBTABS = {
   find:  [['/worklist', '🚀 該做'], ['/today', '🌅 今日'], ['/', '📋 全部案件'], ['/?fav=1', '❤️ 收藏'], ['/analyze', '🔎 即時分析']],
-  more:  [['/proposal', '③ 寫提案'], ['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回訊息'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺'], ['/lessons', '📌 調教 AI'], ['/anchors', '⭐ 信件範本'], ['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/backup', '💾 備份']],
+  more:  [['/proposal', '③ 寫提案'], ['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回訊息'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺'], ['/lessons', '📌 調教 AI'], ['/anchors', '⭐ 信件範本'], ['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/chat-log', '💬 聊天紀錄'], ['/backup', '💾 備份']],
 };
 // 當前 path 屬於哪個區段(決定 sidebar 高亮 + 顯示哪組子分頁)。/invite(單)歸 more。
 function sectionOf(active) {
@@ -3467,6 +3508,13 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
+    // 💬 聊天紀錄:?convo=ID 回該對話訊息;否則回對話列表
+    if (url.pathname === '/api/chat-log' && req.method === 'GET') {
+      const dbi = openDb();
+      const cid = url.searchParams.get('convo');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(cid ? { ok: true, messages: getChatMessages(dbi, cid) } : { ok: true, convos: listChatConvos(dbi) }));
+    }
     // 🗑️ Skip:從 DB 刪掉這個案 + 記墓碑(重抓不再冒出來)
     if (url.pathname === '/api/job/skip' && req.method === 'POST') {
       const id = url.searchParams.get('id');
@@ -3665,7 +3713,11 @@ createServer(async (req, res) => {
       return res.end(JSON.stringify({ ok: true, data }));
     }
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const { messages, context } = JSON.parse(await readBody(req));
+      const { messages, context, convoId } = JSON.parse(await readBody(req));
+      // 💬 持久化:把這輪使用者最新訊息存 DB(回覆在下方各 return 點存)
+      const _cid = String(convoId || '');
+      const _lastUser = (messages || []).filter((m) => m.role === 'user').slice(-1)[0];
+      if (_cid && _lastUser) { try { addChatMessage(db, _cid, 'user', _lastUser.content); } catch { /* 不擋聊天 */ } }
       // 省 token:只送最近 10 則對話 + 前 15 筆案件當上下文
       const recentMsgs = (messages || []).slice(-10);
       const jobs = db.prepare(`SELECT id,title,budget_text,proposals_bucket,total_score,verdict,ai_score,ai_verdict FROM jobs
@@ -3695,6 +3747,7 @@ createServer(async (req, res) => {
       const calls = extractToolCalls(firstReply);
       if (calls.length === 0) {
         res.writeHead(200, { 'content-type': 'application/json' });
+        if (_cid) { try { addChatMessage(db, _cid, 'assistant', stripToolTags(firstReply)); } catch { /* 不擋 */ } }
         return res.end(JSON.stringify({ ok: true, reply: stripToolTags(firstReply) }));
       }
       // 執行(最多 5 個,防失控)
@@ -3711,6 +3764,7 @@ createServer(async (req, res) => {
       ];
       const finalReply = await askAI(chatPrompt(followUp, prof, jobs, note, ''));
       res.writeHead(200, { 'content-type': 'application/json' });
+      if (_cid) { try { addChatMessage(db, _cid, 'assistant', stripToolTags(finalReply)); } catch { /* 不擋 */ } }
       return res.end(JSON.stringify({ ok: true, reply: stripToolTags(finalReply), toolCalls: results }));
     }
     if (url.pathname === '/api/reply' && req.method === 'POST') {
@@ -3871,6 +3925,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/me') {
       return serveHtml(res, pageMe());
+    }
+    if (url.pathname === '/chat-log') {
+      return serveHtml(res, pageChatLog());
     }
     if (url.pathname === '/agents') {
       return serveHtml(res, pageAgents());
