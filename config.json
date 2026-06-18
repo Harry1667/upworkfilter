@@ -75,9 +75,9 @@
     "rest api"
   ],
   "rate": {
-    "hourlyFloor": 12,
+    "hourlyFloor": 20,
     "hourlyTarget": 25,
-    "fixedFloor": 80
+    "fixedFloor": 200
   },
   "scoring": {
     "criteria": {

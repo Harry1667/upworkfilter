@@ -28,6 +28,7 @@ import { winCapFor } from './triage.js'; // 規則勝率估計也要套這個新
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
+const AI_KEYS_PATH = path.join(__dirname, '..', 'ai-keys.json'); // Gemini key(設定頁填,不進版控)
 // 部署用:可由環境變數設定。本機留預設即可。
 try { if (existsSync(path.join(__dirname, '..', '.env'))) process.loadEnvFile(path.join(__dirname, '..', '.env')); } catch {}
 const PORT = Number(process.env.PORT) || 8787;
@@ -1149,6 +1150,38 @@ function pageAgents() {
     <p class="reason">自動抓 GitHub(<b>${esc(p.githubUser || 'Harry1667')}</b>)歸納真實作品能力,供求職信引用、評分加成。上次更新:${updated} · 共 ${caps.length} 項 · ${(p.provenTechs || []).length} 個技術關鍵字。
       <button class="open" onclick="runAgent()" style="margin-left:6px">🔄 立即重跑</button> <span id="amsg" class="reason"></span></p>
     <ul>${capsHtml}</ul>
+  </div>
+
+  <div class="asec">
+    <h2>🔑 Gemini API Key(直連設定)</h2>
+    <p class="reason">直連 Gemini 是最快的路(~1-2s,繞過 clip)。<b>付費 key</b> 無每日額度上限、最穩(會計費,看用量約 $1-3/月);<b>免費 key</b> 會撞每日額度 → 掉回 clip 備援。原則:<b>平常關付費走免費($0);坐下來認真看案時開付費(秒回)。</b></p>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin:8px 0">
+      <input type="checkbox" id="paidEn" style="width:18px;height:18px"> <b>啟用付費 key</b>（開=只用付費秒回 · 關=只用免費/clip,$0）
+    </label>
+    <div class="reason" style="margin-top:6px">付費 key <span id="paidStat"></span></div>
+    <input id="paidKey" placeholder="貼上付費(已開 billing)的 Gemini API key" style="width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px;font:13px monospace">
+    <div class="reason" style="margin-top:10px">免費 keys(一行一把):</div>
+    <textarea id="freeKeys" placeholder="一行一把免費 Gemini key" style="width:100%;min-height:64px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px;font:13px monospace"></textarea>
+    <div style="margin-top:10px"><button class="open" id="saveKeys">💾 儲存 key 設定</button> <span id="keyMsg" class="reason"></span></div>
+    <script>
+    (function(){
+      var el=function(i){return document.getElementById(i)};
+      fetch('/api/ai-keys').then(function(r){return r.json()}).then(function(j){
+        if(!j||!j.ok)return;
+        el('freeKeys').value=j.freeKeys||'';
+        el('paidEn').checked=!!j.paidEnabled;
+        el('paidStat').textContent=j.hasPaid?('已存(尾碼 '+j.paidLast4+')— 留空=不變;要換才重貼'):(j.envFallbackCount?('(目前用 .env 的 '+j.envFallbackCount+' 把免費 key)'):'(未設)');
+      });
+      el('saveKeys').onclick=function(){
+        var m=el('keyMsg');m.textContent='儲存中…';
+        fetch('/api/ai-keys',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({freeKeys:el('freeKeys').value,paidKey:el('paidKey').value,paidEnabled:el('paidEn').checked})})
+          .then(function(r){return r.json()}).then(function(j){
+            if(j.ok){m.textContent='✅ 已儲存 '+(j.paidEnabled?(j.hasPaid?'· 付費已啟用(秒回)':'· ⚠️勾了付費但沒 key,仍走免費'):'· 走免費/clip($0)');el('paidKey').value='';setTimeout(function(){location.reload()},1100);}
+            else m.textContent='❌ '+(j.error||'失敗');
+          }).catch(function(e){m.textContent='❌ '+e.message});
+      };
+    })();
+    </script>
   </div>
 
   <div class="asec">
@@ -3684,6 +3717,39 @@ createServer(async (req, res) => {
       rescoreAll(); // 能力(capability)會影響評分,存檔後重算所有案
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
+    }
+    // 🔑 Gemini key 設定(免費 keys + 付費 key + 付費開關)。存 ai-keys.json(gitignore)。
+    if (url.pathname === '/api/ai-keys' && req.method === 'GET') {
+      let k = {};
+      try { if (existsSync(AI_KEYS_PATH)) k = JSON.parse(readFileSync(AI_KEYS_PATH, 'utf8')); } catch { /* 壞檔當空 */ }
+      const paid = String(k.paidKey || '');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({
+        ok: true,
+        freeKeys: (k.freeKeys || []).join('\n'),
+        hasPaid: !!paid,
+        paidLast4: paid ? paid.slice(-4) : '',
+        paidEnabled: !!k.paidEnabled,
+        envFallbackCount: paid || (k.freeKeys || []).length ? 0 : (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').filter((s) => s.trim()).length,
+      }));
+    }
+    if (url.pathname === '/api/ai-keys' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      let k = {};
+      try { if (existsSync(AI_KEYS_PATH)) k = JSON.parse(readFileSync(AI_KEYS_PATH, 'utf8')); } catch { /* 壞檔當空 */ }
+      if (body.freeKeys != null) k.freeKeys = String(body.freeKeys).split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+      if (body.clearPaid) k.paidKey = '';
+      // 只有送進「真的新 key」才覆蓋(空字串或遮罩 •••• 不動,避免把現有 key 洗掉)
+      else if (body.paidKey != null && body.paidKey.trim() && !/^[•*]+/.test(body.paidKey)) k.paidKey = body.paidKey.trim();
+      if (body.paidEnabled != null) k.paidEnabled = !!body.paidEnabled;
+      try {
+        writeFileSync(AI_KEYS_PATH, JSON.stringify(k, null, 2));
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true, paidEnabled: !!k.paidEnabled, hasPaid: !!String(k.paidKey || '') }));
+      } catch (e) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
     }
     if (url.pathname === '/api/config' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));

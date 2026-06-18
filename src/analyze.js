@@ -265,11 +265,28 @@ async function callGeminiDirect(prompt, keys, opts = {}) {
   throw lastErr || new Error('Gemini 直連全部失敗');
 }
 
+// 🔑 決定直連 Gemini 要用哪些 key(設定頁可改,存 ai-keys.json,不進版控)。
+// 付費開關 ON → 只用付費 key(無每日額度上限、最穩、會計費);
+// OFF → 用免費 keys(可能撞每日額度 → 掉 clip 備援);
+// 沒有 ai-keys.json → 退回 .env GEMINI_API_KEYS(舊行為,平滑遷移)。
+const KEYS_PATH = path.join(ROOT, 'ai-keys.json');
+export function loadGeminiKeys() {
+  try {
+    if (existsSync(KEYS_PATH)) {
+      const k = JSON.parse(readFileSync(KEYS_PATH, 'utf8'));
+      if (k.paidEnabled && String(k.paidKey || '').trim()) return [String(k.paidKey).trim()];
+      const free = (k.freeKeys || []).map((s) => String(s).trim()).filter(Boolean);
+      if (free.length) return free;
+    }
+  } catch { /* 壞檔不擋,退 .env */ }
+  try { if (existsSync(ENV_PATH)) process.loadEnvFile(ENV_PATH); } catch { /* ignore */ }
+  return (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 // 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
 export async function askAI(prompt, opts = {}) {
-  // 先載入 .env(不丟錯),看有沒有自己的 Gemini key → 有就直連、繞過壞掉的共用 proxy
-  try { if (existsSync(ENV_PATH)) process.loadEnvFile(ENV_PATH); } catch { /* ignore */ }
-  const gkeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean);
+  // 直連 Gemini 優先(快、繞過 clip);用哪些 key 由 loadGeminiKeys 決定(付費開關/免費/.env)
+  const gkeys = loadGeminiKeys();
   if (gkeys.length) {
     // 直連 Gemini 優先(快、無 60s 上限);失敗(每分鐘撞限 / 每日額度用罄)→ 退回共用 proxy
     try { return await callGeminiDirect(prompt, gkeys, opts); }
