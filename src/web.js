@@ -24,7 +24,7 @@ import { askAI, analyzeJob } from './analyze.js';
 import { loadProfile, saveProfile, coverLetterPrompt, coverLetterRefinePrompt, coverLetterFixPrompt, coverLetterWriterA, coverLetterWriterB, coverLetterWriterC, coverLetterSynthPrompt, advicePrompt, screeningPrompt, replyPrompt, chatPrompt, invitePrompt, extractJson } from './assist.js';
 import { detectHallucinations, annotateCitations, skepticCritique, extractLessonCandidates, preflightCheck } from './verify.js';
 import { loadTaxonomy, toView } from './taxonomy.js';
-import { winCapFor } from './triage.js'; // 規則勝率估計也要套這個新手/Expert/價格硬上限(與 AI 快篩一致)
+import { winCapFor, winMissingSignals } from './triage.js'; // 規則勝率估計也要套這個新手/Expert/價格硬上限(與 AI 快篩一致);winMissingSignals 標「缺客戶數據的樂觀估計」
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
@@ -673,7 +673,7 @@ function pageJobs() {
           ${scoreHtml}
           <span class="badge ${ev.cls}">${esc(ev.verdict)}</span>
           ${j.blocked ? '<span class="badge SKIP" title="被第二道門擋下,不進 AI 分析">🚫 超綱</span>' : ''}
-          ${aiWin != null ? `<span class="winbadge ${winCls(aiWin)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${aiWin}%</span>` : ''}
+          ${aiWin != null ? `<span class="winbadge ${winCls(aiWin)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${aiWin}%${winMissingSignals(j).length ? `<span style="opacity:.85;font-weight:700" title="缺 ${esc(winMissingSignals(j).join('、'))} → 勝率硬上限沒料可壓,此為樂觀估計。真要投就到案件頁手動補、或 npm run refresh 校正">⚠️估</span>` : ''}</span>` : ''}
           ${firstWinChips(j, cfg)}
           ${postedTag(postedAt)}
           <button class="favbtn ${j.favorited ? 'on' : ''}" onclick="favJob('${sid}',this)" title="收藏" style="background:none;border:0;cursor:pointer;font-size:18px;padding:0 4px">${j.favorited ? '❤️' : '🤍'}</button>
@@ -2423,7 +2423,11 @@ function winRateHint(job) {
     const pct = job.ai_win;
     const level = pct >= 70 ? '高' : pct >= 45 ? '中' : '低';
     const color = pct >= 70 ? 'var(--grn)' : pct >= 45 ? 'var(--ylw)' : '#f85149';
-    return { pct, level, color, note: 'AI 估計(綜合競爭/契合/客戶意願)', isAi: true };
+    const miss = winMissingSignals(job);
+    const note = miss.length
+      ? `AI 估計,但缺「${miss.join('、')}」→ 勝率硬上限沒料可壓,這是樂觀估計;真要投先到下方補抓/手動填校正`
+      : 'AI 估計(綜合競爭/契合/客戶意願)';
+    return { pct, level, color, note, isAi: true, optimistic: miss.length > 0 };
   }
   const comp = job.score_competition ?? 0;     // 競爭越低分越高(提案少)
   const skill = job.score_skill ?? 0;          // 能力匹配(含作品契合)
@@ -2449,7 +2453,9 @@ function winRateHint(job) {
   else if (comp <= 30) bits.push('競爭激烈、難出頭');
   if (!aiSkip && raw <= cap + 5) { if (skill >= 80) bits.push('能力高度吻合(有作品證據)'); else if (skill < 50) bits.push('技能匹配偏弱'); }
   if (!aiSkip && client < 40) bits.push('客戶條件普通');
-  return { pct, level, color, note: bits.join('、') || '條件中性', isAi: false };
+  const miss = winMissingSignals(job);
+  if (miss.length) bits.push(`缺${miss.join('、')},此為樂觀估計(去校正)`);
+  return { pct, level, color, note: bits.join('、') || '條件中性', isAi: false, optimistic: miss.length > 0 };
 }
 
 // 勝率深入解析:為什麼這個數字 + 值不值得投 + 怎麼脫穎而出(規則式,免額外 AI)

@@ -34,6 +34,16 @@ export function winCapFor(j) {
   return Math.max(0, cap);
 }
 
+// 缺關鍵客戶訊號 → winCapFor 的幾條硬上限(雇用率0→≤10、connects≥16→-10)根本沒料可觸發,
+// 算出來的 win 其實是「未知當沒事」的樂觀估計。列出缺哪些,讓卡片/評估頁標記、提示去校正
+// (案件頁 /api/patch-job 手動填、或 `npm run refresh -- <id>` gstack 自動補)。
+export function winMissingSignals(j) {
+  const miss = [];
+  if (j.client_hire_rate == null) miss.push('雇用率');
+  if (toNum(j.connects_required) == null) miss.push('需Connects');
+  return miss;
+}
+
 // 快篩用的便宜模型(可用 .env 覆蓋)。
 // 實際走法看 askAI:設了 GEMINI_API_KEYS 就「直連 Gemini」優先(快、無 60s 上限);
 // 直連失敗(每分鐘撞限 / 每日額度用罄)才退回共用 proxy,且這類沒指定 provider 的呼叫

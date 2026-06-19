@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { launch, isLoggedIn, warmup, waitIfChallenged } from './browser.js';
 import { openDb, upsertJob } from './db.js';
-import { scoreJob, parseSpentUsd } from './score.js';
+import { scoreJob, parseSpentUsd, parseConnectsRequired, parseExperienceLevel } from './score.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(path.join(__dirname, '..', 'config.json'), 'utf8'));
@@ -85,6 +85,11 @@ async function enrich(page, job) {
   if (rating) job.client_rating = parseFloat(rating[1]);
   if (reviews) job.client_reviews = parseInt(reviews[2], 10);
   if (jobsPosted) job.client_jobs_posted = parseInt(jobsPosted[1], 10);
+  // 🥊 can-win 訊號:投案需 Connects + 經驗等級(詳情頁才有,winCapFor 的硬上限靠這兩欄)
+  const cr = parseConnectsRequired(data);
+  if (cr != null) job.connects_required = cr;
+  const exp = parseExperienceLevel(data);
+  if (exp) job.experience_level = exp;
   if (spent && !job.client_spent_text) {
     job.client_spent_text = spent[0];
     job.client_spent_usd = parseSpentUsd(spent[0]);
