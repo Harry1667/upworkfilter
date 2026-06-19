@@ -3118,7 +3118,9 @@ function pageAnalyze() {
       <div><label>提案數</label><input id="qa-prop" placeholder="Less than 5 / 5 to 10"></div>
       <div><label>客戶花費</label><input id="qa-spent" placeholder="$1.5K spent"></div>
       <div><label>聘用率%</label><input id="qa-hire" placeholder="80"></div>
+      <div><label>需 Connects</label><input id="qa-connects" placeholder="10"></div>
     </div>
+    <input type="hidden" id="qa-exp">
     <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px"><input type="checkbox" id="qa-pv" style="width:auto"> 付款已驗證</label>
     <p style="margin-top:12px"><button class="save" onclick="qaRun()">🔎 分析</button> <span id="qa-msg" class="reason"></span></p>
   </div>
@@ -3128,7 +3130,7 @@ function pageAnalyze() {
 <script>
 (function(){
   function val(id){return document.getElementById(id).value.trim();}
-  function payload(){return {url:val('qa-url'),title:val('qa-title'),description:val('qa-desc'),budget:val('qa-budget'),proposals:val('qa-prop'),clientTotalSpent:val('qa-spent'),hireRate:val('qa-hire'),paymentVerified:document.getElementById('qa-pv').checked};}
+  function payload(){return {url:val('qa-url'),title:val('qa-title'),description:val('qa-desc'),budget:val('qa-budget'),proposals:val('qa-prop'),clientTotalSpent:val('qa-spent'),hireRate:val('qa-hire'),connectsRequired:val('qa-connects'),experienceLevel:val('qa-exp'),paymentVerified:document.getElementById('qa-pv').checked};}
   var lastPayload=null;
   window.qaRun=async function(){
     var p=payload(); lastPayload=p;
@@ -3189,6 +3191,8 @@ function pageAnalyze() {
     document.getElementById('qa-prop').value=s(data.proposals,40);
     document.getElementById('qa-spent').value=s(data.clientTotalSpent,40);
     document.getElementById('qa-hire').value=s(data.hireRate,10);
+    document.getElementById('qa-connects').value=s(data.connectsRequired,10);
+    document.getElementById('qa-exp').value=s(data.experienceLevel,20);
     document.getElementById('qa-pv').checked=!!data.paymentVerified;
     qaRun(); // 自動分析
   }
