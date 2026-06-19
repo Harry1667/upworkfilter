@@ -51,8 +51,8 @@ export function parseBudget(text) {
     const nums = [...t.matchAll(/\$?\s*([\d.]+)/g)].map((m) => parseFloat(m[1])).filter((n) => !isNaN(n));
     return { budget_type: 'hourly', budget_text: t.slice(0, 30), hourly_min: nums[0] ?? null, hourly_max: nums[1] ?? nums[0] ?? null };
   }
-  const fx = t.match(/\$\s*([\d.,]+)/);
-  if (fx) return { budget_type: 'fixed', budget_text: t.slice(0, 30), fixed_budget: parseFloat(fx[1].replace(/,/g, '')) };
+  const fx = t.match(/\$\s*[\d.,]+\s*[KkMm]?/);
+  if (fx) return { budget_type: 'fixed', budget_text: t.slice(0, 30), fixed_budget: parseSpentUsd(fx[0]) };
   return { budget_type: 'unknown', budget_text: t.slice(0, 30) };
 }
 
@@ -82,7 +82,8 @@ export function normalizeIngest(raw) {
     proposals_bucket: String(pick(raw, 'proposals', 'proposalsBucket', 'applicants', 'totalApplicants') ?? '') || null,
     client_spent_text: spentText ? String(spentText) : null,
     client_spent_usd: parseSpentUsd(spentText),
-    client_hire_rate: numOrNull(pick(raw, 'hireRate', 'clientHireRate', 'client.hireRate')),
+    client_hire_rate: numOrNull(pick(raw, 'hireRate', 'clientHireRate', 'client.hireRate', 'hire_rate')),
+    connects_required: numOrNull(pick(raw, 'connectsRequired', 'connects_required', 'connectsNeeded', 'connects')),
     client_rating: numOrNull(pick(raw, 'clientRating', 'rating', 'client.rating', 'feedback')),
     client_reviews: numOrNull(pick(raw, 'reviews', 'reviewsCount', 'clientReviews', 'client.reviews')),
     client_jobs_posted: numOrNull(pick(raw, 'jobsPosted', 'clientJobsPosted', 'client.jobsPosted', 'postedJobs')),

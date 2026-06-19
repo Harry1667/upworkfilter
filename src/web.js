@@ -675,6 +675,7 @@ function pageJobs() {
           ${j.blocked ? '<span class="badge SKIP" title="被第二道門擋下,不進 AI 分析">🚫 超綱</span>' : ''}
           ${aiWin != null ? `<span class="winbadge ${winCls(aiWin)}" title="估計中標機率(太低丟了也沒意義)">🎯 ${aiWin}%</span>` : ''}
           ${firstWinChips(j, cfg)}
+          ${postedTag(postedAt)}
           <button class="favbtn ${j.favorited ? 'on' : ''}" onclick="favJob('${sid}',this)" title="收藏" style="background:none;border:0;cursor:pointer;font-size:18px;padding:0 4px">${j.favorited ? '❤️' : '🤍'}</button>
           <label class="applied"><input type="checkbox" ${j.applied ? 'checked' : ''} onchange="mark('${sid}',this.checked)"> 已投</label>
         </div>
@@ -1635,6 +1636,7 @@ function pageWorklist() {
           <span class="fitb ${fit.c}">${fit.t}</span>
           ${winBadge}
           <span class="meta">${pay ? esc(pay) + ' · ' : ''}${esc(compTxt)}</span>
+          ${postedTag(j.posted_at || '')}
         </div>
         <h2><a href="/job?id=${sid}">${esc(j.title)}</a></h2>
         ${reasonHtml}
@@ -2606,6 +2608,19 @@ function pageJob(id) {
   <h2>核心數據 <button class="save" style="background:#30363d;padding:5px 12px;font-size:12px;font-weight:400" onclick="refreshLive()">🔄 抓即時數據</button> <span id="rfmsg" class="reason"></span></h2>
   ${age.stale ? `<div class="worth bad">📸 競爭數據是「${age.text}抓的快照」。提案數/面試數會隨時間暴增(尤其熱門案)— <b>投標前務必到 Upwork 看即時 Proposals / Interviewing</b>,別只信這裡的「${esc(job.proposals_bucket || '?')}」。客戶花費/評分/預算等則穩定可信。</div>` : ''}
   <div class="cards">${coreCards}</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0;font-size:13px">
+    <span style="color:var(--mut)">手動補充(從 Upwork 頁填入)：</span>
+    <label>🔗 Connects 需求
+      <input id="cr-input" type="number" min="0" max="100" value="${job.connects_required ?? ''}" placeholder="？"
+        style="width:60px;margin:0 4px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 6px">
+    </label>
+    <label>📊 雇用率 %
+      <input id="hr-input" type="number" min="0" max="100" value="${job.client_hire_rate ?? ''}" placeholder="？"
+        style="width:60px;margin:0 4px;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 6px">
+    </label>
+    <button class="save" style="padding:5px 12px;font-size:12px" onclick="patchJob()">💾 儲存並重算</button>
+    <span id="patchmsg" class="reason"></span>
+  </div>
 
   <h2>勝率估計(接不接得到)</h2>
   <div class="winbox">
@@ -2660,6 +2675,19 @@ function pageJob(id) {
       var j=await r.json();
       if(j.ok){m.textContent='✅ 已更新,重整中…';setTimeout(function(){location.reload();},600);}
       else if(j.needLocal){m.innerHTML='⚠️ '+j.msg;}
+      else m.textContent='❌ '+(j.error||'失敗');}
+    catch(e){m.textContent='❌ '+e.message;}}
+  async function patchJob(){var m=document.getElementById('patchmsg');
+    var cr=document.getElementById('cr-input').value.trim();
+    var hr=document.getElementById('hr-input').value.trim();
+    var body={id:ID};
+    if(cr!=='')body.connects_required=Number(cr);
+    if(hr!=='')body.client_hire_rate=Number(hr);
+    if(!body.connects_required&&!body.client_hire_rate){m.textContent='請至少填一個欄位';return;}
+    m.textContent='儲存中…';
+    try{var r=await fetch('/api/patch-job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+      var j=await r.json();
+      if(j.ok){m.textContent='✅ 已儲存,重整中…';setTimeout(function(){location.reload();},500);}
       else m.textContent='❌ '+(j.error||'失敗');}
     catch(e){m.textContent='❌ '+e.message;}}
 </script></body></html>`;
@@ -3029,6 +3057,15 @@ function formatPosted(job) {
   return `${rel}(${abs})`;
 }
 
+function postedTag(isoStr) {
+  if (!isoStr || isNaN(Date.parse(isoStr))) return '';
+  const min = Math.max(0, Math.round((Date.now() - new Date(isoStr).getTime()) / 60000));
+  const text = min < 60 ? `${min}m前` : min < 1440 ? `${Math.round(min / 60)}h前` : `${Math.round(min / 1440)}d前`;
+  const color = min < 120 ? '#7ee787' : min < 360 ? '#e3b341' : min < 1440 ? '#f0883e' : '#6e7681';
+  const tip = min > 1440 ? '超過 24 小時，競爭可能激烈，慎投 Connects' : '發布時間';
+  return `<span title="${esc(tip)}" style="font-size:11px;padding:2px 7px;border-radius:10px;color:${color};font-weight:600;white-space:nowrap">⏱ ${text}</span>`;
+}
+
 // parseBudget 已抽到 src/ingest.js
 
 // 🔎 Quick Analyze 頁:貼上或 bookmarklet 一鍵分析任意 Upwork 職缺(不寫 DB,按鈕才存)
@@ -3037,7 +3074,7 @@ function analyzeBookmarklet() {
   // best-effort 抓當前 Upwork 職缺頁 DOM,把關鍵欄位 base64 塞進 fragment,開 /analyze。
   // 描述只取前 6000 字(避免 URL 爆量)。抓不到的欄位留空,後端規則解析降級。
   const openUrl = JSON.stringify(ANALYZE_SITE + '/analyze#data='); // 安全序列化,避免 site 含 ' 破壞/注入
-  const code = "javascript:(function(){try{var t=(document.querySelector('h1')||{}).innerText||document.title;var b=document.body.innerText||'';var g=function(r){var m=b.match(r);return m?(m[1]||m[0]):''};var d={url:location.href,title:t,description:b.slice(0,5000),budget:g(/\\$[0-9.,]+\\s*(?:-\\s*\\$[0-9.,]+)?\\s*(?:\\/hr)?/i),proposals:g(/(Less than [0-9]+|Fewer than [0-9]+|[0-9]+ to [0-9]+|[0-9]+\\+)\\s*proposals?/i)||g(/Proposals[^0-9]{0,8}(Less than [0-9]+|[0-9]+ to [0-9]+|[0-9]+\\+)/i),paymentVerified:/payment verified/i.test(b),clientTotalSpent:g(/\\$[0-9.,kKmM]+\\s*(?:total )?spent/i),experienceLevel:g(/\\b(Entry|Intermediate|Expert)\\b\\s*\\n?\\s*Experience Level/i)};var enc=btoa(unescape(encodeURIComponent(JSON.stringify(d))));window.open(" + openUrl + "+enc,'_blank');}catch(e){alert('抓取失敗:'+e.message);}})();";
+  const code = "javascript:(function(){try{var t=(document.querySelector('h1')||{}).innerText||document.title;var b=document.body.innerText||'';var g=function(r){var m=b.match(r);return m?(m[1]||m[0]):''};var hr=g(/(\\d+)%\\s*hire rate/i)||g(/hire rate[^\\d]{0,10}(\\d+)%/i);var cr=g(/Send a proposal for:?\\s*(\\d+)\\s*Connects/i)||g(/(\\d+)\\s*Connects?\\s*(?:required|to submit|to apply)/i)||g(/Proposal for:?\\s*(\\d+)\\s*Connects/i);var d={url:location.href,title:t,description:b.slice(0,5000),budget:g(/\\$[0-9.,]+\\s*(?:-\\s*\\$[0-9.,]+)?\\s*(?:\\/hr)?/i),proposals:g(/(Less than [0-9]+|Fewer than [0-9]+|[0-9]+ to [0-9]+|[0-9]+\\+)\\s*proposals?/i)||g(/Proposals[^0-9]{0,8}(Less than [0-9]+|[0-9]+ to [0-9]+|[0-9]+\\+)/i),paymentVerified:/payment verified/i.test(b),clientTotalSpent:g(/\\$[0-9.,kKmM]+\\s*(?:total )?spent/i),experienceLevel:g(/\\b(Entry|Intermediate|Expert)\\b\\s*\\n?\\s*Experience Level/i),hireRate:hr?parseInt(hr):undefined,connectsRequired:cr?parseInt(cr):undefined};var enc=btoa(unescape(encodeURIComponent(JSON.stringify(d))));window.open(" + openUrl + "+enc,'_blank');}catch(e){alert('抓取失敗:'+e.message);}})();";
   return code;
 }
 function pageAnalyze() {
@@ -3701,6 +3738,19 @@ createServer(async (req, res) => {
       }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, verdict: job.verdict, competition: job.scores?.competition, proposals_bucket: job.proposals_bucket, blocked: job.blocked, ai_score: aiScore, ai_win: aiWin }));
+    }
+    if (url.pathname === '/api/patch-job' && req.method === 'POST') {
+      // 單欄位快速更新:user 手動填入 connects_required / client_hire_rate,立即重算
+      const { id, connects_required, client_hire_rate } = JSON.parse(await readBody(req));
+      const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
+      if (!row) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
+      const job = { ...row, payment_verified: !!row.payment_verified };
+      if (connects_required != null && !isNaN(Number(connects_required))) job.connects_required = Number(connects_required);
+      if (client_hire_rate != null && !isNaN(Number(client_hire_rate))) job.client_hire_rate = Number(client_hire_rate);
+      Object.assign(job, scoreJob(job, loadConfig()));
+      upsertJob(db, job);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, verdict: job.verdict, connects_required: job.connects_required, client_hire_rate: job.client_hire_rate }));
     }
     if (url.pathname === '/api/screening' && req.method === 'POST') {
       // 🎯 篩選問題作戰區:抽 screening questions → 逐題答案 + 硬門檻判斷要不要投
