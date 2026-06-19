@@ -1373,7 +1373,7 @@ async function readBody(req, maxBytes = 512 * 1024) {
 // 側欄頂層只留:🔍 找案子(含今日/收藏)、🔎 評估(點案看 AI 分),其餘全收進 ⚙️ 進階(寫提案/客戶往來/追蹤/設定…)。
 const SUBTABS = {
   find:  [['/worklist', '🚀 該做'], ['/today', '🌅 今日'], ['/', '📋 全部案件'], ['/?fav=1', '❤️ 收藏'], ['/analyze', '🔎 即時分析']],
-  more:  [['/proposal', '③ 寫提案'], ['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回訊息'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺'], ['/lessons', '📌 調教 AI'], ['/anchors', '⭐ 信件範本'], ['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/chat-log', '💬 聊天紀錄'], ['/backup', '💾 備份']],
+  more:  [['/proposal', '③ 寫提案'], ['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回訊息'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺'], ['/lessons', '📌 調教 AI'], ['/anchors', '⭐ 信件範本'], ['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/chat-log', '💬 聊天紀錄'], ['/guide', '📖 說明書'], ['/backup', '💾 備份']],
 };
 // 當前 path 屬於哪個區段(決定 sidebar 高亮 + 顯示哪組子分頁)。/invite(單)歸 more。
 function sectionOf(active) {
@@ -1476,6 +1476,113 @@ function pageLessons() {
 }
 
 // 🌅 每日 Briefing — 開站第一眼看「今天該做什麼」+ 真實成功率
+// 📖 使用說明書 — 給使用者看的操作手冊(非開發文檔)。內容與 1-dev/USER-GUIDE.md 同步。
+function pageGuide() {
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>📖 使用說明書</title><style>${CSS}
+  .doc{max-width:820px;line-height:1.8;font-size:15px}
+  .doc h2{margin:26px 0 10px;font-size:19px;border-top:1px solid var(--bd);padding-top:18px}
+  .doc h2:first-of-type{border-top:0;padding-top:0;margin-top:6px}
+  .doc h3{margin:18px 0 6px;font-size:15px;color:var(--ac)}
+  .doc ol,.doc ul{padding-left:22px}.doc li{margin:5px 0}
+  .doc table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px}
+  .doc th,.doc td{border:1px solid var(--bd);padding:7px 10px;text-align:left;vertical-align:top}
+  .doc th{background:var(--card)}
+  .doc .box{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:12px 16px;margin:14px 0}
+  .doc .warn{background:#3a2e15;border-left:3px solid #e3b341}
+  .doc code{background:#0d1117;border:1px solid var(--bd);border-radius:5px;padding:1px 6px;font-size:13px}
+  .doc kbd{background:#21262d;border:1px solid var(--bd);border-radius:5px;padding:1px 7px;font-size:12px}
+  </style></head><body>
+<header><h1>📖 使用說明書 <span class="sub">這套系統怎麼用 · 怎麼評分 · 怎麼挑案</span></h1>${navBar('/guide')}</header>
+<main><div class="doc">
+
+  <div class="box"><b>一句話：</b>每天打開 → 🤖AI 快篩 → 看 🟢EV 榜 → 對前幾名按🔎書籤校正勝率 → ②評估 → 💬助手寫提案 → 投 → 標結果。<br>紀律：<b>少投早投投準、絕不亂 boost、衝第一個評價。</b></div>
+
+  <h2>0. 這系統在幹嘛</h2>
+  <p>瀏覽器擴充功能在你真實 Upwork session 抓案 → 餵進這站 → 四道門漏斗評分 + AI 重排 → 列出「最值得投」的案，並幫你寫提案、追蹤投標結果回頭校正。</p>
+  <p><b>核心理念：能力分高 ≠ 接得到。</b>前兩道門問「該不該做」，後兩道門問「0 評價新手搶不搶得到」。系統寧可少推、也不讓你燒 Connects 投不可能的案。</p>
+
+  <h2>1. 一次性設定（裝一次）</h2>
+  <ol>
+    <li><b>擴充功能</b>(Upwork-Job-Scraper)裝在 Chrome → 每 15 分自動抓案。<b>前提：Chrome 要開著</b>。</li>
+    <li><b>書籤</b>：到 <a href="/analyze">🔎 即時分析</a> 把「🔎 Analyze this job」拖到書籤列。之後在任何 Upwork 案件頁點它 → 一鍵帶資料來分析 / 補真數據。</li>
+    <li>鐵則：<b>AI 只在你打開網站時才跑</b>(省 token)。每天要真的打開它幾分鐘。</li>
+  </ol>
+
+  <h2>2. 每天標準動作（5 步，約 10–15 分鐘）</h2>
+  <ol>
+    <li><b>AI 快篩</b>：<a href="/">📋 探索案件</a> 頂部按「🤖 AI 快篩」，把新案評完分。</li>
+    <li><b>看 🟢EV 榜</b>：預設 filter 🟢值得投、排序「🎯 最值得投」。最上面就是最該投的。看綠燈 + 🎯勝率% + 有沒有「🎯 第一單目標」。</li>
+    <li><b>校正前 3–5 名 ⭐關鍵</b>：勝率有「<b>⚠️估</b>」= 缺客戶數據、樂觀估計。開那案 Upwork 頁 → 按🔎書籤 → 「存進列表」→ connects/聘用率變真值、勝率重算。</li>
+    <li><b>進 ②評估案件</b>：看「勝率估計」區塊(接不接得到 + 為什麼 + 怎麼脫穎而出)。紅字「🔴別投 / 🚫別 boost」要當真。</li>
+    <li><b>決定投 → ③寫提案</b>：建議點右下角 <b>💬 助手</b>，貼上 Upwork 投標頁完整內容(含 To Apply / 影片題 / 篩選題)說「幫我投這個案」。投完回卡片勾「已投」。</li>
+  </ol>
+
+  <h2>3. 投標之後（餵學習迴路）</h2>
+  <p>到 <a href="/applications">📊 投案追蹤</a> 把結果標起來：<b>已回覆／面試／錄取／落選</b>。系統統計「AI 預測勝率 vs 真實命中率」回頭校正未來估計。<b>你標得越勤，勝率越準。</b></p>
+
+  <h2>4. 評分怎麼運作（四道門）</h2>
+  <h3>🚪① 來源門</h3><p>12 條精準搜尋查詢決定「什麼案進得來」；只收付款已驗證、依最新排序。</p>
+  <h3>🎯② 能力門（該不該做）</h3>
+  <p>命中以下 → 直接<b>硬擋</b>(不進 AI、規則分封頂 35)：</p>
+  <ul>
+    <li><b>紅線核心</b>：no-code/平台工具(Make/n8n/Bubble/Streamlit/GAS…)出現在標題、描述前段、或全文 ≥2 次</li>
+    <li><b>能力圈外</b>：完全沒命中你任何技能</li>
+    <li><b>非開發職</b>：招募/小編/客服/業務 掛 AI 羊頭</li>
+  </ul>
+  <p>軟標(不擋但 APPLY 降 MAYBE)：你的強項是核心、只是順帶提到紅線 → 標 ⚠️ 自己判斷。</p>
+  <h3>📊③ 評分門：7 維加權（現為新手模式權重）</h3>
+  <table>
+    <tr><th>維度</th><th>權重</th><th>衡量</th></tr>
+    <tr><td>🎯 能力匹配</td><td><b>25</b></td><td>會不會、交付得了嗎(+GitHub 作品證據)</td></tr>
+    <tr><td>🥊 競爭強度</td><td><b>25</b></td><td>提案越少越高(&lt;5=100、50+=0)</td></tr>
+    <tr><td>🛡 風險訊號</td><td>15</td><td>未驗證/0%聘用/跳出平台/畫大餅 扣分</td></tr>
+    <tr><td>🏦 客戶品質</td><td>15</td><td>付款驗證、花費、聘用率</td></tr>
+    <tr><td>💰 報酬合理</td><td>10</td><td>對齊底價(時薪底 $20/目標 $25、fixed 底 $200)</td></tr>
+    <tr><td>📋 需求清晰</td><td>5</td><td>寫清楚、有 deliverable</td></tr>
+    <tr><td>📈 長期潛力</td><td>5</td><td>轉長期/回頭客</td></tr>
+  </table>
+  <p>判決：總分 <b>≥60 = 🟢APPLY</b>、<b>≥45 = 🟡MAYBE</b>、<b>&lt;45 = 🔴SKIP</b>。之後 AI 讀完整 JD 重評，吐 <code>ai_score</code>(0-10)+<code>ai_win</code>(0-100)，<b>卡片有 ai_score 就以它為準</b>。</p>
+  <h3>🥊④ 可勝門（搶不搶得到）</h3>
+  <ul>
+    <li><b>死亡訊號</b>：未驗證/0%聘用/提案50+/客戶沒花過錢，命中 ≥2 → SKIP</li>
+    <li><b>詐騙硬擋</b>：跳出平台付款、加密貨幣抵薪、股權抵薪、無償試做 → SKIP</li>
+    <li><b>新帳號硬擋</b>：Expert × (高競爭/爛客戶/高 Connects) → SKIP</li>
+    <li><b>勝率上限</b>：基準 78%(尚無公開星評)，再依未驗證/Expert/高 Connects/缺資料下壓</li>
+  </ul>
+
+  <h2>5. 怎麼選案（排序）</h2>
+  <div class="box"><b>EV = ai_score×10（案子好不好）× ai_win（接不接得到）÷ 100</b></div>
+  <p>兩軸獨立：<b>好案常常難搶</b>，所以勝率不計入總分、而是乘進 EV。列表還能切 8 種排序(純分數/勝率/CP值/報酬/競爭最少/客戶花費/能力契合/發布最近)。<br>加成：<b>🎯 第一單目標</b>(小而明確的好案)直接拉 APPLY；<b>🚫 Connects 紀律</b>標出別 boost / 別投的案。</p>
+
+  <h2>6. 三條紀律</h2>
+  <ol>
+    <li><b>少投、早投、投準</b>：EV 榜前幾名 + 第一單目標，一天認真投 1–3 個，別撒網。</li>
+    <li><b>絕不亂 boost</b>：看到「🚫 不要 boost」就別 boost，Connects 留給搶得到的小案。</li>
+    <li><b>衝第一個評價</b>：「🎯 第一單目標」優先投，提議小額付費試做(paid test)降客戶風險。</li>
+  </ol>
+
+  <h2>7. 各頁速查</h2>
+  <table>
+    <tr><th>頁面</th><th>幹嘛用</th><th>何時用</th></tr>
+    <tr><td>🌅 今日</td><td>每日 checklist + 待跟進 + 真實數據</td><td>每天開場</td></tr>
+    <tr><td>📋 探索案件</td><td>主戰場：篩選/排序/AI 快篩</td><td>每天</td></tr>
+    <tr><td>② 評估案件</td><td>單案深入：勝率 + 怎麼贏</td><td>投之前</td></tr>
+    <tr><td>③ 寫提案 / 💬 助手</td><td>產求職信 + 策略(對話版首選)</td><td>決定投時</td></tr>
+    <tr><td>🔎 即時分析</td><td>書籤一鍵分析任意案 / 補數據</td><td>看到站外好案</td></tr>
+    <tr><td>📊 投案追蹤</td><td>標結果、餵學習迴路</td><td>投完 / 有回應</td></tr>
+    <tr><td>🎯 能力 / ⚖️ 評分</td><td>看/調能力與權重</td><td>想微調系統</td></tr>
+  </table>
+
+  <h2>8. 誠實提醒（已知極限）</h2>
+  <ul>
+    <li><b>勝率偏樂觀</b>：多數案 connects/聘用率是空的，最狠的上限觸發不了 → 標「⚠️估」。在乎的案用書籤補真值。</li>
+    <li><b>規則層會被掛羊頭騙</b> → 所以 AI 讀完整 JD 是權威。</li>
+    <li><b>EV 榜是「值得投」榜，不是「保證贏」榜</b>。0 評價真實中標率約 10–25%，別把 win% 當聖旨。</li>
+  </ul>
+
+</div></main></body></html>`;
+}
+
 function pageToday() {
   const db = openDb();
   const stats = applicationStats(db);
@@ -1524,6 +1631,18 @@ function pageToday() {
   </style></head><body>
 <header><h1>🌅 今日待辦 <span class="sub">${new Date().toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei', weekday: 'long', month: 'long', day: 'numeric' })} · 每天開站第一眼看這頁,先處理今天該做的事。</span></h1>${navBar('/today')}</header>
 <main class="wide">
+
+  <details open style="background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:6px 14px 14px;margin-bottom:18px">
+    <summary style="cursor:pointer;font-size:15px;font-weight:700;color:var(--ac);padding:8px 0">✅ 每日 5 步 checklist <span style="color:var(--mut);font-weight:400;font-size:12px">— 照順序做，約 10–15 分鐘</span></summary>
+    <ol style="margin:6px 0 0;padding-left:22px;font-size:14px;line-height:1.85">
+      <li><b>AI 快篩</b>：到 <a href="/" style="color:var(--ac)">📋 探索案件</a> 按「🤖 AI 快篩」，把新案評完分。</li>
+      <li><b>看 🟢EV 榜</b>：預設「🎯 最值得投」排序，最上面就是最該投的。認 🎯勝率% 和「🎯 第一單目標」標籤。</li>
+      <li><b>校正前 3–5 名</b>：勝率有「<b>⚠️估</b>」= 缺客戶數據。開那案 Upwork 頁 → 按🔎書籤 → 存進列表 → 勝率變真值。</li>
+      <li><b>進 ② 評估</b>：看「勝率估計」區，紅字「🔴別投/🚫別 boost」要當真。</li>
+      <li><b>決定投 → 💬 助手寫提案</b>：貼完整職缺(含 To Apply/篩選題)→ 投完回卡片勾「已投」。</li>
+    </ol>
+    <p style="margin:10px 0 0;font-size:13px;color:var(--mut)">紀律：<b>少投早投投準</b>(一天 1–3 個)、<b>絕不亂 boost</b>、<b>衝第一個評價</b>。投完記得到 <a href="/applications" style="color:var(--ac)">📊 投案追蹤</a> 標結果餵學習迴路。完整說明 → <a href="/guide" style="color:var(--ac)">📖 使用說明書</a></p>
+  </details>
 
   <h2 style="margin-top:0">📊 真實數據(取代 AI 猜測)</h2>
   <div class="grid">
@@ -4003,6 +4122,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/today') {
       return serveHtml(res, pageToday());
+    }
+    if (url.pathname === '/guide') {
+      return serveHtml(res, pageGuide());
     }
     if (url.pathname === '/worklist') {
       return serveHtml(res, pageWorklist());
