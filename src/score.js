@@ -158,9 +158,11 @@ export function isNonDevRole(j) {
   const NONDEV = /\b(recruiter|talent sourcer|sourcer|headhunter|content creator|copywriter|social media manager|community manager|virtual assistant|data entry|appointment setter|customer (support|service|success)|sales (rep|representative|development representative)s?|\bsdr\b|\bbdr\b|telemarket|cold caller|human resources|\bhr\b|admin(?:istrative)? (assistant|support)|executive assistant|bookkeeper|voice ?over|transcription(?:ist)?|proofreader|seo writer|brand ambassador|moderator|operations\s+manager|marketing (researcher|manager|specialist)|growth marketer)\b/;
   if (!NONDEV.test(title)) return false;
   // 標題同時有「開發職稱/開發產物」→ 是開發案,不算非開發角色(例:Backend Developer for a CRM)
-  // 2026-07 修誤判:「Shopee AI customer service Chrome extension」是要「做」客服擴充的開發案,
-  // 不是找客服。補 chrome/browser extension 與 plugin 豁免(不用裸的 extension,避免 hair extension 誤豁免)。
-  const devRole = /\b(developer|programmer|coder|architect|full[\s-]?stack|back[\s-]?end|front[\s-]?end|software engineer)\b|(chrome|browser)\s+extension|\bplugin\b/;
+  // 2026-07 修誤判:「Shopee AI automated customer service Chrome extension / mass email notification」
+  // 是要「做」客服自動化系統的開發案,不是找客服。補豁免:chrome/browser extension、plugin、
+  // automat*(automated/automation)、ai-powered、chatbot、scraper。誤放行沒關係——AI 快篩會讀全文
+  // 抓掛羊頭(prompt 規則①);硬擋錯殺才是不可逆的。不用裸的 extension(避免 hair extension 誤豁免)。
+  const devRole = /\b(developer|programmer|coder|architect|full[\s-]?stack|back[\s-]?end|front[\s-]?end|software engineer)\b|(chrome|browser)\s+extension|\bplugin\b|automat(ed|ion)|ai[\s-]?powered|chatbot|\bscraper\b/;
   return !devRole.test(title);
 }
 
