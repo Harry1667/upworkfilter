@@ -135,11 +135,47 @@ async function autoTriageIngested(ids) {
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
     const res = await triageJobs(rows, { outcomeNote: outcomeNoteText(computeOutcomeStats()) });
     for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
+    notifyFreshWinners(res); // 📣 新鮮+可贏 → Discord
     console.log(`🤖 自動快篩完成:${res.length} 案`);
   } catch (e) {
     console.error('自動快篩失敗:' + e.message);
   } finally {
     _triageBusy = false;
+  }
+}
+
+// 📣 Discord 推播「新鮮+可贏」案 — 補上管線最後一哩:評分完 → 手機即時知道,不用開網站。
+// 條件:win ≥ NOTIFY_MIN_WIN(預設40)、發布(或首見)< 3h、未 blocked/applied、沒推過(jobs.notified_at)。
+// .env 設 DISCORD_WEBHOOK_URL 才啟用;每日上限 NOTIFY_DAILY_CAP(預設10)防洗版。失敗只記 log 不影響快篩。
+const NOTIFY_URL = process.env.DISCORD_WEBHOOK_URL || '';
+const NOTIFY_MIN_WIN = Number(process.env.NOTIFY_MIN_WIN) || 40;
+const NOTIFY_DAILY_CAP = Number(process.env.NOTIFY_DAILY_CAP) || 10;
+let _notifyDate = '', _notifyCount = 0;
+async function notifyFreshWinners(scoredBatch) {
+  if (!NOTIFY_URL || !scoredBatch?.length) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (_notifyDate !== today) { _notifyDate = today; _notifyCount = 0; }
+  for (const r of scoredBatch) {
+    if (_notifyCount >= NOTIFY_DAILY_CAP) return;
+    if (!(Number(r.win) >= NOTIFY_MIN_WIN)) continue;
+    const j = db.prepare('SELECT * FROM jobs WHERE id = ?').get(r.id);
+    if (!j || j.blocked || j.applied || j.notified_at) continue;
+    const born = Date.parse(j.posted_at || j.first_seen || '');
+    if (isNaN(born) || Date.now() - born > 3 * 3600 * 1000) continue; // 只推 3h 內的新鮮案
+    const ageMin = Math.round((Date.now() - born) / 60000);
+    const content = [
+      `🎯 **新鮮可投** win ${r.win}%｜${j.title}`,
+      `💰 ${j.budget_text || '?'}｜提案 ${j.proposals_bucket || '?'}｜⏱ ${ageMin < 60 ? ageMin + 'm' : Math.round(ageMin / 60) + 'h'}前發布`,
+      String(r.reason || '').slice(0, 90),
+      `評估:${ANALYZE_SITE}/job?id=${encodeURIComponent(j.id)}`,
+      `Upwork:${cleanUrl(j)}`
+    ].join('\n');
+    try {
+      await fetch(NOTIFY_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content }) });
+      db.prepare('UPDATE jobs SET notified_at = ? WHERE id = ?').run(new Date().toISOString(), j.id);
+      _notifyCount++;
+      console.log(`📣 已推播:${String(j.title).slice(0, 40)}(win ${r.win}%)· 本日 ${_notifyCount}/${NOTIFY_DAILY_CAP}`);
+    } catch (e) { console.error('📣 推播失敗:' + e.message); }
   }
 }
 
@@ -175,7 +211,10 @@ function runBackgroundTriage(source = 'manual', all = false) {
         // batchSize 用預設(小批才不會走慢 proxy 時撞死線);askAI:直連 Gemini 優先,掛了退 proxy(openai)
         paceMs: 6000, // 每批至少間隔 6s → 壓在 Gemini 免費 tier 速率下,並留 headroom 給 chat/分析
         outcomeNote: note,
-        onBatch: (batch) => { for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); },
+        onBatch: (batch) => {
+          for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
+          notifyFreshWinners(batch); // 📣 新鮮+可贏 → Discord(非同步,不擋快篩)
+        },
         onProgress: (done, total) => { _triageJob.done = done; _triageJob.total = total; },
       });
     } catch (e) { console.error(`背景快篩失敗(${source}):` + e.message); }
@@ -636,7 +675,7 @@ function pageLogin() {
     try{const r=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({identifier:document.getElementById('id').value.trim(),password:document.getElementById('pw').value})});
       const j=await r.json();
-      if(j.ok)location.href='/'; else{err.textContent='❌ '+(j.error||'帳號或密碼錯誤');btn.disabled=false;btn.textContent='登入';}}
+      if(j.ok)location.href='/today'; else{err.textContent='❌ '+(j.error||'帳號或密碼錯誤');btn.disabled=false;btn.textContent='登入';}}
     catch(ex){err.textContent='❌ '+ex.message;btn.disabled=false;btn.textContent='登入';}
     return false;}
 </script></body></html>`;
@@ -4344,5 +4383,6 @@ createServer(async (req, res) => {
   console.log(`   登入:${NO_AUTH ? 'OFF(NO_AUTH)' : 'hdw-auth ' + AUTH_URL} | ingest 金鑰:${process.env.INGEST_KEY ? 'ON' : 'OFF'}\n   Ctrl+C 關閉。\n`);
   scheduleDailyTriage(); // ⏰ 啟動每日定時自動快篩(手動按鈕仍保留)
   scheduleFreshTriage(); // 🆕 啟動每 20 分鐘新鮮案快篩(新案不用再等每日排程)
+  console.log(`📣 Discord 推播:${NOTIFY_URL ? `ON(win≥${NOTIFY_MIN_WIN}、3h 內新鮮案、每日上限 ${NOTIFY_DAILY_CAP})` : 'OFF(.env 設 DISCORD_WEBHOOK_URL 開啟)'}`);
   setInterval(reapStuckProxyCalls, 90000); // 🧹 每 90s 清掉卡死的 proxy_call.py,防殭屍塞死 proxy
 });

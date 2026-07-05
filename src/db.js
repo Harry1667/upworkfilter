@@ -111,6 +111,8 @@ export function openDb() {
   try { db.exec('ALTER TABLE jobs ADD COLUMN tags TEXT'); } catch { /* 已存在 */ }
   // 學習迴路:投標結果(applied→ 已回/面試/錄取/未回),供日後校正評分
   try { db.exec('ALTER TABLE jobs ADD COLUMN outcome TEXT'); } catch { /* 已存在 */ }
+  // 📣 Discord 推播時戳:快篩後「新鮮+高勝率」案已推播過 → 不重複推(重啟也不重推)
+  try { db.exec('ALTER TABLE jobs ADD COLUMN notified_at TEXT'); } catch { /* 已存在 */ }
   // 🚪 第二道門(能力)硬攔截旗標:1=紅線/能力圈外被擋,AI 快篩/分析會跳過(省成本)
   try { db.exec('ALTER TABLE jobs ADD COLUMN blocked INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
   // 🗑️ 使用者 skip 掉的案:記 id(墓碑),刪掉 jobs 列 + 之後重抓不再寫回(見 upsertJob 守門)
