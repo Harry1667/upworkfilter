@@ -18,6 +18,8 @@ export function winCapFor(j) {
   const lvl = proposalBucketLevel(j.proposals_bucket);
   if (lvl === '50+') cap = Math.min(cap, 12);
   else if (lvl === '20-50') cap = Math.min(cap, 25);
+  // 2026-07 鐵律#2(使用者的投案紀律:提案 <10 才是主戰場):10-20 提案已偏擁擠,win 封 35
+  else if (lvl === '10-15' || lvl === '15-20') cap = Math.min(cap, 35);
   const spent = toNum(j.client_spent_usd);
   if (spent != null && spent < 100) cap = Math.min(cap, 15);
   if (isSeniorExpertJob(j)) {
@@ -93,6 +95,8 @@ export function buildPrompt(jobs, p, parents, needs, outcomeNote = '') {
 注意:① 揪出「掛羊頭」的案(標題有 AI/dev 字眼但其實是找招募/SEO/行銷/銷售,跟開發無關)→ 低分。② 預算明顯偏低(時薪 < $12 或 fixed 對工作量過低)又競爭激烈(提案多)= 燒時間/Connects 的雷案 → 低分(略過)。
 ③ 【能力邊界】案子主要落在他「深度低(1-2)」或「不做」的領域 → win 大幅下修、score 降;命中「紅線」→ verdict 略過、win≈0。落在「深度高(4-5)」且在「能做」範圍 → 才給高 win。win 要誠實反映「他真的接得下來且贏得了嗎」。
 ④ 【Required 覆蓋率(不是只看最強項)】把 JD 的「Must-have / Required」逐項拆出,對照他的能力邊界。只要有「他沒做過或深度 1-2 的核心 Required 項」(例:live voice agent / WebRTC 即時語音),win 就要下修、reason 點名該缺口 —— 能力總分高 ≠ 覆蓋每個 Required,別被 4/5 命中騙高分。
+⑤ 【道歉測試(2026-07 鐵律,從 8 筆零回應提案驗屍得出)】想像他寫 cover letter 的第一段:如果**必須先說「我沒用過 X,但可以用別的方式」才能投**(X = 標題或 Required 明列的核心工具,如 ManyChat/Make/Streamlit/React Native),這案就是「要道歉的案」→ verdict 直接略過、win ≤ 15、reason 寫「核心工具 X 需道歉,別投」。0 評價新人 + 開頭道歉 = 秒刷,他過去 8 筆全靜音有 7 筆栽在這。
+⑥ 【提案數紀律】他的主戰場是提案 <10 的案:10-20 → win ≤ 35;reason 提醒「偏擁擠」。
 
 🚨 【勝率硬規則 — 必須嚴格遵守】
 這位使用者**剛起步**:已完成 1 個案($450 earnings)、ID 已驗證,但**尚無公開星評/JSS**(客戶瀏覽時看起來仍接近新手)。所以勝率仍受壓,但比純 0 評價略好。即使能力 100% 符合,你的 win 估計**必須**套用以下硬上限:

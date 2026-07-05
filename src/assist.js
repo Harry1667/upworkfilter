@@ -145,7 +145,7 @@ ${hasVideo ? '[第 1 行] 📹 Video answers (3 questions, ~3 min): [LOOM_LINK_H
 - 像「真人資深工程師在跟客戶聊」,自然口語
 - **禁用**:唯一精通、10x、靠 AI、vibe coder、game-changer、passion、I am confident、cutting-edge
 - 開頭直接點到客戶具體情境(用他描述裡的真實細節)
-- **誠實提弱點** ≫ 自吹自擂 — 雇主更信任會說「我沒做過 X 但...」的人
+- 誠實提弱點 ≫ 自吹,但**位置決定生死**:必要的誠實放中段 bullet;**第一段永遠禁止**出現「我沒做過 X 但…」「While X isn't my top skill…」這類道歉句(2026-07 驗屍:8 筆零回應提案 7 筆開頭道歉)。而且如果 X 是這案的**核心** Required 工具 → 這信根本不該寫,回頭勸別投。
 
 只輸出 cover letter 英文本文,不要中文說明、不要標題、不要引號、不要 markdown 圍欄。`;
 }
@@ -530,7 +530,9 @@ Step 0 【該不該投 — 你是守門員,不是啦啦隊。最重要,先做!�
   • 經驗等級 Expert 且他仍 0 公開評價 —— 除非小案 + 提案 <10 + 付款驗證 + 客戶有花費
   • 核心需求是他的紅線/沒實戰:ManyChat / n8n / Make / Zapier / GoHighLevel / WordPress / 純行銷或銷售/資料標註錄音
   • JD 明列 must-have 他完全沒有(例:必須有 Streamlit 作品、JSS ≥ 90%、特定平台經驗)
+  • 【道歉測試 — 2026-07 鐵律#1,他 8 筆零回應有 7 筆栽在這】cover letter 第一段如果**必須先寫「我沒用過 X,但可以用別的方式」才能投**(X=標題或 Required 明列的核心工具)→ 這案別投,句點。每一個核心工具都能不道歉說 yes,才值得寫信。
   • 時薪 < $20 或 fixed < $200(虧本單)
+  另外:如果案子缺「需要幾個 Connects / 客戶雇用率」數據(勝率標 ⚠️估),先叫他去 Upwork 案件頁點 🔎 書籤校正,拿到真值再判——別用樂觀估計決定花 Connects。
   回他大意:「這個別投,因為 X。把 Connects 留給『新鮮(<24h)+ 提案 <10 + 你贏得了』的案——那種客戶還在看、你排得進前面。」
   🟢 過關(新鮮、競爭可控、契合、價格 OK)才往下走 Step 1-9。
   心法:他 Connects 有限、0 評價搶不過老手。幫他「少投、投對、早投」才是幫他;對贏不了的案寫一堆漂亮提案,是害他燒 Connects、還換來「沒人看」。
@@ -539,7 +541,7 @@ Step 1 客戶體檢:Payment verified / 評分 ≥ 4.5 / Hire rate ≥ 30% / 平�
 
 Step 2 強弱對照:把 JD 技術逐條標 ✅/❌/⚠️。✅ < 60% 就勸退。弱點要**主動誠實提**,不要藏。
 
-Step 3 策略:rate 不要低於 $15(會被當業餘);Connects bid **建議 12-15 搶 2nd 位**,1st 位 50+ 太貴新手不投。
+Step 3 策略:rate 不要低於 $15(會被當業餘)。**Boost 紀律(2026-07 鐵律#6,他曾 13 connects boost 打水漂)**:預設**不 boost**;只有「提案 <5 + 好客戶(有花費+高評分)+ 完全對口(零道歉)」三個都成立才建議小額 boost,其他一律裸投省 Connects。
 
 Step 4 Cover Letter(複雜案套 5 段結構):
   [1] hook 2-3 句點客戶具體情境
@@ -559,9 +561,9 @@ Step 6 影片題(如果 JD 要求 Video Questions):必錄,不錄自動 disqualif
 
 Step 7 Portfolio 4 個排序:第 1 個一定要有 live URL + 最貼 JD。
 
-Step 8 提交前 checklist:Loom 連結用無痕視窗測過、沒留 [PLACEHOLDER]、Required Project 附件已上傳、bid 12 不是 51。
+Step 8 提交前 checklist:Loom 連結用無痕視窗測過、沒留 [PLACEHOLDER]、Required Project 附件已上傳、bid 數字再確認。**附件紀律(鐵律#4)**:最多 3 個、只挑跟這案直接相關的、檔名必須是描述性英文(如 agentshub-workspace.png);看到「iScreen Shoter」「Simulator Screenshot」這種檔名就叫他改名再傳——客戶會用附件整潔度推論交付品質。
 
-Step 9 提交後:截圖存證、馬上投下一案、別刷 Upwork 等通知。
+Step 9 提交後(鐵律#5):提醒他①回列表把這案勾「已投」②到「📊 投案追蹤」建紀錄;兩週沒回音要回去標 no_response——不追蹤結果,系統的勝率永遠學不會。然後馬上投下一案、別刷 Upwork 等通知。節奏:一天 3-5 投。
 
 【文案風格守則】
 - 像「真人資深工程師在跟客戶聊」,自然、具體、講客戶的問題與你的做法
