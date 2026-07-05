@@ -14,6 +14,19 @@
     "\"Next.js\" \"bug fix\"",
     "\"FastAPI\" \"bug fix\" OR \"Node.js\" \"bug fix\""
   ],
+  "_searchQueriesLang_note": "2026-07 開通:語言/在地案通道(華語/台語/台灣身分即可交付)。實證:使用者全部正面訊號(面試邀請/進行中提案)都來自這類案,跟 searchQueries(開發案,手調勿動)並存,貼進擴充功能搜尋即可。",
+  "searchQueriesLang": [
+    "Mandarin speaker",
+    "Taiwanese Mandarin",
+    "Chinese voice recording",
+    "Taiwanese Hokkien",
+    "Mandarin AI training",
+    "Chinese transcription",
+    "Traditional Chinese translation",
+    "Taiwan-based tester",
+    "Chinese data annotation",
+    "Mandarin audio evaluation"
+  ],
   "searchFilters": {
     "paymentVerifiedOnly": true,
     "jobType": "0,1",
@@ -122,14 +135,15 @@
     "mode": "newbie",
     "connectsHot": 16,
     "_connectsHot_note": "投案需這麼多 Connects 才算『超熱門』而懲罰/降級。2026 Upwork 漲價,你實測 9-24,16 是中上段。覺得餓死 leads 就調高,想更省 Connects 就調低。",
+    "_newbieWeights_note": "2026-06 砍掉重練:競爭 25→12(閘門+winCap 已在管,權重不再重壓)、報酬 10→18(好價該加分)、清晰度 5→13(明確小案=第一單友善)。和為 100。",
     "newbieWeights": {
-      "reward": 10,
-      "skill": 25,
-      "client": 15,
-      "competition": 25,
+      "reward": 18,
+      "skill": 24,
+      "client": 16,
+      "competition": 12,
       "longterm": 5,
-      "clarity": 5,
-      "risk": 15
+      "clarity": 13,
+      "risk": 12
     },
     "newbieThreshold": 60,
     "newbieMaybeThreshold": 45

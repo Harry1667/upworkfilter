@@ -1,12 +1,14 @@
 // `node src/run-triage.js [--all]` — 對未快篩的案跑 AI 快篩(triage),寫回 ai_score/ai_verdict/ai_win。
 // 等同網頁「🤖 AI 快篩」按鈕,但可在伺服器 CLI 跑。需 .env 設好 AI proxy。
 // 預設只跑「ai_score IS NULL 且 blocked=0」的案;--all 重跑全部未 blocked。
+// 🗣️ 語言案(category='語言案')不進 AI 快篩:AI prompt 是開發顧問人格,會拿開發能力標準亂殺
+// 語言/在地案,規則層(score.js isLanguageCase 分支)算出的 verdict 已是最終判斷。
 import { openDb, setAiVerdict } from './db.js';
 import { triageJobs } from './triage.js';
 
 const all = process.argv.includes('--all');
 const db = openDb();
-const where = all ? 'blocked=0' : 'ai_score IS NULL AND blocked=0';
+const where = (all ? 'blocked=0' : 'ai_score IS NULL AND blocked=0') + " AND (category IS NULL OR category != '語言案')";
 const rows = db.prepare(`SELECT * FROM jobs WHERE ${where}`).all();
 console.log(`🤖 待快篩:${rows.length} 案${all ? '(--all 重跑)' : ''}`);
 if (!rows.length) { console.log('沒有要跑的案。'); process.exit(0); }

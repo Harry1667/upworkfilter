@@ -88,6 +88,28 @@
 
 ---
 
+## 5.5 🗣️ 語言案通道
+
+**為什麼有這條通道**：2026-07 盤點實際投案史發現，使用者至今全部正面訊號(3 個面試邀請 + 2 個進行中提案)都不是開發案——而是華語錄音、台語配音、台灣腔英文電話錄音、華語 AI 訓練、台灣用戶問卷這類「身分即可交付」的語言/在地案。舊評分規則會把這類案當「非開發職」直接 `SKIP`+`blocked`(`isNonDevRole` 黑名單含 voice over/transcription，或案子沒命中任何開發技能被判 `outOfScope`)——等於把使用者唯一有牽引力的管道全殺光，所以開一條專屬通道。
+
+**判定規則**(`isLanguageCase`，`src/score.js`)：
+- **身分詞**必須命中：Mandarin / Taiwanese / Hokkien / Cantonese、chinese speaker/speaking/native/voice/audio/transcri/translat/annotat、native chinese、traditional chinese、zh-TW、taiwan-based / in Taiwan / from Taiwan 等
+- **任務詞**也必須命中：record/recording、voice、audio、speak(er)、transcri、translat、interpret、annotat、evaluat、rating、survey、usability、test(er/ing)、role-play、data collection、ai training、proofread、linguist
+- **開發職稱排除**：標題若含 developer/programmer/coder/architect/full-stack/back-end/front-end/software engineer → 不算語言案，走原本的開發案流程(例：「Mandarin-speaking React Developer」是開發案，不會被語言案通道誤收)
+
+**評分邏輯**：命中語言案後**完全繞過②能力門**(不吃 `isNonDevRole`、紅線、能力圈外那套)，改成「客戶品質直接定 verdict」：
+- 客戶死亡訊號(≥2 個)或雇用率0%+發過3案以上 → `SKIP`(爛客戶還是爛，這條照樣生效)
+- 付款未驗證 → `SKIP`
+- 付款已驗證 且(客戶花費 ≥ $1000，或 評分 ≥4.5 且 ≥5 則評價) → `APPLY`(規則分定 72)
+- 其他(已驗證但客戶普通) → `MAYBE`(規則分定 55)
+- 卡片 reason 開頭會標「🗣️ 語言/在地案(華語/台語/台灣身分即可交付，不吃開發能力門)」
+
+**不進 AI 快篩**：語言案(`category='語言案'`)在 `src/run-triage.js` 的兩個 WHERE 條件都會被排除，不會進 `🤖 AI 快篩`。原因：AI 快篩的 prompt 是「開發顧問」人格，會拿開發能力標準亂殺語言案；規則層算出的 verdict 就是最終判斷。
+
+**怎麼用 `searchQueriesLang`**：`config.json` 新增 `searchQueriesLang`(10 條)，跟原本手調的 `searchQueries`(12 條開發案查詢)**分開並存、互不影響**。把這 10 條貼進 Chrome 擴充功能的搜尋設定(跟開發案查詢一起跑即可)，抓進來的語言案會被 `isLanguageCase` 自動辨識、走上面的評分邏輯。
+
+---
+
 ## 6. 三條紀律
 
 1. **少投、早投、投準**：EV 榜前幾名 + 第一單目標，一天認真投 1–3 個，別撒網。

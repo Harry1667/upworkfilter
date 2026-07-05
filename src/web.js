@@ -127,7 +127,8 @@ async function autoTriageIngested(ids) {
   if (_triageBusy || !ids || ids.length === 0) return; // 同時間只跑一輪,避免疊跑
   try {
     const placeholders = ids.map(() => '?').join(',');
-    const rows = db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND id IN (${placeholders})`).all(...ids);
+    // 語言案不進 AI 快篩(另一位 agent 專做語言案通道,規則層 verdict 就是最終結果)
+    const rows = db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND (category IS NULL OR category != '語言案') AND id IN (${placeholders})`).all(...ids);
     if (rows.length === 0) return;
     _triageBusy = true;
     const { triageJobs } = await import('./triage.js');
@@ -142,17 +143,28 @@ async function autoTriageIngested(ids) {
   }
 }
 
-// 啟動背景 AI 快篩(手動按鈕 + 每日排程共用)。非阻塞,立即回 { started, total, running, done }。
-// 每批跑完即 setAiVerdict 回寫 → 中途掛掉不丟已篩結果;同時只跑一輪(_triageJob.running 擋疊跑)。
+// 啟動背景 AI 快篩(手動按鈕 + 每日排程 + 新鮮案排程共用)。非阻塞,立即回 { started, total, running, done }。
+// 每批跑完即 setAiVerdict 回寫 → 中途掛掉不丟已篩結果;_triageJob.running 對三種來源(manual/daily/fresh)共同擋疊跑。
 function runBackgroundTriage(source = 'manual', all = false) {
   if (_triageJob && _triageJob.running) {
     return { started: false, running: true, done: _triageJob.done, total: _triageJob.total };
   }
   const TRIAGE_CAP = 120; // 每次最多篩這麼多(對齊 proxy 速度,避免一次太多跑不完)
-  const rows = all
-    ? db.prepare('SELECT * FROM jobs WHERE blocked=0 ORDER BY total_score DESC').all()
-    : db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND applied=0
-        AND verdict IN ('APPLY','MAYBE') ORDER BY total_score DESC LIMIT ${TRIAGE_CAP}`).all();
+  const FRESH_CAP = 20; // 新鮮掃描每輪最多篩這麼多(20 分鐘一輪,量不用大)
+  const NO_LANG = "AND (category IS NULL OR category != '語言案')"; // 語言案另一位 agent 專做語言案通道,不進 AI 快篩
+  let rows;
+  if (source === 'fresh') {
+    // 🆕 新鮮案快篩:24h 內、還沒篩過、規則層先過關(APPLY/MAYBE)的案,依規則分排序優先篩
+    rows = db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND applied=0
+        AND verdict IN ('APPLY','MAYBE') ${NO_LANG}
+        AND first_seen >= datetime('now','-24 hours')
+        ORDER BY total_score DESC LIMIT ${FRESH_CAP}`).all();
+  } else if (all) {
+    rows = db.prepare(`SELECT * FROM jobs WHERE blocked=0 ${NO_LANG} ORDER BY total_score DESC`).all();
+  } else {
+    rows = db.prepare(`SELECT * FROM jobs WHERE ai_score IS NULL AND blocked=0 AND applied=0
+        AND verdict IN ('APPLY','MAYBE') ${NO_LANG} ORDER BY total_score DESC LIMIT ${TRIAGE_CAP}`).all();
+  }
   if (rows.length === 0) return { started: false, total: 0 };
   _triageJob = { running: true, done: 0, total: rows.length, started_at: Date.now(), source };
   const note = outcomeNoteText(computeOutcomeStats());
@@ -199,6 +211,33 @@ function scheduleDailyTriage() {
     setTimeout(fire, msUntilDailyRun()); // 每次重算 → 不漂移,固定 UTC 時刻
   };
   setTimeout(fire, delay);
+}
+
+// 🆕 新鮮案自動快篩:每日排程要等 1-3 天才篩到新案,太晚 → 改成每 20 分鐘掃一次「新進 24h 內」的案,
+// 20 分鐘內就有分數可看,不再永遠「晚投」。.env:AI_TRIAGE_FRESH=0 關閉;AI_TRIAGE_FRESH_MINUTES 改頻率(預設 20)。
+// 每日 token 上限:AI_TRIAGE_DAILY_CAP(預設 300)案,累計數存模組變數即可(重啟歸零可接受,不用進 DB)。
+let _freshDate = '';  // 上次重置累計的日期(本機時區 yyyy-mm-dd)
+let _freshCount = 0;  // 本日已篩(新鮮掃描來源)累計案數
+function scheduleFreshTriage() {
+  if (process.env.AI_TRIAGE_FRESH === '0') { console.log('🆕 新鮮案自動快篩:已關閉(AI_TRIAGE_FRESH=0)'); return; }
+  const minutes = Math.max(1, Number(process.env.AI_TRIAGE_FRESH_MINUTES) || 20);
+  const cap = Math.max(1, Number(process.env.AI_TRIAGE_DAILY_CAP) || 300);
+  console.log(`🆕 新鮮案自動快篩:每 ${minutes} 分鐘掃一次新進 24h 內的案(每日上限 ${cap} 案)`);
+  setInterval(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (_freshDate !== today) { _freshDate = today; _freshCount = 0; } // 跨日重置累計
+    if (_freshCount >= cap) {
+      console.log(`🆕 新鮮快篩:本日已篩 ${_freshCount}/${cap},額度用完,略過本輪`);
+      return;
+    }
+    const r = runBackgroundTriage('fresh');
+    if (r.started) {
+      _freshCount += r.total; // 以送篩案數計(近似值即可,足夠防燒爆 token)
+      console.log(`🆕 新鮮快篩觸發:啟動 ${r.total} 案 · 本日已篩 ${_freshCount}/${cap}`);
+    } else {
+      console.log(`🆕 新鮮快篩觸發:${r.running ? '已有快篩在背景跑、略過' : '沒有新鮮待篩的案'}`);
+    }
+  }, minutes * 60000);
 }
 
 // 🔁 學習迴路:從已標記 outcome 的案統計「AI 預測勝率 vs 真實結果」
@@ -615,7 +654,7 @@ function pageJobs() {
   // 動線提示:今日新案 + 未處理(值得投但還沒投)
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayNew = data.filter((j) => (j.first_seen || '').slice(0, 10) === todayStr).length;
-  const todo = data.filter((j) => effectiveVerdict(j).cls === 'APPLY' && !j.applied).length;
+  const todo = data.filter((j) => { const cls = effectiveVerdict(j).cls; return (cls === 'APPLY' || cls === 'MAYBE') && !j.applied && !j.blocked; }).length;
   // 待快篩 = 值得做(APPLY/MAYBE)× 未投 × 還沒 AI 分數(只對這些花 AI,慢 proxy 才跑得完)
   const untriaged = data.filter((j) => j.ai_score == null && !j.blocked && !j.applied && (j.verdict === 'APPLY' || j.verdict === 'MAYBE')).length;
   const blockedCount = data.filter((j) => j.blocked).length;
@@ -699,13 +738,13 @@ function pageJobs() {
 <header>
   <h1>📋 探索案件 <span class="sub">APPLY ${counts.APPLY || 0} · MAYBE ${counts.MAYBE || 0} · SKIP ${counts.SKIP || 0} · 共 ${data.length} · 門檻 ${cfg.scoring.threshold}</span></h1>
   ${navBar('/')}
-  <div class="flowhint">🆕 今日新案 <b>${todayNew}</b> · ⏳ 待處理(值得投未投) <b>${todo}</b> · 🤖 未 AI 快篩 <b>${untriaged}</b> · 🚫 第二道門擋下 <b>${blockedCount}</b>
+  <div class="flowhint">🆕 今日新案 <b>${todayNew}</b> · ⏳ 待處理(值得投+可考慮·未投) <b>${todo}</b> · 🤖 未 AI 快篩 <b>${untriaged}</b> · 🚫 第二道門擋下 <b>${blockedCount}</b>
     <button class="open" id="triageBtn" style="margin-left:10px" onclick="triage(false)" title="每天會自動快篩一次(台灣下午、Gemini 額度最足時);這顆按鈕讓你隨時手動補篩">🤖 AI 快篩${untriaged ? ` (${untriaged})` : ''}</button>
     <button class="open" id="pruneBtn" style="margin-left:6px;background:#3d1e1e;border-color:#f85149;color:#f85149" onclick="prune()" title="刪掉未投×未收藏的垃圾案(規則SKIP/第二道門擋下/超過7天),保留你投過的、收藏的、近期好案">🗑️ 清垃圾</button>
     <span id="trmsg" style="color:var(--mut)"></span>
   </div>
   <div class="filters">
-    <button data-f="APPLY" class="on">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
+    <button data-f="todo" class="on">🎯 待辦(值得投+可考慮)</button><button data-f="APPLY">🟢 值得投</button><button data-f="MAYBE">🟡 可考慮</button>
     <button data-f="SKIP">🔴 排除</button><button data-f="blocked">🚫 超綱</button><button data-f="junk" title="低提案+小預算+付款驗證,新手撿漏拿 5★">🦴 撿漏</button><button data-f="favorited" title="❤️ 標記過的案子">❤️ 收藏</button><button data-f="applied">已投</button><button data-f="all">全部</button>
     <select id="parentFilter" style="background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 12px;font-size:13px">
       <option value="">📂 全部大類</option>
@@ -735,11 +774,13 @@ function pageJobs() {
 <main>${cards || '<p style="color:var(--mut)">資料庫是空的。擴充套件抓到案子後會出現在這。</p>'}</main>
 <script>
   const cards=[...document.querySelectorAll('.card')];
-  let verdictF='APPLY';
+  let verdictF='todo';
   function applyFilters(){const par=document.getElementById('parentFilter').value,tag=document.getElementById('tagFilter').value,fit=document.getElementById('fitFilter').value;
     cards.forEach(c=>{
       let okV;
       if(verdictF==='all')okV=1;
+      // 🎯 待辦(預設):值得投 + 可考慮、未投、未被第二道門擋 → 一眼看完所有「該處理」的案
+      else if(verdictF==='todo')okV=(c.dataset.verdict==='APPLY'||c.dataset.verdict==='MAYBE')&&c.dataset.applied!=='1'&&c.dataset.blocked!=='1';
       else if(verdictF==='applied')okV=c.dataset.applied==='1';
       else if(verdictF==='blocked')okV=c.dataset.blocked==='1';
       else if(verdictF==='favorited')okV=c.dataset.favorited==='1';
@@ -1521,7 +1562,7 @@ function pageGuide() {
   <p>到 <a href="/applications">📊 投案追蹤</a> 把結果標起來：<b>已回覆／面試／錄取／落選</b>。系統統計「AI 預測勝率 vs 真實命中率」回頭校正未來估計。<b>你標得越勤，勝率越準。</b></p>
 
   <h2>4. 評分怎麼運作（四道門）</h2>
-  <h3>🚪① 來源門</h3><p>12 條精準搜尋查詢決定「什麼案進得來」；只收付款已驗證、依最新排序。</p>
+  <h3>🚪① 來源門</h3><p>12 條精準搜尋查詢決定「什麼案進得來」；只收付款已驗證、依最新排序。另有 <b>searchQueriesLang</b>(10 條語言案查詢,config.json)可一起貼進擴充功能——華語/台語/配音/AI 訓練這類「身分即可交付」的案由下方語言案通道處理。</p>
   <h3>🎯② 能力門（該不該做）</h3>
   <p>命中以下 → 直接<b>硬擋</b>(不進 AI、規則分封頂 35)：</p>
   <ul>
@@ -1533,21 +1574,28 @@ function pageGuide() {
   <h3>📊③ 評分門：7 維加權（現為新手模式權重）</h3>
   <table>
     <tr><th>維度</th><th>權重</th><th>衡量</th></tr>
-    <tr><td>🎯 能力匹配</td><td><b>25</b></td><td>會不會、交付得了嗎(+GitHub 作品證據)</td></tr>
-    <tr><td>🥊 競爭強度</td><td><b>25</b></td><td>提案越少越高(&lt;5=100、50+=0)</td></tr>
-    <tr><td>🛡 風險訊號</td><td>15</td><td>未驗證/0%聘用/跳出平台/畫大餅 扣分</td></tr>
-    <tr><td>🏦 客戶品質</td><td>15</td><td>付款驗證、花費、聘用率</td></tr>
-    <tr><td>💰 報酬合理</td><td>10</td><td>對齊底價(時薪底 $20/目標 $25、fixed 底 $200)</td></tr>
-    <tr><td>📋 需求清晰</td><td>5</td><td>寫清楚、有 deliverable</td></tr>
+    <tr><td>🎯 能力匹配</td><td><b>24</b></td><td>會不會、交付得了嗎(+GitHub 作品證據)</td></tr>
+    <tr><td>💰 報酬合理</td><td><b>18</b></td><td>對齊底價(時薪底 $20/目標 $25、fixed 底 $200)——好價該加分</td></tr>
+    <tr><td>🏦 客戶品質</td><td>16</td><td>付款驗證、花費、聘用率</td></tr>
+    <tr><td>📋 需求清晰</td><td>13</td><td>寫清楚、有 deliverable(明確小案=第一單友善)</td></tr>
+    <tr><td>🥊 競爭強度</td><td>12</td><td>提案越少越高(閘門+勝率上限已在管競爭,權重不再重壓)</td></tr>
+    <tr><td>🛡 風險訊號</td><td>12</td><td>未驗證/0%聘用/跳出平台/畫大餅 扣分</td></tr>
     <tr><td>📈 長期潛力</td><td>5</td><td>轉長期/回頭客</td></tr>
   </table>
   <p>判決：總分 <b>≥60 = 🟢APPLY</b>、<b>≥45 = 🟡MAYBE</b>、<b>&lt;45 = 🔴SKIP</b>。之後 AI 讀完整 JD 重評，吐 <code>ai_score</code>(0-10)+<code>ai_win</code>(0-100)，<b>卡片有 ai_score 就以它為準</b>。</p>
   <h3>🥊④ 可勝門（搶不搶得到）</h3>
   <ul>
-    <li><b>死亡訊號</b>：未驗證/0%聘用/提案50+/客戶沒花過錢，命中 ≥2 → SKIP</li>
+    <li><b>死亡訊號</b>：未驗證/0%聘用/提案50+，命中 ≥2 → SKIP(「客戶沒花過錢」已移除——已驗證的全新客戶對新手反而好搶)</li>
     <li><b>詐騙硬擋</b>：跳出平台付款、加密貨幣抵薪、股權抵薪、無償試做 → SKIP</li>
     <li><b>新帳號硬擋</b>：Expert × (高競爭/爛客戶/高 Connects) → SKIP</li>
     <li><b>勝率上限</b>：基準 78%(尚無公開星評)，再依未驗證/Expert/高 Connects/缺資料下壓</li>
+  </ul>
+  <h3>🗣️ 語言案通道(2026-07 新增)</h3>
+  <p>實證:至今全部正面訊號(3 面試邀請+2 進行中提案)都是華語錄音/台語配音/台灣腔英文/AI 訓練這類「<b>身分即可交付</b>」的案,但舊規則把它們當非開發職殺光。命中「身分詞(Mandarin/Taiwanese/Hokkien/中文…)+任務詞(recording/translation/AI training…)且標題非開發職稱」→ 走專屬通道:</p>
+  <ul>
+    <li><b>繞過②能力門</b>(不吃紅線/能力圈外/非開發職黑名單),也<b>不進 AI 快篩</b>(AI 是開發顧問人格,會亂殺)</li>
+    <li>客戶品質直接定 verdict:爛客戶(死亡訊號≥2/0%聘用)→ SKIP;付款未驗證 → SKIP;花費≥$1000 或 評分≥4.5×5則 → <b>APPLY(72分)</b>;其他 → MAYBE(55分)</li>
+    <li>卡片 reason 開頭標「🗣️ 語言/在地案」。這類案是<b>拿第一批公開星評最便宜的路</b>,交付後記得請客戶留評價</li>
   </ul>
 
   <h2>5. 怎麼選案（排序）</h2>
@@ -1605,6 +1653,12 @@ function pageToday() {
   // Lessons / Anchors 狀態
   const lessons = listLessons(db, true);
   const anchors = listAnchors(db, true);
+  // 🎯 今日精選:過去 48h 內、還沒投、勝率過門檻(或還沒快篩但規則層已判 APPLY)的新鮮案,最多 5 個
+  const freshPicks = db.prepare(`SELECT * FROM jobs WHERE blocked=0 AND applied=0
+      AND (ai_win>=40 OR (ai_win IS NULL AND verdict='APPLY'))
+      AND COALESCE(posted_at, first_seen) >= datetime('now','-48 hours')
+      ORDER BY COALESCE(ai_score*10, total_score) DESC LIMIT 5`).all();
+  const hrsAgo = (iso) => (iso && !isNaN(Date.parse(iso))) ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 3600000)) : null;
 
   const apList = (rows) => rows.length ? rows.slice(0, 10).map((a) => `
     <li style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;margin:6px 0;background:#0d1117">
@@ -1635,7 +1689,7 @@ function pageToday() {
   <details open style="background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:6px 14px 14px;margin-bottom:18px">
     <summary style="cursor:pointer;font-size:15px;font-weight:700;color:var(--ac);padding:8px 0">✅ 每日 5 步 checklist <span style="color:var(--mut);font-weight:400;font-size:12px">— 照順序做，約 10–15 分鐘</span></summary>
     <ol style="margin:6px 0 0;padding-left:22px;font-size:14px;line-height:1.85">
-      <li><b>AI 快篩</b>：到 <a href="/" style="color:var(--ac)">📋 探索案件</a> 按「🤖 AI 快篩」，把新案評完分。</li>
+      <li><b>看 🎯 今日精選</b>：系統每 20 分鐘自動快篩新案(每日上限 300),打開就有分數;沒看到新案再去 <a href="/" style="color:var(--ac)">📋 探索案件</a> 手動按「🤖 AI 快篩」補。</li>
       <li><b>看 🟢EV 榜</b>：預設「🎯 最值得投」排序，最上面就是最該投的。認 🎯勝率% 和「🎯 第一單目標」標籤。</li>
       <li><b>校正前 3–5 名</b>：勝率有「<b>⚠️估</b>」= 缺客戶數據。開那案 Upwork 頁 → 按🔎書籤 → 存進列表 → 勝率變真值。</li>
       <li><b>進 ② 評估</b>：看「勝率估計」區，紅字「🔴別投/🚫別 boost」要當真。</li>
@@ -1644,7 +1698,25 @@ function pageToday() {
     <p style="margin:10px 0 0;font-size:13px;color:var(--mut)">紀律：<b>少投早投投準</b>(一天 1–3 個)、<b>絕不亂 boost</b>、<b>衝第一個評價</b>。投完記得到 <a href="/applications" style="color:var(--ac)">📊 投案追蹤</a> 標結果餵學習迴路。完整說明 → <a href="/guide" style="color:var(--ac)">📖 使用說明書</a></p>
   </details>
 
-  <h2 style="margin-top:0">📊 真實數據(取代 AI 猜測)</h2>
+  <h2 style="margin-top:0">🎯 今日精選 <span class="sub" style="font-size:12px;font-weight:400">— 過去 48h 內、還沒投、可贏的新鮮案(自動快篩每 20 分鐘掃一次,新案不用再等)</span></h2>
+  ${freshPicks.length ? `<div class="section" style="padding:8px 14px">
+    <ul style="list-style:none;margin:0;padding:0">
+      ${freshPicks.map((j) => {
+        const h = hrsAgo(j.posted_at || j.first_seen);
+        const winTxt = j.ai_win != null ? `${j.ai_win}%` : '未快篩';
+        const budget = j.budget_text || (j.fixed_budget ? `$${j.fixed_budget}` : j.hourly_max ? `$${j.hourly_min || 0}-${j.hourly_max}/hr` : '未知預算');
+        return `<li style="padding:10px 12px;border:1px solid var(--bd);border-radius:8px;margin:6px 0;background:#0d1117">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <span style="flex:1;min-width:200px"><b><a href="/job?id=${jid(j.id)}" style="color:var(--tx);text-decoration:none">${esc((j.title || '?').slice(0, 80))}</a></b><br>
+            <span style="color:var(--mut);font-size:12px">🎯 ${esc(winTxt)} · ${esc(budget)} · ${esc(j.proposals_bucket || '提案數未知')} · ${h != null ? `${h}h 前發布` : '發布時間未知'}</span></span>
+            <a href="/job?id=${jid(j.id)}" style="color:var(--ac);text-decoration:none;font-size:13px">評估 →</a>
+          </div>
+        </li>`;
+      }).join('')}
+    </ul>
+  </div>` : `<div class="empty">過去 48h 沒有新鮮可投的案 — 等自動快篩跑完再回來,或去 <a href="/" style="color:var(--ac)">📋 全部案件</a> 看 MAYBE。</div>`}
+
+  <h2>📊 真實數據(取代 AI 猜測)</h2>
   <div class="grid">
     <div class="stat"><div class="n" style="color:var(--ac)">${stats.total}</div><div class="l">總投案</div></div>
     <div class="stat"><div class="n" style="color:#79c0ff">${stats.responseRate}%</div><div class="l">回應率</div></div>
@@ -1689,11 +1761,15 @@ function pageWorklist() {
   // 預設顯示「值得做」(APPLY+MAYBE);按「全部」連較弱(SKIP)的也一起出,清單永遠一長串。
   const rows = db.prepare(`SELECT * FROM jobs WHERE applied=0 AND blocked=0`).all();
   let triagedCount = 0;
+  const nowMs = Date.now();
   const items = rows
     .map((j) => {
       const ev = effectiveVerdict(j);
       if (ev.isAi) triagedCount++;
       const tier = (ev.cls === 'APPLY' || ev.cls === 'MAYBE') ? 'do' : 'more'; // do=值得做, more=較弱/被排除
+      // 🆕 新鮮度:優先用 posted_at(Upwork 發布時間),沒有才退回 first_seen(我方 ingest 時間)
+      const postedRaw = j.posted_at || j.first_seen;
+      const ageH = postedRaw && !isNaN(Date.parse(postedRaw)) ? (nowMs - new Date(postedRaw).getTime()) / 3600000 : null;
       // 適配度:案子文字命中幾個「有 GitHub 證據」的技術(profile.provenTechs)
       const jtext = `${j.title || ''} ${j.description || ''}`.toLowerCase();
       const provenHits = proven.filter((t) => jtext.includes(t)).length;
@@ -1726,8 +1802,18 @@ function pageWorklist() {
       else if (comp >= 50) canWin -= 8;
       if (j.payment_verified) { canWin += 10; reasons.push('💵 付款已驗'); }
       const small = payNum > 0 && payNum <= 300 ? 5 : 0; // 小而快的案略加分(好上手)
-      const doScore = deliver + canWin + scoreN * 0.2 + small;
-      return { j, ev, fit, win, comp, scoreN, doScore, pay, reasons, tier };
+      // 🆕 新鮮度加權:24h 內大加分、48h 內小加分、超過 72h 扣分(晚投=競爭已上來)
+      let freshBonus = 0;
+      if (ageH != null) {
+        if (ageH <= 24) freshBonus = 18;
+        else if (ageH <= 48) freshBonus = 6;
+        else if (ageH > 72) freshBonus = -20;
+      }
+      if (ageH != null && ageH <= 24) reasons.push('🆕 24h內新案');
+      const doScore = deliver + canWin + scoreN * 0.2 + small + freshBonus;
+      // 「新鮮可投」= 48h 內 + (AI 估勝率過門檻,或還沒快篩但規則層已判值得做)
+      const isFresh = ageH != null && ageH <= 48 && ((win != null && win >= 40) || (win == null && tier === 'do'));
+      return { j, ev, fit, win, comp, scoreN, doScore, pay, reasons, tier, ageH, isFresh };
     })
     .filter(Boolean)
     .sort((a, b) => b.doScore - a.doScore);
@@ -1735,18 +1821,25 @@ function pageWorklist() {
   const doCount = items.filter((it) => it.tier === 'do').length;
   const total = items.length;
   const untriaged = items.length - triagedCount;
+  const freshCount = items.filter((it) => it.isFresh).length; // 🆕 新鮮可投:給頁首統計 + 預設過濾用
 
   const cards = items.map((it, i) => {
-    const { j, ev, fit, win, comp, pay, reasons, tier } = it;
+    const { j, ev, fit, win, comp, pay, reasons, tier, ageH, isFresh } = it;
     const sid = jid(j.id);
     const rank = i + 1;
     const vBadge = `<span class="vb v-${ev.cls}">${ev.cls === 'APPLY' ? '🟢 值得投' : ev.cls === 'MAYBE' ? '🟡 可考慮' : '🔴 較弱'}</span>`;
-    const winBadge = win != null ? `<span class="wb ${winCls(win)}">🎯 中標 ${win}%</span>` : '<span class="wb na">🎯 未快篩</span>';
+    // win 有值但缺客戶關鍵數據(雇用率/connects)→ 加 ⚠️估 小標,提醒這是樂觀估計
+    const missSig = win != null ? winMissingSignals(j) : [];
+    const winBadge = win != null
+      ? `<span class="wb ${winCls(win)}">🎯 中標 ${win}%${missSig.length ? `<span style="opacity:.85;font-weight:700" title="缺 ${esc(missSig.join('、'))} → 樂觀估計,投前先校正">⚠️估</span>` : ''}</span>`
+      : '<span class="wb na">🎯 未快篩</span>';
     const compTxt = comp >= 999 ? '—' : comp <= 5 ? `提案少(~${comp})` : comp >= 50 ? `紅海(${comp}+)` : `提案 ~${comp}`;
     const scoreHtml = ev.isAi ? `${ev.score}<small>/10</small> <span class="ai">AI</span>` : `${ev.score}<small>/100</small>`;
     const reasonHtml = reasons.length ? `<div class="why-practice">${reasons.map((r) => `<span class="rchip">${esc(r)}</span>`).join('')}</div>` : '';
+    // 🆕 24h 內新案:額外綠底標籤(postedTag 保留不動,這個只在真的很新時多加一個顯眼標)
+    const freshTag = (ageH != null && ageH <= 24) ? `<span style="font-size:11px;padding:2px 7px;border-radius:10px;background:#1c3b25;color:#56d364;font-weight:700;white-space:nowrap">🆕 24h內</span>` : '';
     return `
-    <article class="wl-card fit-${fit.c}" data-tier="${tier}">
+    <article class="wl-card fit-${fit.c}" data-tier="${tier}" data-fresh="${isFresh ? 1 : 0}">
       <div class="rank">#${rank}</div>
       <div class="body">
         <div class="hd">
@@ -1756,6 +1849,7 @@ function pageWorklist() {
           ${winBadge}
           <span class="meta">${pay ? esc(pay) + ' · ' : ''}${esc(compTxt)}</span>
           ${postedTag(j.posted_at || '')}
+          ${freshTag}
         </div>
         <h2><a href="/job?id=${sid}">${esc(j.title)}</a></h2>
         ${reasonHtml}
@@ -1811,32 +1905,48 @@ function pageWorklist() {
   .wl-filters button{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:7px 16px;font-size:13px;cursor:pointer}
   .wl-filters button.on{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600}
   </style></head><body>
-<header><h1>🚀 該做的項目 <span class="sub">所有你做得來、還沒投的案,依「可交付 × 可贏 × 評分」排成一長串。從上往下接,源源不絕。</span></h1>${navBar('/worklist')}</header>
+<header><h1>🚀 該做的項目 <span class="sub">所有你做得來、還沒投的案,依「可交付 × 可贏 × 評分 × 新鮮度」排成一長串。從上往下接,源源不絕。</span></h1>${navBar('/worklist')}</header>
 <main class="wide">
   <div class="wl-grid">
     <div class="stat"><div class="n" style="color:var(--ac)">${doCount}</div><div class="l">值得做</div></div>
-    <div class="stat"><div class="n" style="color:#8b949e">${total}</div><div class="l">做得來的總數</div></div>
+    <div class="stat"><div class="n" style="color:#56d364">${freshCount} / ${total}</div><div class="l">新鮮可投 / 全部</div></div>
     <div class="stat"><div class="n" style="color:#d29922">${untriaged}</div><div class="l">還沒 AI 快篩</div></div>
   </div>
   <div class="wl-filters">
     <button data-f="do" class="on" onclick="wlFilter('do',this)">🟢 值得做 (${doCount})</button>
     <button data-f="all" onclick="wlFilter('all',this)">📋 全部 (${total})</button>
+    <button id="freshToggle" onclick="toggleFresh(this)">👀 顯示全部(含較舊/未過門檻案)</button>
   </div>
   ${untriaged > 0 ? `<div class="wl-note">⚠️ 有 <b>${untriaged}</b> 個案還沒 AI 快篩,排序只用規則分(較粗)。去 <a href="/" style="color:var(--ac)">① 找案子</a> 按「🤖 AI 快篩」跑完,中標率會更準。(不在時不自動跑,省 token)</div>` : ''}
   <div id="wlList">${total ? cards : empty}</div>
 </main>
 <script>
+  // 篩選狀態:tier(do/all,既有)+ freshOnly(新鮮可投,預設開啟)兩個維度一起套,交集才顯示
+  var wlState = { tier: 'do', freshOnly: true };
+  function applyWlFilters(){
+    document.querySelectorAll('#wlList .wl-card').forEach(function(c){
+      var tierOk = wlState.tier==='all' || c.dataset.tier==='do';
+      var freshOk = !wlState.freshOnly || c.dataset.fresh==='1';
+      c.style.display = (tierOk && freshOk) ? '' : 'none';
+    });
+  }
   // 篩選:do=只看值得做(APPLY+MAYBE), all=連較弱的(SKIP)也看 → 清單更長
   function wlFilter(f,btn){
-    document.querySelectorAll('.wl-filters button').forEach(function(b){b.classList.remove('on');});
+    document.querySelectorAll('.wl-filters button[data-f]').forEach(function(b){b.classList.remove('on');});
     btn.classList.add('on');
-    document.querySelectorAll('#wlList .wl-card').forEach(function(c){
-      c.style.display=(f==='all'||c.dataset.tier==='do')?'':'none';
-    });
+    wlState.tier = f;
+    applyWlFilters();
+  }
+  // 新鮮可投 toggle:預設只看新鮮可投,按一下切換成看全部(含較舊/未過門檻的案)
+  function toggleFresh(btn){
+    wlState.freshOnly = !wlState.freshOnly;
+    btn.textContent = wlState.freshOnly ? '👀 顯示全部(含較舊/未過門檻案)' : '🆕 只看新鮮可投';
+    btn.classList.toggle('on', !wlState.freshOnly);
+    applyWlFilters();
   }
   // 複製 Upwork 連結(沿用列表頁邏輯:自己貼網址列開登入版,避免 referer 問題)
   async function cp(e,el){e.preventDefault();const u=el.dataset.url;try{await navigator.clipboard.writeText(u);const o=el.textContent;el.textContent='✅ 已複製';setTimeout(()=>{el.textContent=o;},1200);}catch(ex){window.open(u,'_blank');}return false;}
-  wlFilter('do',document.querySelector('.wl-filters button'));
+  applyWlFilters();
 </script></body></html>`;
 }
 
@@ -2689,6 +2799,7 @@ function pageJob(id) {
     ['資料抓取', age.text]
   ].filter(([, v]) => v != null && v !== '' && v !== '未知');
   const coreCards = core.map(([l, v]) => `<div class="c"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div></div>`).join('');
+  const missSignals = winMissingSignals(job); // 缺客戶數據(雇用率/connects)→ 勝率硬上限沒料可壓,投前先校正
   const metrics = CRIT_ORDER.map((k) => {
     const v = job[COL[k]] ?? 0;
     return `<div class="m"><b>${C[k].label}</b> ${v}<div class="${trackCls(v)}"><i style="width:${v}%"></i></div></div>`;
@@ -2717,6 +2828,9 @@ function pageJob(id) {
 </header>
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
+  ${missSignals.length ? `<div style="background:#3d1e1e;border-left:4px solid #f85149;border-radius:8px;padding:12px 16px;margin:8px 0 14px;color:#ffb4ad;font-size:14px;line-height:1.7">
+    ⚠️ <b>勝率是樂觀估計</b> — 缺:${esc(missSignals.join('、'))}。投之前先校正:開這案的 Upwork 頁 → 點 🔎 書籤(書籤列那顆)→ 自動補 connects/雇用率 → 回來重整,勝率變真值再決定。
+  </div>` : ''}
   <p class="reason">${esc(job.reason)}</p>
   ${ev.isAi
     ? `<p class="reason" style="color:#b392f0">🤖 AI 判斷:${esc(ev.note)}</p>`
@@ -4229,5 +4343,6 @@ createServer(async (req, res) => {
   console.log(`\n🌐 網頁:http://${HOST}:${PORT}   (① 列表 / ② 評估 / ③ 提案 / ④ 溝通 / ⑤ 邀請 ｜ 檔案 · 評分)`);
   console.log(`   登入:${NO_AUTH ? 'OFF(NO_AUTH)' : 'hdw-auth ' + AUTH_URL} | ingest 金鑰:${process.env.INGEST_KEY ? 'ON' : 'OFF'}\n   Ctrl+C 關閉。\n`);
   scheduleDailyTriage(); // ⏰ 啟動每日定時自動快篩(手動按鈕仍保留)
+  scheduleFreshTriage(); // 🆕 啟動每 20 分鐘新鮮案快篩(新案不用再等每日排程)
   setInterval(reapStuckProxyCalls, 90000); // 🧹 每 90s 清掉卡死的 proxy_call.py,防殭屍塞死 proxy
 });

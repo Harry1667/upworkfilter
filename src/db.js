@@ -582,7 +582,7 @@ export function upsertJob(db, j) {
       client_spent_text, client_spent_usd, client_hire_rate, client_rating, client_reviews, client_jobs_posted,
       description, matched_skills,
       score_reward, score_skill, score_client, score_competition, score_longterm, score_clarity, score_risk,
-      total_score, verdict, reason, blocked,
+      total_score, verdict, reason, blocked, category,
       enriched, applied, first_seen, last_seen
     ) VALUES (
       $id, $title, $url, $posted_text, $posted_at,
@@ -591,7 +591,7 @@ export function upsertJob(db, j) {
       $client_spent_text, $client_spent_usd, $client_hire_rate, $client_rating, $client_reviews, $client_jobs_posted,
       $description, $matched_skills,
       $sreward, $sskill, $sclient, $scomp, $slong, $sclar, $srisk,
-      $total_score, $verdict, $reason, $blocked,
+      $total_score, $verdict, $reason, $blocked, $category,
       $enriched, $applied, $first_seen, $last_seen
     )
     ON CONFLICT(id) DO UPDATE SET
@@ -605,6 +605,7 @@ export function upsertJob(db, j) {
       score_reward=$sreward, score_skill=$sskill, score_client=$sclient, score_competition=$scomp,
       score_longterm=$slong, score_clarity=$sclar, score_risk=$srisk,
       total_score=$total_score, verdict=$verdict, reason=$reason, blocked=$blocked,
+      category=COALESCE($category, category),
       enriched=$enriched, last_seen=$last_seen
   `);
   stmt.run({
@@ -641,6 +642,7 @@ export function upsertJob(db, j) {
     $verdict: j.verdict ?? 'SKIP',
     $reason: j.reason ?? null,
     $blocked: j.blocked ? 1 : 0,
+    $category: j.category ?? null,
     $enriched: j.enriched ? 1 : 0,
     $applied: existing ? existing.applied : 0,
     $first_seen: existing ? existing.first_seen : now,

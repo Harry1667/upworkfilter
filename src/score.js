@@ -162,6 +162,26 @@ export function isNonDevRole(j) {
   return !devRole.test(title);
 }
 
+// 🗣️ 語言/在地案(2026-07 實證開通):使用者實測至今全部正面訊號(3 面試邀請 + 2 進行中提案)
+// 都是「華語/台語/台灣腔身分」案(華語錄音、台語配音、台灣腔英文電話錄音、華語 AI 訓練、台灣用戶問卷),
+// 而非開發案。這類案「身分即可交付」,不該吃 isNonDevRole 黑名單(voice over/transcription 在裡面)
+// 或能力圈外(outOfScope,無開發技能命中)硬擋 —— 舊規則等於把使用者唯一有牽引力的管道全殺光。
+// 判定:身分詞(華語/台語/台灣籍)+ 任務詞(錄音/口譯/校對/標註/評測等)都要命中,且標題不能是開發職稱
+// (避免「Mandarin-speaking React Developer」這種開發案被誤收進語言案通道)。
+export function isLanguageCase(j) {
+  const text = `${j.title || ''} ${j.description || ''}`.toLowerCase();
+  const IDENTITY = /\b(mandarin|taiwanese|hokkien|cantonese)\b|chinese[\s-]?(speaker|speaking|native|voice|audio|transcri|translat|annotat|writer|content)|native chinese|traditional chinese|zh[-_]?tw|taiwan[\s-]?based|in taiwan|from taiwan/;
+  // 注意:transcri/translat/annotat/evaluat/speaker 是刻意截短的字根,要吃到 transcription/translate/
+  // annotate/evaluate/speakers 等變化形 → 只留「開頭」\b,別在整組尾端也加 \b(會擋掉字根後面接的字尾,
+  // 讓 evaluate/annotate/speakers 這類詞永遠比對不到,實測用 acceptance case (b) 抓到這個回歸)。
+  const TASK = /\b(record|recording|voice|audio|speak|speaker|transcri|translat|interpret|annotat|evaluat|rating|survey|usability|test(?:er|ing)?|role[\s-]?play|data collection|ai training|proofread|linguist)/;
+  if (!IDENTITY.test(text) || !TASK.test(text)) return false;
+  const title = String(j.title || '').toLowerCase();
+  const devRole = /\b(developer|programmer|coder|architect|full[\s-]?stack|back[\s-]?end|front[\s-]?end|software engineer)\b/;
+  if (devRole.test(title)) return false; // 標題是開發職稱 → 開發案,走原流程
+  return true;
+}
+
 // 第一單目標:小而明確、低競爭、付款驗證、客戶非全新爛,且非 Expert/大型 → 新手搶得到的案
 export function isFirstReviewTarget(j, config) {
   if (isSeniorExpertJob(j) || isLargeScope(j)) return false;
@@ -319,26 +339,24 @@ function scoreSkill(j, mySkills, provenTechs = [], capability = null) {
   const proven = [...new Set((provenTechs || []).filter(inText))];
   if (proven.length) score = Math.min(100, score + Math.min(proven.length * 10, 30));
 
-  // 紅線處理:區分「核心就是紅線技術」vs「核心是你的強項、只順帶提到紅線」
-  // coreStrong = 命中至少一個深度≥4 的核心可交付項目 → 紅線多半只是 JD 順帶列出,不該硬擋。
-  const coreStrong = topLevel != null && topLevel >= 4;
-  let overscope = false;   // 硬擋(SKIP + blocked):核心就是紅線技術
-  let redlineSoft = false; // 軟標(⚠️ 提醒,不擋):核心是你的強項,紅線只是順帶
+  // 紅線處理(2026-06 砍掉重練,放寬):只有「紅線=這案的核心」才硬擋,順帶提到一律軟標放行。
+  // 舊版要求「命中深度≥4 才肯軟標」太嚴 → 例:Supabase+Python(你深度3)的快修案順帶一句 golang,
+  // 就被硬擋成超綱。新判準只看紅線本身是不是核心(在 title、或描述前 400 字、或全文≥2 次),
+  // 與你命中技能的深度無關。核心是紅線 → 硬擋;只是 JD 順帶列一句 → ⚠️ 軟標,讓你自己判。
+  let overscope = false;   // 硬擋(SKIP + blocked):這案核心就是紅線技術
+  let redlineSoft = false; // 軟標(⚠️ 提醒,不擋):核心是你強項,紅線只順帶提及
   if (redHit.length) {
-    if (redInTitle) {
-      // 紅線出現在 title = 核心需求,不論其他多強都硬擋
+    if (redInTitle || redlineIsCoreReq(j.description, redHit)) {
       score = Math.min(score, 22); overscope = true;
-    } else if (coreStrong && !redlineIsCoreReq(j.description, redHit)) {
-      // 核心強項命中 + 紅線只是 JD 順帶提到(不在描述前段、只出現一次)→ 軟標提醒即可
-      redlineSoft = true;
     } else {
-      // 紅線詞出現在描述核心位置或多次 → 這個案的核心就是紅線工具,硬擋
-      score = Math.min(score, 22); overscope = true;
+      redlineSoft = true;
     }
   }
 
-  // 能力圈外:有分級能力清單、但案子文字完全沒命中任何技能 → 不是我的領域
-  const outOfScope = !!(graded && matched.length === 0);
+  // 能力圈外:有分級能力清單、且案子文字完全沒命中任何技能「也沒命中 GitHub 作品證據」→ 才算非我領域。
+  // 2026-06 修 bug:舊版只看 matched(分級技能),漏算 proven → Firebase/SwiftUI/AI Agent 等命中
+  // 你已證明過的技術的案,被誤判「完全能力圈外」硬擋。proven 命中即在圈內。
+  const outOfScope = !!(graded && matched.length === 0 && proven.length === 0);
 
   return { score, matched, proven, overscope, redlineSoft, outOfScope, redHit, topLevel };
 }
@@ -482,7 +500,8 @@ export function scoreJob(j, config) {
   if (j.payment_verified === 0 || j.payment_verified === false) deathSignals.push('未付款驗證');
   if (hireRate === 0 && jobsPosted >= 1) deathSignals.push(`hire rate 0%(${jobsPosted}案`);
   if (/50/.test(b)) deathSignals.push('提案 50+');
-  if (spentUsd === 0 || (spentUsd == null && !j.client_spent_text)) deathSignals.push('客戶未花過錢');
+  // 2026-06 砍掉重練:移除「spent=0」死亡訊號 —— 付款已驗證、只是還沒花錢的全新客戶,
+  // 對新手反而常更好搶(第一次發案、沒老手關係)。未驗證的爛客戶已由上面 payment_verified 那條涵蓋。
 
   // 🚨 詐騙/違規硬擋(任一命中即 SKIP)— 跳出平台付款/聯絡、加密貨幣、股權分潤替代報酬、無償試做(Codex challenge)
   const jtext = `${j.title || ''} ${j.description || ''}`.toLowerCase();
@@ -508,10 +527,12 @@ export function scoreJob(j, config) {
     const lvl = proposalBucketLevel(j.proposals_bucket);
     if (lvl === '20-50') competeSignals.push('提案 20-50(紅海,新手難被看到)');
     if (isLargeScope(j)) competeSignals.push('大型/長期案無明確第一里程碑(新手吃不下)');
-    // 貼出超過 24h → 可見度已降(只在 posted_at 可得時計,抓不到不誤殺)
-    if (j.posted_at && !isNaN(Date.parse(j.posted_at)) && (Date.now() - Date.parse(j.posted_at)) > 24 * 3600 * 1000) {
-      competeSignals.push('貼出超過 24h(可見度已降)');
-    }
+    // 2026-06 砍掉重練:拔掉「貼出>24h」假訊號 —— 使用者沒有 API、永遠事後才看到案子,
+    // 那條會對幾乎每個他看得到的案誤觸發,等於預設半殺。改用真新鮮度訊號:客戶是否已在面試
+    // (interviewing,只在 refresh 抓到時計;抓不到=null=不誤殺)。雇主非按時間順序挑人,
+    // interviewing=0 代表「客戶還在收集、沒開始篩」= 你還來得及。
+    const intv = toNum(j.interviewing);
+    if (intv != null && intv > 0) competeSignals.push(`客戶已面試 ${intv} 人(在挑了,你較晚進場)`);
     // 客戶上限低到「連你的底價都低於它」→ 你得跌破底價才進得了範圍 = 贏不了(非報酬好壞,是搶不到)
     // 用 hourlyFloor 而非 target,避免把一堆 $15-24 仍可投的案誤降(那些只是報酬偏低,不是搶不到)
     const floor = config.rate?.hourlyFloor;
@@ -540,34 +561,58 @@ export function scoreJob(j, config) {
   let verdict, reason;
   const deadClient = hireRate === 0 && jobsPosted >= 3;
   const deathHit = deathSignals.length;
-  // 🚨 詐騙/違規 = 最高優先,任一命中即 SKIP(對新手傷害最大,先擋)
+  // 🗣️ 語言/在地案:身分即可交付,不吃②能力門(nonDevRole/紅線/能力圈外),客戶品質直接定 verdict
+  const languageCase = isLanguageCase(j);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // 統一閘門(2026-06 砍掉重練)— 只有「真正該死」才 SKIP。
+  // 舊版有 5 套重疊硬殺(deathSignals / deadClient / hardWinBlocks / competeSignals≥2 /
+  // lowPay+crowded),把一半案子殺成 SKIP;列表頁又預設只顯示 APPLY → 使用者「找不到案子」。
+  // 新規則只硬殺四類:① 詐騙/違規 ② 非開發角色 ③ 客戶確定爛(死亡訊號達標 / 0%聘用+發過3案)
+  // ④ Expert×紅海/爛客戶 的鐵組合(hardWinBlocks)。
+  // 其餘「新手較難搶 / 低薪 / 畫大餅」一律放行成 APPLY/MAYBE,於下方降級並標明原因,
+  // 讓使用者自己決定要不要花 Connects —— 系統提供判斷,不替他藏案子。
+  // ─────────────────────────────────────────────────────────────────────
   if (scamFlags.length) {
     verdict = 'SKIP';
     reason = `🚨 詐騙/違規訊號:${scamFlags.join('、')} — 絕對別投`;
+  } else if (languageCase) {
+    // 🗣️ 語言/在地案分支:繞過 nonDevRole/紅線/能力圈外(不吃開發能力門),但爛客戶仍要擋
+    const summary = `${j.client_spent_text || (spentUsd != null ? `$${spentUsd} spent` : '花費未知')}、評分 ${j.client_rating ?? '未知'}(${j.client_reviews ?? 0}則)、提案 ${j.proposals_bucket || '未知'}`;
+    if ((isNewbie && deathHit >= 2) || deathHit >= 3 || deadClient) {
+      verdict = 'SKIP';
+      total = Math.min(total, 30);
+      const deathReason = deathSignals.length ? deathSignals.join('、') : `雇用率0%(發了${j.client_jobs_posted}案沒雇人)`;
+      reason = `🗣️ 語言/在地案(華語/台語/台灣身分即可交付,不吃開發能力門)— 但 💀 客戶死亡訊號:${deathReason} — 別投 — ${summary}`;
+    } else if (j.payment_verified === 0 || j.payment_verified === false) {
+      verdict = 'SKIP';
+      total = Math.min(total, 30);
+      reason = `🗣️ 語言/在地案(華語/台語/台灣身分即可交付,不吃開發能力門)— 付款未驗證,別投 — ${summary}`;
+    } else {
+      const clientGood = !!j.payment_verified &&
+        ((spentUsd ?? 0) >= 1000 || (toNum(j.client_rating) >= 4.5 && (toNum(j.client_reviews) ?? 0) >= 5));
+      if (clientGood) {
+        verdict = 'APPLY';
+        total = 72;
+        reason = `🗣️ 語言/在地案(華語/台語/台灣身分即可交付,不吃開發能力門)— 客戶優質,值得投 — ${summary}`;
+      } else {
+        verdict = 'MAYBE';
+        total = 55;
+        reason = `🗣️ 語言/在地案(華語/台語/台灣身分即可交付,不吃開發能力門)— 客戶普通,可考慮 — ${summary}`;
+      }
+    }
   } else if (nonDevRole) {
     verdict = 'SKIP';
     reason = '🙅 非開發角色(招募/小編/行政/客服/業務等)— 不是你的領域,別投';
   } else if ((isNewbie && deathHit >= 2) || deathHit >= 3) {
     verdict = 'SKIP';
-    reason = `💀 死亡訊號攔截 (${deathHit}個):${deathSignals.join('、')} — 新手不投`;
+    reason = `💀 客戶死亡訊號 (${deathHit}個):${deathSignals.join('、')} — 別投`;
   } else if (deadClient) {
     verdict = 'SKIP';
     reason = `排除:雇用率0%(發了${j.client_jobs_posted}案沒雇人)`;
   } else if (hardWinBlocks.length) {
-    // 🥊 新帳號硬擋:Expert/資深 × 高競爭/爛客戶/高 Connects 的致命組合 → 直接 SKIP,別燒 Connects
     verdict = 'SKIP';
     reason = `🥊 新帳號搶不到 (${hardWinBlocks.length}):${hardWinBlocks.join('、')} — 別燒 Connects`;
-  } else if (competeSignals.length >= 2) {
-    // 🥊 第四道防線:能力分高但新手搶不到(命中 ≥ 2 競爭訊號)→ 不投,省 Connects
-    verdict = 'SKIP';
-    reason = `🥊 新手競爭可行性過低 (${competeSignals.length}):${competeSignals.join('、')} — 能力夠但搶不到`;
-  } else if (lowPay && crowded) {
-    verdict = 'SKIP';
-    reason = `排除:低預算+高競爭(燒 Connects 不值得)— 提案${j.proposals_bucket || '多'}`;
-  } else if (lowPay && total >= config.scoring.maybeThreshold) {
-    // 低薪但其他不錯 → 最多到「可考慮」,不讓它變「值得投」
-    verdict = 'MAYBE';
-    reason = buildReason(j, sk.matched, '可考慮(預算偏低)', scores, sk.proven);
   } else if (total >= config.scoring.threshold) {
     verdict = 'APPLY';
     reason = buildReason(j, sk.matched, '值得投', scores, sk.proven);
@@ -579,43 +624,55 @@ export function scoreJob(j, config) {
     reason = buildReason(j, sk.matched, '分數不足', scores, sk.proven);
   }
 
-  // 🚪 第二道門(能力)硬攔截:在進 AI 分析前先擋掉。blocked=1 → AI 快篩/分析會跳過(省成本)。
-  // ① 命中紅線(不碰)技能 ② 完全在能力圈外(無任何技能命中)→ 一律 SKIP。
+  // 🚪 第二道門(能力)硬攔截:blocked=1 → 不進 AI 快篩/分析(省成本)。
+  // ① 紅線在 title / 核心 ② 完全能力圈外 → SKIP;③ 紅線只順帶提及 → 軟標不擋。
+  // 🗣️ 語言案繞過此門(身分即可交付,不吃開發能力門;上面分支已自行判過客戶/死亡訊號)。
   let blocked = 0;
-  if (nonDevRole) blocked = 1; // 非開發角色:不進 AI 快篩(省成本),verdict 已在上面設 SKIP
-  if (sk.overscope) {
-    verdict = 'SKIP'; blocked = 1;
-    reason = `🚫 第二道門·紅線「${sk.redHit.join('/')}」(核心技術,不碰)— ${reason}`;
-  } else if (sk.outOfScope) {
-    verdict = 'SKIP'; blocked = 1;
-    reason = `🚫 第二道門·能力圈外(無技能命中,非你的領域)— ${reason}`;
-  } else if (sk.redlineSoft) {
-    // 核心是你的強項,只是順帶提到紅線 → 不擋,但標 ⚠️ 讓你自己判斷;不讓它穩坐「值得投」
-    if (verdict === 'APPLY') verdict = 'MAYBE';
-    reason = `⚠️ 含紅線「${sk.redHit.join('/')}」(順帶提及,核心是你強項,自行判斷)— ${reason}`;
+  if (!languageCase) {
+    if (nonDevRole) blocked = 1;
+    if (sk.overscope) {
+      verdict = 'SKIP'; blocked = 1;
+      reason = `🚫 第二道門·紅線「${sk.redHit.join('/')}」(核心技術,不碰)— ${reason}`;
+    } else if (sk.outOfScope) {
+      verdict = 'SKIP'; blocked = 1;
+      reason = `🚫 第二道門·能力圈外(無技能命中,非你的領域)— ${reason}`;
+    } else if (sk.redlineSoft) {
+      if (verdict === 'APPLY') verdict = 'MAYBE';
+      reason = `⚠️ 含紅線「${sk.redHit.join('/')}」(順帶提及,核心是你強項,自行判斷)— ${reason}`;
+    }
   }
 
-  // 🥊 競爭可行性軟降:命中單一訊號 → APPLY 降 MAYBE;已是 MAYBE 也補上旗標(讓你看得到原因)
-  if (competeSignals.length === 1 && (verdict === 'APPLY' || verdict === 'MAYBE')) {
-    if (verdict === 'APPLY') verdict = 'MAYBE';
-    reason = `🥊 ${competeSignals[0]} — ${reason}`;
-  }
+  // ── 軟降級:不殺,只把 APPLY 壓到 MAYBE 並標明原因(讓你自己權衡值不值得 Connects)──
+  // 這些都是「dev 導向」訊號(Expert/Connects/紅海/低薪/畫大餅),語言案不吃(通道判準見上方分支)。
+  if (!languageCase) {
+    // ① 競爭可行性:命中任一(Expert/高Connects/紅海/客戶面試中/超預算)→ 最多 MAYBE。
+    //    舊版命中 ≥2 直接 SKIP 是過度防衛 —— 你已有 1 個交付案,這類案是「較難」不是「不可能」。
+    if (competeSignals.length && verdict === 'APPLY') verdict = 'MAYBE';
+    if (competeSignals.length && (verdict === 'APPLY' || verdict === 'MAYBE')) {
+      const extra = competeSignals.length > 1 ? `(+${competeSignals.length - 1})` : '';
+      reason = `🥊 ${competeSignals[0]}${extra} — ${reason}`;
+    }
+    // ② 低薪(±紅海):不殺,降 MAYBE。低薪又紅海確實是燒 Connects 雷,但留給你自己判(可用「🦴撿漏」過濾)。
+    if (lowPay && verdict === 'APPLY') verdict = 'MAYBE';
+    if (lowPay && (verdict === 'APPLY' || verdict === 'MAYBE')) {
+      reason = `💰 預算偏低${crowded ? '+競爭多' : ''} — ${reason}`;
+    }
 
-  // 🎯 第一單目標:直接拉 verdict 到 APPLY(Gemini review:不偽造維度分,只調 verdict)
-  // 條件:沒被擋下、非低薪雷案、分數過 maybe 門檻、無 can-win 紅旗 → 這種小而明確好客戶的案就是該投
-  if (firstReview && !blocked && !lowPay && verdict === 'MAYBE'
-      && total >= (config.scoring.maybeThreshold ?? 45) && competeSignals.length === 0) {
-    verdict = 'APPLY';
-  }
-  if (firstReview && !blocked && (verdict === 'APPLY' || verdict === 'MAYBE')) {
-    reason = `🎯 第一單目標 — ${reason}`;
-  }
-  // 🎈 期望≫預算(畫大餅 / Pragyan 型客戶):surface 警示。放在 firstReview 之後 → 有最終否決權:
-  //    新手 + 重度(整套願景 × 一長串功能 × 小預算)→ APPLY 降 MAYBE,別一頭栽進註定的範圍拉鋸。
-  const sbm = scopeBudgetMismatch(j);
-  if (sbm.hit && (verdict === 'APPLY' || verdict === 'MAYBE')) {
-    if (isNewbie && sbm.severity >= 2 && verdict === 'APPLY') verdict = 'MAYBE';
-    reason = `${sbm.reason} — ${reason}`;
+    // 🎯 第一單目標:小而明確好客戶 → 拉回 APPLY(無 can-win 紅旗、非低薪時)
+    if (firstReview && !blocked && !lowPay && verdict === 'MAYBE'
+        && total >= (config.scoring.maybeThreshold ?? 45) && competeSignals.length === 0) {
+      verdict = 'APPLY';
+    }
+    if (firstReview && !blocked && (verdict === 'APPLY' || verdict === 'MAYBE')) {
+      reason = `🎯 第一單目標 — ${reason}`;
+    }
+    // 🎈 期望≫預算(畫大餅 / Pragyan 型客戶):surface 警示。放在 firstReview 之後 → 有最終否決權:
+    //    新手 + 重度(整套願景 × 一長串功能 × 小預算)→ APPLY 降 MAYBE,別一頭栽進註定的範圍拉鋸。
+    const sbm = scopeBudgetMismatch(j);
+    if (sbm.hit && (verdict === 'APPLY' || verdict === 'MAYBE')) {
+      if (isNewbie && sbm.severity >= 2 && verdict === 'APPLY') verdict = 'MAYBE';
+      reason = `${sbm.reason} — ${reason}`;
+    }
   }
 
   // 🚫 不要 boost 提示(可投但不值得 boost 的案;web.js 另有完整顯示)
@@ -628,7 +685,11 @@ export function scoreJob(j, config) {
   // 用 total_score×35 的 EV 排到真正契合案前面(三堂會審 #2:銷售/招聘/QA/SDET tot 原本 92-97 霸榜)。
   if (blocked) total = Math.min(total, 35);
 
-  return { scores, total_score: total, verdict, reason, blocked, matched_skills: sk.matched };
+  // 🗣️ 語言案標 category='語言案'(供 run-triage.js 跳過 AI 快篩 + 列表分類用)。
+  // 非語言案絕對不帶 category key(讓 rescore.js 的 Object.assign 不去動已由功能地圖 AI 設好的 category)。
+  const result = { scores, total_score: total, verdict, reason, blocked, matched_skills: sk.matched };
+  if (languageCase) result.category = '語言案';
+  return result;
 }
 
 function buildReason(j, matched, prefix, scores, proven = []) {
