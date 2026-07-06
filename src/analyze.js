@@ -289,7 +289,7 @@ export function loadGeminiKeys(opts = {}) {
       const paid = String(k.paidKey || '').trim();
       if (opts.keyMode === 'free') return free;
       if (opts.keyMode === 'paid') return paid ? [paid] : [];
-      if (k.paidEnabled && paid) return [paid];
+      if (process.env.GEMINI_PAID_ALLOWED === '1' && k.paidEnabled && paid) return [paid];
       if (free.length) return free;
     }
   } catch { /* 壞檔不擋,退 .env */ }
@@ -298,7 +298,7 @@ export function loadGeminiKeys(opts = {}) {
   const paidEnv = String(process.env.GEMINI_PAID_API_KEY || '').trim();
   if (opts.keyMode === 'free') return freeEnv;
   if (opts.keyMode === 'paid') return paidEnv ? [paidEnv] : [];
-  if (process.env.GEMINI_PAID_ENABLED === '1' && paidEnv) return [paidEnv];
+  if (process.env.GEMINI_PAID_ALLOWED === '1' && process.env.GEMINI_PAID_ENABLED === '1' && paidEnv) return [paidEnv];
   return freeEnv;
 }
 
