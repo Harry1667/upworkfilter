@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Job Filter — Marketplace Job Scoring Engine</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#f85149;--ac:#4493f8}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;
+       display:grid;grid-template-columns:210px 1fr;min-height:100vh}
+  /* sidebar */
+  aside{background:#0a0e14;border-right:1px solid var(--bd);padding:18px 12px;position:sticky;top:0;height:100vh}
+  .brand{font-weight:700;font-size:15px;padding:0 8px 14px;border-bottom:1px solid var(--bd);margin-bottom:12px}
+  .brand small{display:block;color:var(--mut);font-size:11px;font-weight:400;margin-top:3px}
+  .grp{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:14px 8px 6px;font-weight:600}
+  aside a{display:block;padding:8px 10px;border-radius:7px;color:var(--mut);text-decoration:none;font-size:13px}
+  aside a.on{background:var(--ac);color:#fff;font-weight:600}
+  .aistat{position:absolute;bottom:16px;left:12px;right:12px;font-size:11px;color:var(--mut);border-top:1px solid var(--bd);padding-top:10px}
+  .aistat b{color:var(--grn)}
+  /* main */
+  main{padding:22px 26px;max-width:1000px}
+  h1{font-size:21px;margin:0 0 4px}
+  .flow{color:var(--mut);font-size:13px;margin:0 0 16px}
+  .flow b{color:var(--tx)}
+  .bar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .sortsel{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:20px;padding:6px 14px;font-size:13px}
+  .filterpill{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:4px 12px;font-size:12px;color:var(--mut)}
+  .filterpill.on{border-color:var(--grn);color:var(--grn)}
+  /* card */
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:14px}
+  .card.v-APPLY{border-left:3px solid var(--grn)}
+  .card.v-MAYBE{border-left:3px solid var(--ylw)}
+  .card.v-SKIP{border-left:3px solid var(--red);opacity:.82}
+  .top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .score{font-size:24px;font-weight:800}.score .mx{font-size:13px;color:var(--mut);font-weight:600}
+  .aitag{font-size:10px;background:#1f6feb33;color:#79c0ff;border:1px solid #1f6feb55;border-radius:5px;padding:1px 5px;font-weight:600}
+  .badge{font-size:12px;font-weight:600;border-radius:6px;padding:2px 9px}
+  .badge.APPLY{background:#0d2818;color:#3fb950;border:1px solid #1f5c38}
+  .badge.MAYBE{background:#3a3016;color:#d29922;border:1px solid #5c4a1f}
+  .badge.SKIP{background:#3a1d1d;color:#f85149;border:1px solid #5c2626}
+  .winbadge{font-size:12px;font-weight:600;border-radius:6px;padding:2px 9px;background:#0d2818;color:#3fb950;border:1px solid #1f5c38}
+  .winbadge.mid{background:#3a3016;color:#d29922;border-color:#5c4a1f}
+  .winbadge.lo{background:#3a1d1d;color:#f85149;border-color:#5c2626}
+  .chip{font-size:11px;border-radius:10px;padding:2px 8px;font-weight:600}
+  .chip.green{background:#16321c;color:#7ee787}
+  .chip.amber{background:#3a2e15;color:#e3b341}
+  .spacer{flex:1}
+  .fav{font-size:17px;opacity:.6}
+  h2.t{font-size:16px;margin:11px 0 5px}h2.t a{color:var(--tx);text-decoration:none}
+  .reason{color:var(--mut);font-size:13px;margin:4px 0 9px}
+  .atags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .fit{font-size:11px;border-radius:10px;padding:2px 8px}
+  .fit.hit{background:#16321c;color:#7ee787}.fit.partial{background:#3a2e15;color:#e3b341}.fit.none{background:#21262d;color:var(--mut)}
+  .atag{font-size:11px;border-radius:10px;padding:2px 8px;background:#0d1117;border:1px solid var(--bd);color:var(--mut)}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+  .tags span{font-size:11px;color:var(--mut);background:#0d1117;border:1px solid var(--bd);border-radius:10px;padding:2px 8px}
+  .grid7{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px}
+  .m{background:#0d1117;border:1px solid var(--bd);border-radius:8px;padding:8px 10px}
+  .m b{display:block;font-size:11px;color:var(--mut);font-weight:500}.m .v{font-size:15px;font-weight:700;margin-top:2px}
+  .track{height:4px;background:#21262d;border-radius:3px;margin-top:5px;overflow:hidden}.track i{display:block;height:100%;background:var(--grn)}
+  .track.mid i{background:var(--ylw)}.track.bad i{background:var(--red)}
+  .acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .open{font-size:12px;border:1px solid var(--bd);border-radius:7px;padding:6px 12px;color:var(--mut);text-decoration:none}
+  .open.primary{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600}
+  .note{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:9px 12px;color:var(--tx);font-size:12px;margin-bottom:14px}
+</style>
+</head>
+<body>
+  <aside>
+    <div class="brand">📋 Job Filter <small>Marketplace job scoring engine</small></div>
+    <div class="grp">Pipeline</div>
+    <a class="on" href="#">🔍 Find Jobs</a>
+    <a href="#">🔎 Evaluate</a>
+    <div class="grp">More</div>
+    <a href="#">⚙️ Advanced</a>
+    <div class="aistat">AI: direct <b>Gemini Flash</b> → proxy fallback<br>(Claude · OpenAI · Gemini)</div>
+  </aside>
+
+  <main>
+    <h1>Find Jobs</h1>
+    <p class="flow">🆕 New today <b>14</b> · ⏳ To review <b>9</b> · 🤖 Scored by AI <b>126</b> · 🚫 Blocked by rules <b>203</b></p>
+
+    <div class="note">Sorted by <b>expected value (fit score × win-probability)</b> — surfaces jobs that are
+      both a strong technical match <i>and</i> realistically winnable, instead of high-score jobs you can't actually land.</div>
+
+    <div class="bar">
+      <select class="sortsel">
+        <option>🎯 Best bets (fit × win)</option>
+        <option>↕ Score only</option>
+        <option>🎯 Win probability</option>
+        <option>💰 Pay</option>
+      </select>
+      <span class="filterpill on">🟢 Worth applying</span>
+      <span class="filterpill">🟡 Consider</span>
+      <span class="filterpill">🔴 Skip</span>
+      <span class="filterpill">🚫 Out of scope</span>
+    </div>
+
+    <!-- card 1: strong + winnable -->
+    <article class="card v-APPLY">
+      <div class="top">
+        <span class="score">9.0<span class="mx">/10</span></span><span class="aitag">AI</span>
+        <span class="badge APPLY">Strong match</span>
+        <span class="winbadge">🎯 55%</span>
+        <span class="chip green">🎯 First-win target</span>
+        <span class="spacer"></span><span class="fav">🤍</span>
+      </div>
+      <h2 class="t"><a href="#">AI Automation Engineer — WhatsApp → OCR → structured DB pipeline</a></h2>
+      <p class="reason">Core strengths matched (Python automation, OCR, API integration). Small, well-defined scope, verified client with strong spend — good first-contract opportunity.</p>
+      <div class="atags"><span class="fit hit">🟢 Strong fit</span><span class="atag">📂 AI Automation</span><span class="atag">OCR</span><span class="atag">API integration</span><span class="atag">Webhook</span></div>
+      <div class="tags"><span>✅ Payment verified</span><span>💰 $20K+ spent</span><span>★ 4.9</span><span>Proposals 5-10</span><span>$25–40/hr</span></div>
+      <div class="acts"><a class="open primary" href="#">Evaluate →</a><a class="open" href="#">Draft proposal →</a></div>
+    </article>
+
+    <!-- card 2: good match, lower win, 7-dim expanded -->
+    <article class="card v-MAYBE">
+      <div class="top">
+        <span class="score">8.5<span class="mx">/10</span></span><span class="aitag">AI</span>
+        <span class="badge MAYBE">Consider</span>
+        <span class="winbadge mid">🎯 38%</span>
+        <span class="chip amber">🟡 Strong skills, hard to win</span>
+        <span class="spacer"></span><span class="fav">❤️</span>
+      </div>
+      <h2 class="t"><a href="#">Next.js + Supabase dashboard — deploy & maintain existing codebase</a></h2>
+      <p class="reason">Exact stack match (Next.js, Supabase, Vercel). Clean deploy-focused scope, but client is already interviewing several specialists — verify live competition before spending connects.</p>
+      <div class="atags"><span class="fit hit">🟢 Strong fit</span><span class="atag">📂 Full-stack Web</span><span class="atag">Next.js</span><span class="atag">Supabase</span><span class="atag">Deployment</span></div>
+      <div class="tags"><span>✅ Payment verified</span><span>💰 $9K+ spent</span><span>★ 5.0</span><span>Proposals 10-15</span><span>$50–100/hr</span></div>
+      <div class="grid7">
+        <div class="m"><b>Pay fairness</b><div class="v">8/10</div><div class="track"><i style="width:80%"></i></div></div>
+        <div class="m"><b>Skill match</b><div class="v">10/10</div><div class="track"><i style="width:100%"></i></div></div>
+        <div class="m"><b>Client quality</b><div class="v">9/10</div><div class="track"><i style="width:90%"></i></div></div>
+        <div class="m"><b>Competition</b><div class="v">5/10</div><div class="track mid"><i style="width:50%"></i></div></div>
+        <div class="m"><b>Long-term</b><div class="v">8/10</div><div class="track"><i style="width:80%"></i></div></div>
+        <div class="m"><b>Clarity</b><div class="v">9/10</div><div class="track"><i style="width:90%"></i></div></div>
+        <div class="m"><b>Risk signals</b><div class="v">9/10</div><div class="track"><i style="width:90%"></i></div></div>
+      </div>
+      <div class="acts" style="margin-top:12px"><a class="open primary" href="#">Evaluate →</a><a class="open" href="#">Draft proposal →</a></div>
+    </article>
+
+    <!-- card 3: maybe -->
+    <article class="card v-MAYBE">
+      <div class="top">
+        <span class="score">7.5<span class="mx">/10</span></span><span class="aitag">AI</span>
+        <span class="badge MAYBE">Consider</span>
+        <span class="winbadge mid">🎯 45%</span>
+        <span class="spacer"></span><span class="fav">🤍</span>
+      </div>
+      <h2 class="t"><a href="#">Python web scraper for e-commerce price monitoring (Playwright)</a></h2>
+      <p class="reason">Directly matches proven scraping work (Playwright, scheduled scrapers). Small fixed scope, low competition — strong, winnable fit.</p>
+      <div class="atags"><span class="fit hit">🟢 Strong fit</span><span class="atag">📂 Scraping / Data</span><span class="atag">Playwright</span><span class="atag">Python</span></div>
+      <div class="tags"><span>✅ Payment verified</span><span>💰 $2K+ spent</span><span>Proposals &lt;5</span><span>$300 fixed</span></div>
+      <div class="acts"><a class="open primary" href="#">Evaluate →</a><a class="open" href="#">Draft proposal →</a></div>
+    </article>
+
+    <!-- card 4: trap caught -->
+    <article class="card v-SKIP">
+      <div class="top">
+        <span class="score">1.5<span class="mx">/10</span></span><span class="aitag">AI</span>
+        <span class="badge SKIP">Skip</span>
+        <span class="winbadge lo">🎯 5%</span>
+        <span class="spacer"></span><span class="fav">🤍</span>
+      </div>
+      <h2 class="t"><a href="#">Senior SDET — build &amp; hand off full UI test automation suite</a></h2>
+      <p class="reason">Expert-level role, 50+ proposals, $11K fixed enterprise scope — high competition, low realistic win-rate for a new profile. Rules auto-flagged: skip to save connects.</p>
+      <div class="atags"><span class="fit partial">🟡 Partial fit</span><span class="atag">📂 QA / Testing</span></div>
+      <div class="tags"><span>✅ Payment verified</span><span>💰 $500K+ spent</span><span>Proposals 50+</span><span>Expert</span></div>
+      <div class="acts"><a class="open" href="#">Evaluate →</a></div>
+    </article>
+
+  </main>
+</body>
+</html>

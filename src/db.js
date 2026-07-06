@@ -119,6 +119,8 @@ export function openDb() {
   try { db.exec('CREATE TABLE IF NOT EXISTS dismissed_jobs (id TEXT PRIMARY KEY, ts TEXT)'); } catch { /* 已存在 */ }
   // 💬 聊天 agent 對話紀錄(原本只在瀏覽器 localStorage,清掉/換裝置就沒)→ 存 DB 持久化、可回看
   try { db.exec('CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, convo_id TEXT, role TEXT, content TEXT, ts TEXT)'); } catch { /* 已存在 */ }
+  // ⚙️ 全域設定(key-value)— 目前只放接案狀態模式(work_mode:idle/busy),未來可擴充其他全域設定
+  try { db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)'); } catch { /* 已存在 */ }
   // 發布時間「絕對時間戳」(ISO):擴充功能算好的 postedAtIso。posted_text 是會過期的相對字串,顯示一律用這個重算。
   try { db.exec('ALTER TABLE jobs ADD COLUMN posted_at TEXT'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN favorited INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
@@ -546,6 +548,20 @@ export function listChatConvos(db, limit = 100) {
 export function getChatMessages(db, convoId) {
   try { return db.prepare('SELECT role, content, ts FROM chat_messages WHERE convo_id=? ORDER BY id ASC').all(String(convoId)); }
   catch { return []; }
+}
+
+// ── ⚙️ 全域設定(settings)helpers — 目前用來存接案狀態模式(work_mode:idle/busy)。
+// 各自開一條連線(WAL 模式允許多讀+單寫,跟其他呼叫端各自 openDb() 一致),呼叫方不用自己管 db 連線。
+export function getSetting(key, fallback = null) {
+  try {
+    const d = openDb();
+    const row = d.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    return row ? row.value : fallback;
+  } catch { return fallback; }
+}
+export function setSetting(key, value) {
+  const d = openDb();
+  d.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
 }
 
 export function setAiVerdict(db, id, score, verdict, win, tags, category) {

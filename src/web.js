@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays, dismissJob, addChatMessage, listChatConvos, getChatMessages } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays, dismissJob, addChatMessage, listChatConvos, getChatMessages, getSetting, setSetting } from './db.js';
 
 // 📌 loadProfileWithLessons — profile + 啟用中的 lessons + anchors,每個 prompt 都會看到
 function loadProfileWithLessons() {
@@ -133,7 +133,7 @@ async function autoTriageIngested(ids) {
     _triageBusy = true;
     const { triageJobs } = await import('./triage.js');
     console.log(`🤖 自動快篩:${rows.length} 個新案…`);
-    const res = await triageJobs(rows, { outcomeNote: outcomeNoteText(computeOutcomeStats()) });
+    const res = await triageJobs(rows, { outcomeNote: outcomeNoteText(computeOutcomeStats()), mode: getSetting('work_mode', 'idle') });
     for (const r of res) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
     notifyFreshWinners(res); // 📣 新鮮+可贏 → Discord
     console.log(`🤖 自動快篩完成:${res.length} 案`);
@@ -155,11 +155,15 @@ async function notifyFreshWinners(scoredBatch) {
   if (!NOTIFY_URL || !scoredBatch?.length) return;
   const today = new Date().toISOString().slice(0, 10);
   if (_notifyDate !== today) { _notifyDate = today; _notifyCount = 0; }
+  // 🔴 接案狀態模式:忙碌時推播門檻拉高、小額 fixed 案直接不推(檔期滿,小案不值得佔時間)
+  const workMode = getSetting('work_mode', 'idle');
+  const minWin = workMode === 'busy' ? Math.max(NOTIFY_MIN_WIN, 55) : NOTIFY_MIN_WIN;
   for (const r of scoredBatch) {
     if (_notifyCount >= NOTIFY_DAILY_CAP) return;
-    if (!(Number(r.win) >= NOTIFY_MIN_WIN)) continue;
+    if (!(Number(r.win) >= minWin)) continue;
     const j = db.prepare('SELECT * FROM jobs WHERE id = ?').get(r.id);
     if (!j || j.blocked || j.applied || j.notified_at) continue;
+    if (workMode === 'busy' && j.budget_type === 'fixed' && Number(j.fixed_budget) < 200) continue;
     const born = Date.parse(j.posted_at || j.first_seen || '');
     if (isNaN(born) || Date.now() - born > 3 * 3600 * 1000) continue; // 只推 3h 內的新鮮案
     const ageMin = Math.round((Date.now() - born) / 60000);
@@ -211,6 +215,8 @@ function runBackgroundTriage(source = 'manual', all = false) {
         // batchSize 用預設(小批才不會走慢 proxy 時撞死線);askAI:直連 Gemini 優先,掛了退 proxy(openai)
         paceMs: 6000, // 每批至少間隔 6s → 壓在 Gemini 免費 tier 速率下,並留 headroom 給 chat/分析
         outcomeNote: note,
+        mode: getSetting('work_mode', 'idle'), // 🟢🔴 接案狀態模式:每次執行時讀,不 cache,切換即時生效
+
         onBatch: (batch) => {
           for (const r of batch) setAiVerdict(db, r.id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent);
           notifyFreshWinners(batch); // 📣 新鮮+可贏 → Discord(非同步,不擋快篩)
@@ -371,7 +377,13 @@ const CSS = `
   aside.sidebar a{display:block;padding:8px 10px;border-radius:7px;color:var(--mut);text-decoration:none;font-size:13px;transition:.12s;line-height:1.3}
   aside.sidebar a:hover{background:#161b22;color:var(--tx)}
   aside.sidebar a.on{background:var(--ac);color:#fff;font-weight:600}
-  aside.sidebar .logout{margin-top:auto;border-top:1px solid var(--bd);padding-top:10px}
+  /* 🟢🔴 接案狀態模式切換(sidebar 底部,登出上方)— margin-top:auto 讓它跟 .logout 一起被推到底部 */
+  aside.sidebar .mode-toggle{margin-top:auto;border-top:1px solid var(--bd);padding-top:10px}
+  aside.sidebar .mode-toggle .lbl{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:0 8px 6px}
+  aside.sidebar .mode-toggle .btns{display:flex;gap:4px;padding:0 8px}
+  aside.sidebar .mode-toggle button{flex:1;padding:6px 4px;border-radius:6px;border:1px solid var(--bd);background:transparent;color:var(--mut);font-size:11px;cursor:pointer}
+  aside.sidebar .mode-toggle button.on{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600}
+  aside.sidebar .logout{border-top:1px solid var(--bd);padding-top:10px;margin-top:10px}
   aside.sidebar .logout a{color:#8b949e;font-size:12px}
   /* 子分頁列:融合進同區段的細功能,顯示在頁面 header 標題下 */
   nav.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 4px;border-bottom:1px solid var(--bd);padding-bottom:0}
@@ -1474,6 +1486,8 @@ function navBar(active, jobId) {
     const href = (p === '/proposal' && jobId) ? p + q : p;
     return `<a href="${href}"${p === active ? ' class="on"' : ''}>${label}</a>`;
   }).join('')}</nav>` : '';
+  // 🟢🔴 接案狀態模式:讀目前設定,決定哪顆按鈕高亮(idle 預設)
+  const workMode = getSetting('work_mode', 'idle');
   return `<aside class="sidebar">
     <div class="brand">📋 Upwork Filter <small>v2</small></div>
     <div class="group">接案</div>
@@ -1481,6 +1495,13 @@ function navBar(active, jobId) {
     ${link('/job' + q, '🔎 評估', active === '/job')}
     <div class="group">其他</div>
     ${link('/proposal' + q, '⚙️ 進階', sec === 'more')}
+    <div class="mode-toggle">
+      <div class="lbl">狀態</div>
+      <div class="btns">
+        <button class="${workMode === 'idle' ? 'on' : ''}" onclick="fetch('/api/mode',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:'idle'})}).then(()=>location.reload())">🟢 空閒</button>
+        <button class="${workMode === 'busy' ? 'on' : ''}" onclick="fetch('/api/mode',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:'busy'})}).then(()=>location.reload())">🔴 忙碌</button>
+      </div>
+    </div>
     <div class="logout"><a href="/logout">→ 登出</a></div>
   </aside>${subtabs}`;
 }
@@ -4205,7 +4226,7 @@ createServer(async (req, res) => {
         try {
           const fresh = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
           const { triageJobs } = await import('./triage.js');
-          const r = (await triageJobs([fresh], { outcomeNote: outcomeNoteText(computeOutcomeStats()) }))[0];
+          const r = (await triageJobs([fresh], { outcomeNote: outcomeNoteText(computeOutcomeStats()), mode: getSetting('work_mode', 'idle') }))[0];
           if (r) { setAiVerdict(db, id, r.score, r.reason ? `${r.verdict} - ${r.reason}` : r.verdict, r.win, r.tags, r.parent); aiScore = r.score; aiWin = r.win; }
         } catch (e) { console.error('refresh 後快篩失敗:' + e.message); }
       }
@@ -4266,7 +4287,8 @@ createServer(async (req, res) => {
       // 🛠️ Tool-use ReAct loop:AI 可呼叫工具,執行後丟回去讓它寫人話答覆
       const { TOOL_DOCS, executeTool, extractToolCalls, stripToolTags } = await import('./tools.js');
       const prof = loadProfileWithLessons();
-      let firstReply = await askAI(chatPrompt(recentMsgs, prof, jobs, note, TOOL_DOCS));
+      const workMode = getSetting('work_mode', 'idle'); // 🟢🔴 接案狀態模式:同步影響聊天 agent 的建議尺度
+      let firstReply = await askAI(chatPrompt(recentMsgs, prof, jobs, note, TOOL_DOCS, workMode));
       const calls = extractToolCalls(firstReply);
       if (calls.length === 0) {
         res.writeHead(200, { 'content-type': 'application/json' });
@@ -4285,7 +4307,7 @@ createServer(async (req, res) => {
         { role: 'assistant', content: stripToolTags(firstReply) },
         { role: 'user', content: `【tool 執行結果】\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\n用人話總結結果給使用者,不要印 raw JSON,不要再呼叫工具。` },
       ];
-      const finalReply = await askAI(chatPrompt(followUp, prof, jobs, note, ''));
+      const finalReply = await askAI(chatPrompt(followUp, prof, jobs, note, '', workMode));
       res.writeHead(200, { 'content-type': 'application/json' });
       if (_cid) { try { addChatMessage(db, _cid, 'assistant', stripToolTags(finalReply)); } catch { /* 不擋 */ } }
       return res.end(JSON.stringify({ ok: true, reply: stripToolTags(finalReply), toolCalls: results }));
@@ -4345,6 +4367,18 @@ createServer(async (req, res) => {
         res.writeHead(500, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ ok: false, error: e.message }));
       }
+    }
+    // 🟢🔴 接案狀態模式切換(idle/busy)— 影響 AI 快篩提示詞、聊天 agent 尺度、Discord 推播門檻。
+    // 不碰 score.js 規則層,已存在的分數不重算(避免切換後 DB 分數過期)。
+    if (url.pathname === '/api/mode' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      if (body.mode !== 'idle' && body.mode !== 'busy') {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        return res.end('{"ok":false,"error":"mode 必須是 idle 或 busy"}');
+      }
+      setSetting('work_mode', body.mode);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, mode: body.mode }));
     }
     if (url.pathname === '/api/config' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));
@@ -4578,5 +4612,6 @@ createServer(async (req, res) => {
   scheduleDailyTriage(); // ⏰ 啟動每日定時自動快篩(手動按鈕仍保留)
   scheduleFreshTriage(); // 🆕 啟動每 20 分鐘新鮮案快篩(新案不用再等每日排程)
   console.log(`📣 Discord 推播:${NOTIFY_URL ? `ON(win≥${NOTIFY_MIN_WIN}、3h 內新鮮案、每日上限 ${NOTIFY_DAILY_CAP})` : 'OFF(.env 設 DISCORD_WEBHOOK_URL 開啟)'}`);
+  console.log(`🟢🔴 接案狀態模式:${getSetting('work_mode', 'idle') === 'busy' ? '忙碌(嚴格底線,小案不推/不投)' : '空閒(預設,小快單通道開)'}`);
   setInterval(reapStuckProxyCalls, 90000); // 🧹 每 90s 清掉卡死的 proxy_call.py,防殭屍塞死 proxy
 });

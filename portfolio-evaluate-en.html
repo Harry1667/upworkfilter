@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Job Filter — Evaluation</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--red:#f85149;--ac:#4493f8}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;
+       display:grid;grid-template-columns:210px 1fr}
+  aside{background:#0a0e14;border-right:1px solid var(--bd);padding:18px 12px;height:100vh;position:sticky;top:0}
+  .brand{font-weight:700;font-size:15px;padding:0 8px 14px;border-bottom:1px solid var(--bd);margin-bottom:12px}
+  .brand small{display:block;color:var(--mut);font-size:11px;font-weight:400;margin-top:3px}
+  .grp{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:14px 8px 6px;font-weight:600}
+  aside a{display:block;padding:8px 10px;border-radius:7px;color:var(--mut);text-decoration:none;font-size:13px}
+  aside a.on{background:var(--ac);color:#fff;font-weight:600}
+  main{padding:22px 30px;max-width:860px}
+  .crumb{color:var(--mut);font-size:13px;margin-bottom:4px}
+  .crumb b{color:var(--tx)}.crumb .g{color:var(--grn)}
+  h1{font-size:20px;margin:6px 0 14px}
+  .verdict{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:11px 14px;font-size:13px;margin-bottom:18px}
+  .verdict b{color:#79c0ff}
+  h2{font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin:22px 0 10px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+  .c{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:11px 13px}
+  .c .l{color:var(--mut);font-size:11px}.c .v{font-size:15px;font-weight:700;margin-top:3px}
+  .winwrap{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:18px;display:flex;gap:18px;align-items:center}
+  .bigwin{font-size:46px;font-weight:800;color:var(--ylw);line-height:1}
+  .winnote b{font-size:14px}.winnote .sub{color:var(--mut);font-size:13px;margin-top:4px}
+  .axis{color:var(--mut);font-size:12px;margin-top:10px;border-top:1px dashed var(--bd);padding-top:10px}
+  .why{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 16px}
+  .why li{margin:5px 0;font-size:13px}
+  .grid7{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+  .m{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:11px 13px}
+  .m .top{display:flex;justify-content:space-between;font-size:13px}.m .top b{font-weight:600}
+  .m .sc{font-weight:700}
+  .track{height:5px;background:#21262d;border-radius:3px;margin-top:7px;overflow:hidden}
+  .track i{display:block;height:100%;background:var(--grn)}.track.mid i{background:var(--ylw)}.track.bad i{background:var(--red)}
+  .stand{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 16px;font-size:13px}
+  .stand li{margin:5px 0}
+  .total{font-size:13px;color:var(--mut);margin-top:8px}
+</style>
+</head>
+<body>
+  <aside>
+    <div class="brand">📋 Job Filter <small>Marketplace job scoring engine</small></div>
+    <div class="grp">Pipeline</div>
+    <a href="#">🔍 Find Jobs</a>
+    <a class="on" href="#">🔎 Evaluate</a>
+    <div class="grp">More</div>
+    <a href="#">⚙️ Advanced</a>
+  </aside>
+
+  <main>
+    <div class="crumb">Evaluation &nbsp;|&nbsp; AI verdict: <b class="g">8.5 / 10 · Consider</b> &nbsp;|&nbsp; Rule pre-screen: <b>84 / 100</b></div>
+    <h1>Next.js + Supabase dashboard — deploy &amp; maintain existing codebase</h1>
+
+    <div class="verdict">🤖 <b>AI verdict: Consider.</b> Exact stack match (Next.js 14, Supabase, Vercel) and a clean deploy-focused scope. Client is already interviewing several specialists — confirm live competition before spending connects. Lead the proposal with a concrete deployment you've shipped.</div>
+
+    <h2>Core data</h2>
+    <div class="cards">
+      <div class="c"><div class="l">Type</div><div class="v">Hourly</div></div>
+      <div class="c"><div class="l">Budget</div><div class="v">$50–100/hr</div></div>
+      <div class="c"><div class="l">Proposals</div><div class="v">10–15</div></div>
+      <div class="c"><div class="l">Payment</div><div class="v">✅ Verified</div></div>
+      <div class="c"><div class="l">Client spend</div><div class="v">$9K+</div></div>
+      <div class="c"><div class="l">Client rating</div><div class="v">★ 5.0</div></div>
+      <div class="c"><div class="l">Posted</div><div class="v">2 days ago</div></div>
+      <div class="c"><div class="l">Connects</div><div class="v">23</div></div>
+    </div>
+
+    <h2>Win-probability estimate</h2>
+    <div class="winwrap">
+      <div class="bigwin">38%</div>
+      <div class="winnote">
+        <b>Moderate — strong fit, but hard to win right now.</b>
+        <div class="sub">Skill match is excellent and the client is high quality, but an Expert-level posting + active competition cap a no-review profile's realistic win-rate. Honest, not flattering.</div>
+      </div>
+    </div>
+    <div class="axis"><b>Two independent axes:</b> &nbsp; Score <b>8.5/10</b> = how good the job is &nbsp;·&nbsp; Win <b>38%</b> = how likely you land it. The list ranks by <b>expected value = score × win</b>, so great-but-unwinnable jobs don't crowd out winnable ones.</div>
+
+    <h2>Why this number</h2>
+    <div class="why">
+      <ul>
+        <li><b>Competition:</b> 10–15 proposals + 5 already interviewing → crowded, decision likely imminent.</li>
+        <li><b>Skill match:</b> exact stack (Next.js / Supabase / Vercel) with shipped portfolio evidence → very high.</li>
+        <li><b>Client quality:</b> verified, ★5.0, $9K+ spent, 80% hire rate → excellent, worth pursuing long-term.</li>
+        <li><b>Win cap:</b> Expert tier + no public reviews yet → hard ceiling applied, so the estimate stays realistic.</li>
+      </ul>
+    </div>
+
+    <h2>Rule scoring — 7 dimensions</h2>
+    <div class="grid7">
+      <div class="m"><div class="top"><b>Pay fairness</b><span class="sc">8/10</span></div><div class="track"><i style="width:80%"></i></div></div>
+      <div class="m"><div class="top"><b>Skill match</b><span class="sc">10/10</span></div><div class="track"><i style="width:100%"></i></div></div>
+      <div class="m"><div class="top"><b>Client quality</b><span class="sc">9/10</span></div><div class="track"><i style="width:90%"></i></div></div>
+      <div class="m"><div class="top"><b>Competition</b><span class="sc">5/10</span></div><div class="track mid"><i style="width:50%"></i></div></div>
+      <div class="m"><div class="top"><b>Long-term</b><span class="sc">8/10</span></div><div class="track"><i style="width:80%"></i></div></div>
+      <div class="m"><div class="top"><b>Clarity</b><span class="sc">9/10</span></div><div class="track"><i style="width:90%"></i></div></div>
+      <div class="m"><div class="top"><b>Risk signals</b><span class="sc">9/10</span></div><div class="track"><i style="width:90%"></i></div></div>
+    </div>
+    <div class="total">Weighted total <b style="color:var(--grn)">8.5</b> / 10 → <b>Consider</b> &nbsp;·&nbsp; 8+ strong · 6–7.9 consider · &lt;4 skip</div>
+
+    <h2>How to stand out / is it worth the connects</h2>
+    <div class="stand">
+      <ul>
+        <li>Open with a live deployment you shipped on the exact stack (Next.js + Supabase + Vercel).</li>
+        <li>Address the specific deploy steps (11 migrations, SendGrid inbound webhook, Inngest) to prove you read the brief.</li>
+        <li>Offer a small paid milestone to de-risk hiring a newer profile.</li>
+        <li>Don't boost — differentiate on proof, not connects.</li>
+      </ul>
+    </div>
+  </main>
+</body>
+</html>

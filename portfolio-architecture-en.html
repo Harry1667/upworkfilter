@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Job Filter — Architecture</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--bd:#272e3a;--tx:#e6edf3;--mut:#8b949e;--grn:#2ea043;--ylw:#bb8009;--ac:#4493f8;--pur:#a371f7}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;padding:34px 40px}
+  h1{font-size:22px;margin:0 0 3px}
+  .sub{color:var(--mut);font-size:13px;margin:0 0 26px}
+  .wrap{display:flex;gap:34px;align-items:flex-start}
+  .pipe{display:flex;flex-direction:column;align-items:center;gap:0}
+  .box{background:var(--card);border:1px solid var(--bd);border-radius:11px;padding:13px 18px;width:340px;text-align:center}
+  .box .t{font-weight:700;font-size:15px}
+  .box .d{color:var(--mut);font-size:12px;margin-top:3px}
+  .box.accent{border-color:var(--ac)}
+  .box.score{border-color:var(--grn)}
+  .box.ai{border-color:var(--pur)}
+  .box.out{border-color:var(--ylw)}
+  .arr{color:var(--mut);font-size:20px;line-height:1;padding:7px 0}
+  .arr span{font-size:11px;margin-left:6px;color:var(--mut)}
+  .side{flex:1;max-width:380px}
+  .callout{background:var(--card);border:1px solid var(--pur);border-radius:12px;padding:16px}
+  .callout h3{margin:0 0 4px;font-size:14px;color:#d2a8ff}
+  .callout .d{color:var(--mut);font-size:12px;margin-bottom:12px}
+  .chain{display:flex;flex-direction:column;gap:0;align-items:center}
+  .node{background:#0d1117;border:1px solid var(--bd);border-radius:8px;padding:7px 12px;width:100%;text-align:center;font-size:13px}
+  .node b{font-weight:600}.node .x{color:var(--mut);font-size:11px}
+  .node.first{border-color:var(--grn)}
+  .arr2{color:var(--mut);font-size:14px;padding:4px 0}
+  .feat{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 16px;margin-top:16px;font-size:12.5px}
+  .feat li{margin:5px 0;color:var(--tx)}
+  .feat b{color:var(--grn)}
+  .stack{margin-top:24px;color:var(--mut);font-size:12px}
+  .stack b{color:var(--tx)}
+  .pill{display:inline-block;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:2px 10px;margin:3px 4px 0 0;font-size:12px}
+</style>
+</head>
+<body>
+  <h1>Architecture — Job Filter</h1>
+  <p class="sub">Scraping → webhook ingestion → SQLite scoring engine → multi-LLM triage → ranked dashboard</p>
+
+  <div class="wrap">
+    <!-- main vertical pipeline -->
+    <div class="pipe">
+      <div class="box accent"><div class="t">Browser Extension</div><div class="d">Scrapes live listing pages (Playwright + stealth, Cloudflare handling)</div></div>
+      <div class="arr">▼ <span>webhook POST</span></div>
+      <div class="box"><div class="t">/api/ingest</div><div class="d">Normalize · de-duplicate · persist</div></div>
+      <div class="arr">▼</div>
+      <div class="box"><div class="t">SQLite (WAL)</div><div class="d">node:sqlite · single source of truth</div></div>
+      <div class="arr">▼ <span>only plausible jobs proceed</span></div>
+      <div class="box score"><div class="t">Rule Scoring Engine</div><div class="d">7-dim weighted score + capability &amp; "death-signal" hard gates (blocks out-of-scope before any paid AI)</div></div>
+      <div class="arr">▼</div>
+      <div class="box ai"><div class="t">LLM Triage (cheap)</div><div class="d">fast model scores fit + win-probability over the shortlist</div></div>
+      <div class="arr">▼ <span>top candidates only</span></div>
+      <div class="box ai"><div class="t">Deep Analysis (expensive)</div><div class="d">full evaluation only for the best jobs → cost control</div></div>
+      <div class="arr">▼ <span>write back</span></div>
+      <div class="box out"><div class="t">Ranked Dashboard</div><div class="d">expected-value sort (score × win) + apply tracking</div></div>
+    </div>
+
+    <!-- side: multi-LLM fallback + features -->
+    <div class="side">
+      <div class="callout">
+        <h3>⚡ Multi-LLM client with automatic fallback</h3>
+        <div class="d">Every AI call routes through one client. If a provider is slow or down, it falls through automatically — no single point of failure.</div>
+        <div class="chain">
+          <div class="node first"><b>Direct Gemini Flash</b> <span class="x">~1–2s, primary</span></div>
+          <div class="arr2">▼ on failure / quota</div>
+          <div class="node"><b>Proxy chain:</b> Claude</div>
+          <div class="arr2">▼</div>
+          <div class="node">→ OpenAI</div>
+          <div class="arr2">▼</div>
+          <div class="node">→ Gemini</div>
+        </div>
+      </div>
+
+      <div class="feat">
+        <ul style="margin:0;padding-left:18px">
+          <li><b>Resilient:</b> short per-provider timeout · SIGKILL reaper for hung calls · in-flight locks</li>
+          <li><b>Resumable:</b> incremental write-back survives mid-run failures</li>
+          <li><b>Cost-aware:</b> cheap models for bulk, expensive only for the shortlist · paid/free key toggle</li>
+          <li><b>Scheduled:</b> daily batch run when free quota resets</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack">
+    <b>Tech:</b>
+    <span class="pill">Node.js (no framework)</span><span class="pill">node:sqlite (WAL)</span>
+    <span class="pill">Playwright + stealth</span><span class="pill">Anthropic Claude</span>
+    <span class="pill">OpenAI</span><span class="pill">Google Gemini</span><span class="pill">webhook pipeline</span>
+  </div>
+</body>
+</html>
