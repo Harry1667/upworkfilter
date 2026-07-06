@@ -355,6 +355,13 @@ export function advicePrompt(job, p) {
   return `你是 Upwork 接案顧問。根據「我的檔案」和「這個職缺的完整描述」,產出投標要填的內容。
 **特別注意**:仔細讀描述裡的「To Apply / Required / 申請方式 / 篩選問題」段落 —— 很多案有特殊投標要求(要錄影片回答、要按指定格式寫一個專案說明、要回答特定問題、地點/資格偏好)。**務必抓出來,別讓使用者漏掉**。
 
+【Do not apply if / must-have 硬門檻 — 不准包裝成可補救】
+如果 JD 出現 "Do not apply if..."、"You have not personally..."、"non-negotiable"、"must have personally..."、"required before applying" 這類條件:
+- 這不是普通提醒,是投案資格門檻。若 profile 沒有**直接證據**符合,winStrategy 必須建議略過/不要燒 Connects。
+- applyRequirements 要用「🔴 硬門檻: ...」列出,不要寫成「可以誠實解釋」或「可轉移經驗」。
+- 不得把 Flutter 上架經驗說成 React Native 上架;不得把 PostgreSQL 經驗說成 Supabase production;不得把 webhook/自動化經驗說成 n8n production。
+- 若缺口在 Do not apply if 清單內,不要鼓勵投,不要建議用 cover letter 補洞。
+
 【🚦 新手能見度評分(關鍵)— 從職缺描述抓 Activity 段算】
 這是 0 評價新手最關鍵的判斷,因為投了沒人看 = 燒 Connects 等於白燒。從描述找:
 - "Proposals" 數(<10 / 10-30 / 30-50 / 50+)
@@ -384,7 +391,7 @@ export function advicePrompt(job, p) {
  "bid":"報價建議,務必分兩段:(1)『新手搶單價』= 實際該 bid 的數字(${p.level || '0 評價新手'},貼近客戶預算或略高,$15 以下不建議會被當業餘)。(2)『有評價後的合理價』= 客觀值多少。比較客戶預算 vs profile rate $${p.hourlyRate || 20},一句話為何這樣報",
  "connectsBid":"Upwork Connects 競標建議(繁中 1 句):查 JD 旁的 bid 表 — 1st 位通常 50+ Connects 太貴新手不投;**建議 12-15 Connects 搶 2nd 位**(CP 最高);競爭少的爛單可 0 boost。例如:『建議 12 Connects 搶 2nd 名,1st 名 51 太貴』",
  "angle":"切入角度/差異化(1句)",
- "winStrategy":"根據上面中標率的務實建議(1-2句,繁中):低→值不值得投+差異化或略過;中→提高勝算一招;高→穩拿提醒",
+ "winStrategy":"根據上面中標率的務實建議(1-2句,繁中):若命中 Do not apply if/must-have 缺口 → 直接建議略過;低→值不值得投+差異化或略過;中→提高勝算一招;高→穩拿提醒",
  "visibility":"從 Activity 段抓出 4 個數字並評可見度(繁中):格式『Proposals X · Interviewing Y · Boost 1st Z Connects · 評級:極低/低/中/高』。如果 Interviewing ≥ 6 或 Boost 1st ≥ 100 → 加一句『新手不建議投,燒 Connects 無回報』。沒抓到資料就回『未提供,建議去 Upwork 查 Activity』",
  "applyRequirements":["這案的特殊投標要求,逐條短列(繁中,每條≤30字)。**重點偵測**:Required Video Questions(幾題、各題大綱)、Required Project + 多少 bullet(常見 12 點)、地區/經驗等級偏好、其他客戶自訂 screening。沒特殊要求回空陣列"],
  "videoScripts":["如果 JD 要錄影,**每題各給一段英文講稿大綱**(每段 30-100 字),套 SOP 標準回答模板:Q1 自我介紹用『Taiwan / CS background / Claude Code daily / ${(p.provenCapabilities||[]).length || 20}+ repos on GitHub / new on Upwork → overdeliver』。Q2 依問題客製,但講具體做法+數字。Q3 工時用『30-40 hrs/week sustained / UTC+8 flexible / priority list』。沒影片題回空陣列"],
@@ -409,6 +416,18 @@ export function screeningPrompt(job, p) {
   return `你是 Upwork 提案教練。下面是職缺完整內容。請找出客戶的「篩選問題 / Screening Questions」——
 常見標題:"You will be asked to answer the following questions"、"Answer the following"、或編號問句清單(1. 2. 3.)。
 這些問題既是投標必填、也是判斷「要不要投」的關鍵(常含 key criteria / must / do not apply / 100% 這種硬門檻)。
+
+【絕對硬規則:Do not apply if / You have not personally】
+若 JD 有 "Do not apply if:" 下列負向條件,例如:
+- "You have not personally shipped a React Native app to the App Store or Play Store"
+- "You have not personally used Supabase in production"
+- "You have not personally used Claude Code, Cursor, or comparable AI coding tool"
+請把每一條當成「資格門檻」檢查,不是一般 screening question。判斷時只能用 profile 的直接證據:
+- Flutter app 上架 ≠ React Native app 上架。
+- PostgreSQL/Firebase/Next.js 經驗 ≠ Supabase production。
+- 使用 Claude/OpenAI API ≠ 使用 Claude Code/Cursor 作為 coding tool;除非 profile 明確寫 daily use/實際開發流程。
+- webhook/自動化管線 ≠ n8n production;除非 profile 明確寫 n8n 實戰。
+只要任一 Do not apply if 條件不符合,overall 必須是「不建議投」,overallNote 點名哪條缺口,相應 question 的 meet 必須是「不符合」。不得寫「勉強符合」或建議用可轉移經驗硬凹。
 
 逐題判斷時,務必對照下方「我的能力與邊界」**誠實**評估,特別注意這類硬門檻:
 - 「能不能自己寫 code(不只是 n8n/AI/自動化)」
