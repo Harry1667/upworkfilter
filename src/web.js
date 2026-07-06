@@ -2047,6 +2047,8 @@ function pageInbox(hoursOverride) {
     .slice(0, 10);
 
   const total = items.length;
+  const refreshUrl = isWidened ? `/inbox?hours=${hours}` : '/inbox';
+  const loadedAt = new Date().toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const cardsHtml = items.map((it, i) => {
     const { j, ev, win } = it;
     const sid = jid(j.id);
@@ -2134,10 +2136,17 @@ function pageInbox(hoursOverride) {
   .ib-mini a:hover,.ib-mini button:hover{color:var(--ac)}
   .ib-empty,.ib-done{text-align:center;padding:60px 20px}
   .ib-widen{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:10px 14px;color:var(--tx);font-size:13px;margin-bottom:14px;max-width:640px;margin-left:auto;margin-right:auto}
+  .ib-refresh{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#0d1117;border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:14px;color:var(--mut);font-size:13px}
+  .ib-refresh button{background:#30363d;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer}
+  .ib-refresh button:hover{filter:brightness(1.15)}
   </style></head><body>
 <header><h1>📥 收件匣 <span class="sub">一次一案,三顆鍵滑完就結束。系統排好序,從第一張做到底。</span></h1>${navBar('/inbox')}</header>
 <main class="ib-wrap">
   ${isWidened ? `<div class="ib-widen">🔧 目前視窗放寬到 <b>${hours}</b> 小時(預設 48)。<a href="/inbox" style="color:var(--ac)">回預設</a></div>` : ''}
+  <div class="ib-refresh">
+    <span>載入時間 ${loadedAt} · 目前 ${total} 案${isWidened ? ` · 視窗 ${hours}h` : ''}</span>
+    <button type="button" onclick="location.href='${refreshUrl}'">🔄 刷新</button>
+  </div>
   ${total ? cardsHtml : emptyHtml}
   ${total ? doneHtml : ''}
 </main>
