@@ -139,3 +139,16 @@
 **收件匣刷新**
 - `/inbox` 上方加刷新列:顯示載入時間、目前候選案數、視窗大小,按「🔄 刷新」會保留目前 hours 參數重載。
 - 用途:新案會持續進來,看收件匣時可手動刷新拿最新排序。
+
+---
+
+## 2026-07-06(晚) 生成守門審計 + 語言案 refresh bug
+
+**批量審計(10 案即時數據 → 19 份生成產物)抓到 5 個系統性錯誤:**
+1. 身分門檻全盲(Female 案照樣教投+寫信) 2. 捏造資產(發明麥克風型號/已錄樣本) 3. 語言案人格錯亂(推銷 GitHub、寫「你找錯人」拒絕文) 4. 信與投標策略報價矛盾 5. 幻覺 repo(socialbot 不存在)。
+
+**修正(2c8dc59):** coverLetterPrompt/SynthPrompt 加【身分門檻⛔/語言案人格/證據白名單/報價紀律】;advicePrompt/screeningPrompt 身分條件(性別/母語/居住地)一律 🔴 且不適用「profile 沒記全」保留;profile.json 新增 languageAssets(男性/華語母語/英文口說需備稿/台語有限),本機+伺服器都已加。驗收:Female Mandarin→⛔、男聲配音→正確語言身分信、台語配音→⛔(JD 標籤真有 Female)。
+
+**refresh bug(31061d6):** /api/refresh-job 是唯一漏「語言案不進 AI 快篩」的路徑,會把語言案打 0 分+洗掉 category;setAiVerdict 空字串繞過 COALESCE 也修了。4 個受害案已還原。
+
+**即時數據教訓:** 16 案刷新後 7 案現形為紅海(DB 快照「<5 提案」實際 50+)。投前必 refresh。
