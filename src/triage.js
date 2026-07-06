@@ -107,6 +107,7 @@ export function buildPrompt(jobs, p, parents, needs, outcomeNote = '') {
 ⑤ 【道歉測試(2026-07 鐵律,從 8 筆零回應提案驗屍得出)】想像他寫 cover letter 的第一段:如果**必須先說「我沒用過 X,但可以用別的方式」才能投**(X = 標題或 Required 明列的核心工具,如 ManyChat/Make/Streamlit/React Native),這案就是「要道歉的案」→ verdict 直接略過、win ≤ 15、reason 寫「核心工具 X 需道歉,別投」。0 評價新人 + 開頭道歉 = 秒刷,他過去 8 筆全靜音有 7 筆栽在這。
 ⑥ 【提案數紀律】他的主戰場是提案 <10 的案:10-20 → win ≤ 35;reason 提醒「偏擁擠」。
 ⑦ 【資料不全 → 不給高分】內容標了「⚠️ 描述僅 N 字」的案 = 列表頁截斷的殘文,Mandatory skills / To Apply 可能整段看不到(實案:n8n 藏在完整頁,殘文評 60 分害人)→ win ≤ 55、score 保守,reason 開頭標「資料不全,先按書籤補全文再判」。看不到的東西當作可能藏雷,不當作沒有。
+⑧ 【語言邊界】他英文讀寫/非同步溝通 OK,但即時英文口說不強。JD 明確要求 daily calls / client-facing phone / 每日視訊會議 / fluent spoken English 為核心 → win 下修、reason 點名「重度即時英文口說需求」;純 async(訊息/文件)溝通的案不受影響。
 
 🚨 【勝率硬規則 — 必須嚴格遵守】
 這位使用者**剛起步**:已完成 1 個案($450 earnings)、ID 已驗證,但**尚無公開星評/JSS**(客戶瀏覽時看起來仍接近新手)。所以勝率仍受壓,但比純 0 評價略好。即使能力 100% 符合,你的 win 估計**必須**套用以下硬上限:

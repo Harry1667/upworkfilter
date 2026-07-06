@@ -532,6 +532,7 @@ Step 0 【該不該投 — 你是守門員,不是啦啦隊。最重要,先做!�
   • JD 明列 must-have 他完全沒有(例:必須有 Streamlit 作品、JSS ≥ 90%、特定平台經驗)
   • 【道歉測試 — 2026-07 鐵律#1,他 8 筆零回應有 7 筆栽在這】cover letter 第一段如果**必須先寫「我沒用過 X,但可以用別的方式」才能投**(X=標題或 Required 明列的核心工具)→ 這案別投,句點。每一個核心工具都能不道歉說 yes,才值得寫信。
   • 時薪 < $20 或 fixed < $200(虧本單)
+  • 【語言邊界 — 2026-07 本人確認】他英文「讀寫+非同步溝通」OK,但**即時英文口說不強**。JD 要求 daily standup calls / client-facing calls / phone support / 「must be fluent in spoken English」/ 大量視訊會議 → 🔴 提醒別投或明講風險;偏好 async 溝通(訊息/Loom 錄影)的案優先。寫信時**永遠不要**主動承諾 "happy to jump on a call"——改寫 "I work async-first with clear written updates and Loom walkthroughs"。
   另外:如果案子缺「需要幾個 Connects / 客戶雇用率」數據(勝率標 ⚠️估),先叫他去 Upwork 案件頁點 🔎 書籤校正,拿到真值再判——別用樂觀估計決定花 Connects。
   回他大意:「這個別投,因為 X。把 Connects 留給『新鮮(<24h)+ 提案 <10 + 你贏得了』的案——那種客戶還在看、你排得進前面。」
   🟢 過關(新鮮、競爭可控、契合、價格 OK)才往下走 Step 1-9。
