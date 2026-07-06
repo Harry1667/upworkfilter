@@ -675,7 +675,7 @@ function pageLogin() {
     try{const r=await fetch('/api/login',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({identifier:document.getElementById('id').value.trim(),password:document.getElementById('pw').value})});
       const j=await r.json();
-      if(j.ok)location.href='/today'; else{err.textContent='❌ '+(j.error||'帳號或密碼錯誤');btn.disabled=false;btn.textContent='登入';}}
+      if(j.ok)location.href='/inbox'; else{err.textContent='❌ '+(j.error||'帳號或密碼錯誤');btn.disabled=false;btn.textContent='登入';}}
     catch(ex){err.textContent='❌ '+ex.message;btn.disabled=false;btn.textContent='登入';}
     return false;}
 </script></body></html>`;
@@ -1451,9 +1451,11 @@ async function readBody(req, maxBytes = 512 * 1024) {
 // serveHtml 只抽走 <aside>,子分頁列就留在頁面 header。
 // 🧭 資訊架構(2026-06 依實際用法收斂):使用者只做兩件事 ——「找案子」+「聊天生成信件」(聊天是右下角浮動的)。
 // 側欄頂層只留:🔍 找案子(含今日/收藏)、🔎 評估(點案看 AI 分),其餘全收進 ⚙️ 進階(寫提案/客戶往來/追蹤/設定…)。
+// 📥 收件匣(2026-07):登入落點改一次一案的收件匣模式,主選單只留「收件匣 / 今日 / 全部案件」三項最少。
+// 「該做」跟收件匣功能重疊(都是排序後的待辦)、「收藏」「即時分析」較少用 → 收進 ⚙️ 進階。
 const SUBTABS = {
-  find:  [['/worklist', '🚀 該做'], ['/today', '🌅 今日'], ['/', '📋 全部案件'], ['/?fav=1', '❤️ 收藏'], ['/analyze', '🔎 即時分析']],
-  more:  [['/proposal', '③ 寫提案'], ['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回訊息'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺'], ['/lessons', '📌 調教 AI'], ['/anchors', '⭐ 信件範本'], ['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/chat-log', '💬 聊天紀錄'], ['/guide', '📖 說明書'], ['/backup', '💾 備份']],
+  find:  [['/inbox', '📥 收件匣'], ['/today', '🌅 今日'], ['/', '📋 全部案件']],
+  more:  [['/proposal', '③ 寫提案'], ['/worklist', '🚀 該做'], ['/?fav=1', '❤️ 收藏'], ['/analyze', '🔎 即時分析'], ['/invites', '🤝 客戶邀請'], ['/reply', '✉️ 回訊息'], ['/applications', '📊 投案追蹤'], ['/track', '🌱 經驗存摺'], ['/lessons', '📌 調教 AI'], ['/anchors', '⭐ 信件範本'], ['/me', '🎯 能力'], ['/profile', '🪪 身分檔'], ['/scoring', '⚖️ 評分'], ['/features', '🧩 功能地圖'], ['/agents', '🤖 AI'], ['/chat-log', '💬 聊天紀錄'], ['/guide', '📖 說明書'], ['/backup', '💾 備份']],
 };
 // 當前 path 屬於哪個區段(決定 sidebar 高亮 + 顯示哪組子分頁)。/invite(單)歸 more。
 function sectionOf(active) {
@@ -1475,7 +1477,7 @@ function navBar(active, jobId) {
   return `<aside class="sidebar">
     <div class="brand">📋 Upwork Filter <small>v2</small></div>
     <div class="group">接案</div>
-    ${link('/worklist', '🔍 找案子', sec === 'find')}
+    ${link('/inbox', '🔍 找案子', sec === 'find')}
     ${link('/job' + q, '🔎 評估', active === '/job')}
     <div class="group">其他</div>
     ${link('/proposal' + q, '⚙️ 進階', sec === 'more')}
@@ -1790,6 +1792,60 @@ function pageToday() {
 </main></body></html>`;
 }
 
+// 🧮 「該做分」共用計算(pageWorklist、pageInbox 共用,別各自複製一份排序邏輯出來)。
+// deliver(可交付,proven 技術命中)+ canWin(勝率/競爭/付款驗證)+ scoreN(評分,權重降低)+ small(小而快加分)+ freshBonus(新鮮度)。
+function computeDoScore(j, ev, proven) {
+  const nowMs = Date.now();
+  const tier = (ev.cls === 'APPLY' || ev.cls === 'MAYBE') ? 'do' : 'more'; // do=值得做, more=較弱/被排除
+  // 🆕 新鮮度:優先用 posted_at(Upwork 發布時間),沒有才退回 first_seen(我方 ingest 時間)
+  const postedRaw = j.posted_at || j.first_seen;
+  const ageH = postedRaw && !isNaN(Date.parse(postedRaw)) ? (nowMs - new Date(postedRaw).getTime()) / 3600000 : null;
+  // 適配度:案子文字命中幾個「有 GitHub 證據」的技術(profile.provenTechs)
+  const jtext = `${j.title || ''} ${j.description || ''}`.toLowerCase();
+  const provenHits = proven.filter((t) => jtext.includes(t)).length;
+  const fitTier = provenHits >= 2 ? 2 : provenHits === 1 ? 1 : 0;
+  const fit = fitTier === 2 ? { t: '🟢 強項命中', c: 'hit' } : fitTier === 1 ? { t: '🟡 部分符合', c: 'partial' } : { t: '⚪ 需補技能', c: 'none' };
+  // 中標機率(AI 估;沒跑快篩時為 null)
+  const win = Number.isFinite(Number(j.ai_win)) ? Number(j.ai_win) : null;
+  // 競爭:提案數越少越好(沿用列表頁的桶→數字對照)
+  const propStr = String(j.proposals_bucket || '').toLowerCase();
+  let comp = 999;
+  if (/fewer than 5|less than 5|0\s*to\s*5|<\s*5/.test(propStr)) comp = 2;
+  else if (/5\s*to\s*10/.test(propStr)) comp = 7;
+  else if (/10\s*to\s*15/.test(propStr)) comp = 12;
+  else if (/15\s*to\s*20/.test(propStr)) comp = 17;
+  else if (/20\s*to\s*50/.test(propStr)) comp = 35;
+  else if (/50\+|over\s*50/.test(propStr)) comp = 80;
+  else { const m = propStr.match(/(\d+)/); if (m) comp = Number(m[1]); }
+  const scoreN = Number(ev.isAi ? ev.score * 10 : ev.score) || 0;
+  const pay = j.budget_text || (j.fixed_budget ? `$${j.fixed_budget}` : j.hourly_max ? `$${j.hourly_min || 0}-${j.hourly_max}/hr` : '');
+  const payNum = Math.max(Number(j.fixed_budget) || 0, Number(j.hourly_max) || 0);
+
+  // 該做分:可交付(命中你會的技術) × 可贏(中標率 + 低競爭 + 付款驗證) × 評分
+  const reasons = [];
+  const deliver = fitTier * 20; // 0 / 20 / 40
+  if (fitTier >= 2) reasons.push('✅ 你做得來');
+  let canWin = win != null ? win * 0.25 : 6; // 沒快篩給中性 6
+  if (comp <= 5) { canWin += 15; reasons.push('🪶 競爭很少'); }
+  else if (comp <= 10) { canWin += 10; reasons.push('🪶 競爭少'); }
+  else if (comp <= 20) canWin += 5;
+  else if (comp >= 50) canWin -= 8;
+  if (j.payment_verified) { canWin += 10; reasons.push('💵 付款已驗'); }
+  const small = payNum > 0 && payNum <= 300 ? 5 : 0; // 小而快的案略加分(好上手)
+  // 🆕 新鮮度加權:24h 內大加分、48h 內小加分、超過 72h 扣分(晚投=競爭已上來)
+  let freshBonus = 0;
+  if (ageH != null) {
+    if (ageH <= 24) freshBonus = 18;
+    else if (ageH <= 48) freshBonus = 6;
+    else if (ageH > 72) freshBonus = -20;
+  }
+  if (ageH != null && ageH <= 24) reasons.push('🆕 24h內新案');
+  const doScore = deliver + canWin + scoreN * 0.2 + small + freshBonus;
+  // 「新鮮可投」= 48h 內 + (AI 估勝率過門檻,或還沒快篩但規則層已判值得做)
+  const isFresh = ageH != null && ageH <= 48 && ((win != null && win >= 40) || (win == null && tier === 'do'));
+  return { fit, win, comp, scoreN, doScore, pay, reasons, tier, ageH, isFresh };
+}
+
 // 🚀 該做的項目 — 把「通過三道門 + 值得投 + 還沒投」的案排成一條「現在就去做」的工作清單。
 // 排序是「練功導向」(支柱 B):可交付 × 可贏 × 能加分,且依新手階段(支柱 A)動態調整權重。
 function pageWorklist() {
@@ -1800,59 +1856,11 @@ function pageWorklist() {
   // 預設顯示「值得做」(APPLY+MAYBE);按「全部」連較弱(SKIP)的也一起出,清單永遠一長串。
   const rows = db.prepare(`SELECT * FROM jobs WHERE applied=0 AND blocked=0`).all();
   let triagedCount = 0;
-  const nowMs = Date.now();
   const items = rows
     .map((j) => {
       const ev = effectiveVerdict(j);
       if (ev.isAi) triagedCount++;
-      const tier = (ev.cls === 'APPLY' || ev.cls === 'MAYBE') ? 'do' : 'more'; // do=值得做, more=較弱/被排除
-      // 🆕 新鮮度:優先用 posted_at(Upwork 發布時間),沒有才退回 first_seen(我方 ingest 時間)
-      const postedRaw = j.posted_at || j.first_seen;
-      const ageH = postedRaw && !isNaN(Date.parse(postedRaw)) ? (nowMs - new Date(postedRaw).getTime()) / 3600000 : null;
-      // 適配度:案子文字命中幾個「有 GitHub 證據」的技術(profile.provenTechs)
-      const jtext = `${j.title || ''} ${j.description || ''}`.toLowerCase();
-      const provenHits = proven.filter((t) => jtext.includes(t)).length;
-      const fitTier = provenHits >= 2 ? 2 : provenHits === 1 ? 1 : 0;
-      const fit = fitTier === 2 ? { t: '🟢 強項命中', c: 'hit' } : fitTier === 1 ? { t: '🟡 部分符合', c: 'partial' } : { t: '⚪ 需補技能', c: 'none' };
-      // 中標機率(AI 估;沒跑快篩時為 null)
-      const win = Number.isFinite(Number(j.ai_win)) ? Number(j.ai_win) : null;
-      // 競爭:提案數越少越好(沿用列表頁的桶→數字對照)
-      const propStr = String(j.proposals_bucket || '').toLowerCase();
-      let comp = 999;
-      if (/fewer than 5|less than 5|0\s*to\s*5|<\s*5/.test(propStr)) comp = 2;
-      else if (/5\s*to\s*10/.test(propStr)) comp = 7;
-      else if (/10\s*to\s*15/.test(propStr)) comp = 12;
-      else if (/15\s*to\s*20/.test(propStr)) comp = 17;
-      else if (/20\s*to\s*50/.test(propStr)) comp = 35;
-      else if (/50\+|over\s*50/.test(propStr)) comp = 80;
-      else { const m = propStr.match(/(\d+)/); if (m) comp = Number(m[1]); }
-      const scoreN = Number(ev.isAi ? ev.score * 10 : ev.score) || 0;
-      const pay = j.budget_text || (j.fixed_budget ? `$${j.fixed_budget}` : j.hourly_max ? `$${j.hourly_min || 0}-${j.hourly_max}/hr` : '');
-      const payNum = Math.max(Number(j.fixed_budget) || 0, Number(j.hourly_max) || 0);
-
-      // 該做分:可交付(命中你會的技術) × 可贏(中標率 + 低競爭 + 付款驗證) × 評分
-      const reasons = [];
-      const deliver = fitTier * 20; // 0 / 20 / 40
-      if (fitTier >= 2) reasons.push('✅ 你做得來');
-      let canWin = win != null ? win * 0.25 : 6; // 沒快篩給中性 6
-      if (comp <= 5) { canWin += 15; reasons.push('🪶 競爭很少'); }
-      else if (comp <= 10) { canWin += 10; reasons.push('🪶 競爭少'); }
-      else if (comp <= 20) canWin += 5;
-      else if (comp >= 50) canWin -= 8;
-      if (j.payment_verified) { canWin += 10; reasons.push('💵 付款已驗'); }
-      const small = payNum > 0 && payNum <= 300 ? 5 : 0; // 小而快的案略加分(好上手)
-      // 🆕 新鮮度加權:24h 內大加分、48h 內小加分、超過 72h 扣分(晚投=競爭已上來)
-      let freshBonus = 0;
-      if (ageH != null) {
-        if (ageH <= 24) freshBonus = 18;
-        else if (ageH <= 48) freshBonus = 6;
-        else if (ageH > 72) freshBonus = -20;
-      }
-      if (ageH != null && ageH <= 24) reasons.push('🆕 24h內新案');
-      const doScore = deliver + canWin + scoreN * 0.2 + small + freshBonus;
-      // 「新鮮可投」= 48h 內 + (AI 估勝率過門檻,或還沒快篩但規則層已判值得做)
-      const isFresh = ageH != null && ageH <= 48 && ((win != null && win >= 40) || (win == null && tier === 'do'));
-      return { j, ev, fit, win, comp, scoreN, doScore, pay, reasons, tier, ageH, isFresh };
+      return { j, ev, ...computeDoScore(j, ev, proven) };
     })
     .filter(Boolean)
     .sort((a, b) => b.doScore - a.doScore);
@@ -1986,6 +1994,175 @@ function pageWorklist() {
   // 複製 Upwork 連結(沿用列表頁邏輯:自己貼網址列開登入版,避免 referer 問題)
   async function cp(e,el){e.preventDefault();const u=el.dataset.url;try{await navigator.clipboard.writeText(u);const o=el.textContent;el.textContent='✅ 已複製';setTimeout(()=>{el.textContent=o;},1200);}catch(ex){window.open(u,'_blank');}return false;}
   applyWlFilters();
+</script></body></html>`;
+}
+
+// 📥 收件匣 — 登入落點。抱怨「操作太多」的解法:一次只看一張案件卡,
+// 三顆大鍵(寫信/稍後/跳過)做完決定就自動進下一張,今日隊列滑完顯示「完成」,不用再逛列表比較。
+// hoursOverride:除錯/手動放寬用的新鮮度視窗(小時),預設 48、上限 720。
+function pageInbox(hoursOverride) {
+  const db = openDb();
+  const cfg = loadConfig();
+  const proven = (cfg.provenTechs || []).map((t) => String(t).toLowerCase()).filter(Boolean);
+  let hours = parseInt(hoursOverride, 10);
+  if (!Number.isFinite(hours) || hours <= 0) hours = 48;
+  hours = Math.min(720, hours);
+  const isWidened = hours !== 48;
+
+  // 隊列:blocked=0(能力門通過)、還沒投、沒被 snooze、posted_at/first_seen 在視窗內
+  const rows = db.prepare(`SELECT * FROM jobs WHERE blocked=0 AND applied=0
+      AND (snoozed_until IS NULL OR snoozed_until < datetime('now'))
+      AND COALESCE(posted_at, first_seen) >= datetime('now', ?)`).all(`-${hours} hours`);
+
+  const items = rows
+    .map((j) => {
+      const ev = effectiveVerdict(j);
+      if (ev.cls !== 'APPLY' && ev.cls !== 'MAYBE') return null; // 收件匣只排「值得投/可考慮」,SKIP 不進來煩你
+      return { j, ev, ...computeDoScore(j, ev, proven) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.doScore - a.doScore)
+    .slice(0, 10);
+
+  const total = items.length;
+  const cardsHtml = items.map((it, i) => {
+    const { j, ev, win } = it;
+    const sid = jid(j.id);
+    const missSig = win != null ? winMissingSignals(j) : [];
+    const winBadge = win != null
+      ? `<span class="ib-b ${winCls(win)}" title="${missSig.length ? `缺 ${esc(missSig.join('、'))} → 樂觀估計,投前按書籤校正` : '中標機率(AI 估)'}">🎯 ${win}%${missSig.length ? '<b style="margin-left:2px">⚠️估</b>' : ''}</span>`
+      : `<span class="ib-b na">🎯 未快篩</span>`;
+    const vBadge = `<span class="ib-b ${ev.cls === 'APPLY' ? 'apply' : 'maybe'}">${ev.cls === 'APPLY' ? '🟢 值得投' : '🟡 可考慮'}</span>`;
+    const pay = j.budget_text || (j.fixed_budget ? `$${j.fixed_budget}` : j.hourly_max ? `$${j.hourly_min || 0}-${j.hourly_max}/hr` : '未知預算');
+    const propTxt = j.proposals_bucket ? esc(j.proposals_bucket) + ' 提案' : '提案數未知';
+    const spentTxt = j.client_spent_text ? esc(j.client_spent_text) : (j.client_spent_usd ? `$${Math.round(j.client_spent_usd)}` : '?');
+    const ratingTxt = (j.client_rating != null && j.client_rating !== '') ? `⭐${j.client_rating}` : '?';
+    const hireTxt = (j.client_hire_rate != null && j.client_hire_rate !== '') ? `雇用率${j.client_hire_rate}%` : '雇用率?';
+    const reasonTxt = j.ai_verdict || j.reason || '(還沒有評估說明)';
+    const descFull = String(j.description || '').trim();
+    const descShort = descFull.slice(0, 500);
+    const descRest = descFull.slice(500);
+    return `
+    <article class="ib-card" data-idx="${i}" data-id="${sid}" style="display:${i === 0 ? 'flex' : 'none'}">
+      <div class="ib-progress">第 ${i + 1} / ${total} 案</div>
+      <div class="ib-hd">
+        ${vBadge}${winBadge}
+        ${postedTag(j.posted_at || j.first_seen || '')}
+        <span class="ib-b pay">💰 ${esc(pay)}</span>
+        <span class="ib-b comp">📨 ${propTxt}</span>
+      </div>
+      <h1 class="ib-title">${esc(j.title || '(無標題)')}</h1>
+      <div class="ib-client">💵 花費 ${spentTxt} · ${ratingTxt} · ${hireTxt}</div>
+      <p class="ib-reason">${esc(reasonTxt)}</p>
+      <p class="ib-desc">${esc(descShort)}${descRest ? '…' : ''}</p>
+      ${descRest ? `<details class="ib-more"><summary>看完整描述</summary><p>${esc(descRest)}</p></details>` : ''}
+      <div class="ib-acts">
+        <button class="ib-btn primary" onclick="ibWrite('${sid}')">✍️ 寫信</button>
+        <button class="ib-btn" onclick="ibSnooze('${sid}')">⏰ 稍後</button>
+        <button class="ib-btn danger" onclick="ibSkip('${sid}')">🗑️ 跳過</button>
+      </div>
+      <div class="ib-mini">
+        <button onclick="ibFav('${sid}',this)" title="收藏">❤️ 收藏</button>
+        <a href="${esc(cleanUrl(j))}" data-url="${esc(cleanUrl(j))}" onclick="return cp(event,this)" title="複製 Upwork 連結">📋 複製連結</a>
+        <a href="/job?id=${sid}" target="_blank" rel="noopener">🔎 完整評估 →</a>
+      </div>
+    </article>`;
+  }).join('');
+
+  const emptyHtml = `<div class="ib-empty">
+    <p style="font-size:20px">📭 今日收件匣清空了!</p>
+    <p style="color:var(--mut);font-size:14px;line-height:1.7;max-width:440px;margin:10px auto 0">
+      新案每 20 分鐘自動進來評分,win≥40 會推播到 Discord。
+    </p>
+    <p style="margin-top:20px">
+      <a href="/today" style="color:var(--ac)">看 🌅 今日</a>
+      &nbsp;·&nbsp;
+      <a href="/inbox?hours=168" style="color:var(--ac)">放寬到 7 天 → /inbox?hours=168</a>
+    </p>
+  </div>`;
+
+  const doneHtml = `<div class="ib-done" style="display:none">
+    <p style="font-size:20px">✅ 今日隊列處理完了</p>
+    <p id="ibDoneStat" style="color:var(--mut);font-size:14px;margin-top:8px"></p>
+    <p style="margin-top:20px"><a href="/inbox" style="color:var(--ac)">重新整理收件匣</a></p>
+  </div>`;
+
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>📥 收件匣</title><style>${CSS}
+  .ib-wrap{max-width:640px;margin:0 auto}
+  .ib-card{display:flex;flex-direction:column;gap:10px;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:22px}
+  .ib-progress{color:var(--mut);font-size:12px}
+  .ib-hd{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .ib-b{font-size:12px;border-radius:6px;padding:3px 9px;font-weight:600;background:#1a1f27;color:#8b949e;white-space:nowrap}
+  .ib-b.apply{background:#1c3b25;color:#56d364}.ib-b.maybe{background:#3a2f14;color:#d29922}
+  .ib-b.win-mid{background:#3a2f14;color:#d29922}.ib-b.win-lo{background:#3a1a1a;color:#f85149}.ib-b.na{background:#1a1f27;color:#8b949e}
+  .ib-title{font-size:22px;line-height:1.35;margin:2px 0}
+  .ib-client{color:var(--mut);font-size:13px}
+  .ib-reason{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:10px 12px;font-size:14px;line-height:1.6;margin:0}
+  .ib-desc{color:var(--tx);font-size:14px;line-height:1.65;margin:0;white-space:pre-wrap}
+  .ib-more summary{cursor:pointer;color:var(--ac);font-size:13px}
+  .ib-more p{color:var(--tx);font-size:14px;line-height:1.65;white-space:pre-wrap;margin-top:8px}
+  .ib-acts{display:flex;gap:10px;margin-top:8px}
+  .ib-btn{flex:1;font-size:15px;font-weight:700;border:1px solid var(--bd);border-radius:10px;padding:14px 10px;background:#0d1117;color:var(--tx);cursor:pointer}
+  .ib-btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
+  .ib-btn.danger{color:#f85149}
+  .ib-btn:hover{filter:brightness(1.15)}
+  .ib-mini{display:flex;gap:16px;justify-content:center;color:var(--mut);font-size:13px}
+  .ib-mini button{background:none;border:0;color:var(--mut);cursor:pointer;font-size:13px}
+  .ib-mini a{color:var(--mut);text-decoration:none}
+  .ib-mini a:hover,.ib-mini button:hover{color:var(--ac)}
+  .ib-empty,.ib-done{text-align:center;padding:60px 20px}
+  .ib-widen{background:#13233b;border-left:3px solid var(--ac);border-radius:8px;padding:10px 14px;color:var(--tx);font-size:13px;margin-bottom:14px;max-width:640px;margin-left:auto;margin-right:auto}
+  </style></head><body>
+<header><h1>📥 收件匣 <span class="sub">一次一案,三顆鍵滑完就結束。系統排好序,從第一張做到底。</span></h1>${navBar('/inbox')}</header>
+<main class="ib-wrap">
+  ${isWidened ? `<div class="ib-widen">🔧 目前視窗放寬到 <b>${hours}</b> 小時(預設 48)。<a href="/inbox" style="color:var(--ac)">回預設</a></div>` : ''}
+  ${total ? cardsHtml : emptyHtml}
+  ${total ? doneHtml : ''}
+</main>
+<script>
+  var ibItems = ${JSON.stringify(items.map((it) => it.j.id))};
+  var ibIdx = 0;
+  var ibStat = { write: 0, snooze: 0, skip: 0 };
+  var ibTotal = ${total};
+  function ibNext(){
+    var cards = document.querySelectorAll('.ib-card');
+    if (cards[ibIdx]) cards[ibIdx].style.display = 'none';
+    ibIdx++;
+    if (ibIdx < cards.length) {
+      cards[ibIdx].style.display = 'flex';
+    } else {
+      document.getElementById('ibDoneStat').textContent = '今天處理了 ' + ibTotal + ' 案:寫信 ' + ibStat.write + ' / 稍後 ' + ibStat.snooze + ' / 跳過 ' + ibStat.skip;
+      var done = document.querySelector('.ib-done');
+      if (done) done.style.display = 'block';
+    }
+  }
+  function ibWrite(id){ ibStat.write++; location.href = '/proposal?id=' + id; }
+  async function ibSnooze(id){
+    ibStat.snooze++;
+    try { await fetch('/api/job/snooze?id=' + id + '&hours=24', { method: 'POST' }); } catch (e) {}
+    ibNext();
+  }
+  async function ibSkip(id){
+    ibStat.skip++;
+    try { await fetch('/api/job/skip?id=' + id, { method: 'POST' }); } catch (e) {}
+    ibNext();
+  }
+  async function ibFav(id, btn){
+    btn.disabled = true;
+    try { await fetch('/api/job/favorite?id=' + id + '&fav=1', { method: 'POST' }); btn.textContent = '❤️ 已收藏'; }
+    catch (e) { btn.disabled = false; }
+  }
+  // 鍵盤快捷:1=寫信、2=稍後、3=跳過。輸入框/textarea 聚焦時不觸發(details 展開不算輸入框)
+  document.addEventListener('keydown', function(e){
+    var tag = (document.activeElement && document.activeElement.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    var card = document.querySelectorAll('.ib-card')[ibIdx];
+    if (!card) return;
+    var id = card.dataset.id;
+    if (e.key === '1') ibWrite(id);
+    else if (e.key === '2') ibSnooze(id);
+    else if (e.key === '3') ibSkip(id);
+  });
 </script></body></html>`;
 }
 
@@ -3818,6 +3995,20 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end('{"ok":true}');
     }
+    // ⏰ 收件匣「稍後」:snooze N 小時,期間不進收件匣隊列(不刪、不動評分)
+    if (url.pathname === '/api/job/snooze' && req.method === 'POST') {
+      const id = url.searchParams.get('id');
+      if (!id) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"缺 id"}'); }
+      // hours 整數化 + 夾範圍(1-168),防止字串注入到 SQL 拼接
+      let hours = parseInt(url.searchParams.get('hours'), 10);
+      if (!Number.isFinite(hours) || hours <= 0) hours = 24;
+      hours = Math.min(168, Math.max(1, hours));
+      const dbi = openDb();
+      dbi.prepare(`UPDATE jobs SET snoozed_until = datetime('now', '+${hours} hours') WHERE id = ?`).run(id);
+      const row = dbi.prepare('SELECT snoozed_until FROM jobs WHERE id=?').get(id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, until: row?.snoozed_until || null }));
+    }
     // 🔒 標為私案 / 已關閉 — 點進去發現 Access denied 直接 SKIP
     if (url.pathname === '/api/job/mark-private' && req.method === 'POST') {
       const id = url.searchParams.get('id');
@@ -4275,6 +4466,9 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/today') {
       return serveHtml(res, pageToday());
+    }
+    if (url.pathname === '/inbox') { // 📥 收件匣 — 登入落點,一次一案
+      return serveHtml(res, pageInbox(url.searchParams.get('hours')));
     }
     if (url.pathname === '/guide') {
       return serveHtml(res, pageGuide());

@@ -126,6 +126,8 @@ export function openDb() {
   // experience_level=Upwork 經驗等級(Entry/Intermediate/Expert);connects_required=投這案要幾個 Connects(超熱門度)
   try { db.exec('ALTER TABLE jobs ADD COLUMN experience_level TEXT'); } catch { /* 已存在 */ }
   try { db.exec('ALTER TABLE jobs ADD COLUMN connects_required INTEGER'); } catch { /* 已存在 */ }
+  // ⏰ 收件匣「稍後」:snooze 到此時間前不進收件匣隊列
+  try { db.exec('ALTER TABLE jobs ADD COLUMN snoozed_until TEXT'); } catch { /* 已存在 */ }
 
   // ── ⑤ 邀請(Invites from clients)— 客戶主動邀請,跟 jobs 分開存(欄位、流程都不同) ──
   db.exec(`
