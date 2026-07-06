@@ -188,9 +188,9 @@ async function scoreBatch(batch, p, parents, children, parentSet, childSet, outc
 }
 
 // 批次快篩。jobs:DB row 陣列。回 [{id, score, verdict, reason}]
-// batchSize 預設 4:一批越大、prompt 越大,走慢 proxy(直連 Gemini 額度爆時)越容易撞 75s 死線後才拆單案、超浪費。
-// 4 案約 45-55s < 75s → 每批直接打完,不必等 timeout。Gemini 健康時 4 案也秒回(只是請求數略多)。
-export async function triageJobs(jobs, { batchSize = 4, paceMs = 0, onProgress, onBatch, outcomeNote = '', mode = 'idle' } = {}) {
+// batchSize 預設 2(2026-07 實測降速):NAS proxy 吞吐掉到 ~100s/2 案,4 案一批必撞 150s 逾時
+// → 拆單案重試更浪費。2 案一批穩落在逾時內;Gemini 直連健康時 2 案也秒回(只是請求數略多)。
+export async function triageJobs(jobs, { batchSize = 2, paceMs = 0, onProgress, onBatch, outcomeNote = '', mode = 'idle' } = {}) {
   const p = loadProfile();
   const parents = parentVocab(), children = childVocab();
   const parentSet = new Set(parents), childSet = new Set(children);
