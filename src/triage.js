@@ -165,9 +165,10 @@ export function extractArray(s) {
 async function scoreBatch(batch, p, parents, children, parentSet, childSet, outcomeNote, mode) {
   const byId = new Map(batch.map((j) => [String(j.id), j])); // 給 win 硬上限查 job 用
   const out = [];
-  // timeoutMs 75s:快篩是背景任務,走 proxy 時 NAS 端會排隊(實測單發 ~11s、排隊高峰可疊到 40-60s),
-  // 預設 35s 在共用高峰會誤殺整批 → 拆單案重試,反而更慢。背景等得起,放寬。
-  const raw = await askAI(buildPrompt(batch, p, parents, children, outcomeNote, mode), { provider: PROVIDER, tier: TIER, timeoutMs: 75000 });
+  // timeoutMs 150s:快篩是背景任務。2026-07 實測 NAS proxy 吞吐:18.6KB 批次 prompt(4 案)要 90-120s+,
+  // 35s/75s 都會誤殺整批 → 拆單案重試 → 更慢的惡性循環。背景等得起,放寬到 150s。
+  // (Gemini 直連健康時 1-2s/批,這條慢路只是備援;根治靠換有效的 Gemini key。)
+  const raw = await askAI(buildPrompt(batch, p, parents, children, outcomeNote, mode), { provider: PROVIDER, tier: TIER, timeoutMs: 150000 });
   const arr = extractArray(raw);
   for (const r of arr || []) {
     if (!r || r.id == null) continue;

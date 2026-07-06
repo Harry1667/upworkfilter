@@ -240,10 +240,11 @@ function msUntilDailyRun() {
   if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
   return next - now;
 }
-// 🧹 殭屍清理:殺掉跑超過 120s 的 proxy_call.py(正常呼叫遠 <90s;更久=卡死,會佔住共用 proxy
-// 連線池讓後續全失敗「Command failed」)。每 90s 掃一次,純保險(根因防護是 _analyzing 鎖)。
+// 🧹 殭屍清理:殺掉跑超過 170s 的 proxy_call.py(2026-07 實測:快篩批次走慢 proxy 可到 120s+、
+// 逾時上限已放寬到 150s,清理門檻必須比它高,否則會誤殺合法慢呼叫;更久=卡死,
+// 會佔住共用 proxy 連線池讓後續全失敗「Command failed」)。每 90s 掃一次,純保險。
 function reapStuckProxyCalls() {
-  execFile('bash', ['-c', "ps -eo pid,etimes,args 2>/dev/null | awk '/[p]roxy_call\\.py/ && $2>120 {print $1}' | xargs -r kill -9"], () => { /* 靜默,失敗不影響服務 */ });
+  execFile('bash', ['-c', "ps -eo pid,etimes,args 2>/dev/null | awk '/[p]roxy_call\\.py/ && $2>170 {print $1}' | xargs -r kill -9"], () => { /* 靜默,失敗不影響服務 */ });
 }
 
 function scheduleDailyTriage() {
