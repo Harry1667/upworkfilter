@@ -1298,9 +1298,9 @@ function pageAgents() {
 
   <div class="asec">
     <h2>🔑 Gemini API Key(直連設定)</h2>
-    <p class="reason">直連 Gemini 是最快的路(~1-2s,繞過 clip)。<b>付費 key</b> 無每日額度上限、最穩(會計費,看用量約 $1-3/月);<b>免費 key</b> 會撞每日額度 → 掉回 clip 備援。原則:<b>平常關付費走免費($0);坐下來認真看案時開付費(秒回)。</b></p>
+    <p class="reason">直連 Gemini 是最快的路(~1-2s,繞過 clip)。<b>背景快篩永遠只用免費 key 池</b>,不會動付費 key;<b>付費 key</b> 只給聊天/單案分析在你開啟時使用。原則:<b>平常關付費走免費($0);坐下來認真看案時開付費(秒回)。</b></p>
     <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin:8px 0">
-      <input type="checkbox" id="paidEn" style="width:18px;height:18px"> <b>啟用付費 key</b>（開=只用付費秒回 · 關=只用免費/clip,$0）
+      <input type="checkbox" id="paidEn" style="width:18px;height:18px"> <b>啟用付費 key</b>（只影響聊天/單案分析；快篩仍只用免費池）
     </label>
     <div class="reason" style="margin-top:6px">付費 key <span id="paidStat"></span></div>
     <input id="paidKey" placeholder="貼上付費(已開 billing)的 Gemini API key" style="width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px;font:13px monospace">
@@ -4348,7 +4348,7 @@ createServer(async (req, res) => {
         hasPaid: !!paid,
         paidLast4: paid ? paid.slice(-4) : '',
         paidEnabled: !!k.paidEnabled,
-        envFallbackCount: paid || (k.freeKeys || []).length ? 0 : (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').filter((s) => s.trim()).length,
+        envFallbackCount: paid || (k.freeKeys || []).length ? 0 : (process.env.GEMINI_FREE_API_KEYS || process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').filter((s) => s.trim()).length,
       }));
     }
     if (url.pathname === '/api/ai-keys' && req.method === 'POST') {

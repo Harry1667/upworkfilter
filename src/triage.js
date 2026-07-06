@@ -168,7 +168,7 @@ async function scoreBatch(batch, p, parents, children, parentSet, childSet, outc
   // timeoutMs 150s:快篩是背景任務。2026-07 實測 NAS proxy 吞吐:18.6KB 批次 prompt(4 案)要 90-120s+,
   // 35s/75s 都會誤殺整批 → 拆單案重試 → 更慢的惡性循環。背景等得起,放寬到 150s。
   // (Gemini 直連健康時 1-2s/批,這條慢路只是備援;根治靠換有效的 Gemini key。)
-  const raw = await askAI(buildPrompt(batch, p, parents, children, outcomeNote, mode), { provider: PROVIDER, tier: TIER, timeoutMs: 150000 });
+  const raw = await askAI(buildPrompt(batch, p, parents, children, outcomeNote, mode), { provider: PROVIDER, tier: TIER, timeoutMs: 150000, keyMode: 'free' });
   const arr = extractArray(raw);
   for (const r of arr || []) {
     if (!r || r.id == null) continue;
