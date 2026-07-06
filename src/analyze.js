@@ -249,12 +249,11 @@ async function oneGeminiCall(prompt, key, opts = {}) {
 async function callGeminiDirect(prompt, keys, opts = {}) {
   let lastErr;
   const maxTries = Math.max(keys.length, 6);
-  // 2026-07 驗屍:Google 改版後「每分鐘限速」和「日額度用罄」的 429 都帶
-  // "current quota...plan and billing" 字樣 → 舊的 fast-fail 把短窗限速誤判成日額度死透,
-  // 瞬間跳過全部 key 退去慢 proxy(而 5 把 key 共用同一專案額度池,連發本身又灌爆池)。
-  // 改用訊息裡的 "Please retry in Xs" 當唯一判準:短窗(≤60s)= 等它過就好;
-  // 沒給或超長 = 真的日額度爆 → 快速換 key,全爆退 proxy。
-  let waited = 0; // 最多等 2 次短窗,守住互動路徑(聊天)的反應時間;背景快篩等這一下就活了
+  // 2026-07 實測驗屍:這批 key 共用同一個 Google 專案、免費額度只有每天 20 次
+  // (429 訊息 "limit: 20"),而且訊息裡的 "Please retry in Xs" 是假提示——
+  // 全靜默 70 秒後照樣 429,等它毫無意義。所以 429 一律快速換 key、全爆立刻退 proxy;
+  // 只有訊息明寫 PerMinute(真正的分鐘窗)才值得等一下。
+  let waited = 0; // 分鐘窗最多等 2 次,守住互動路徑(聊天)的反應時間
   for (let attempt = 0; attempt < maxTries; attempt++) {
     const key = keys[_gkIdx++ % keys.length]; // round-robin
     try { return await oneGeminiCall(prompt, key, opts); }
@@ -262,15 +261,13 @@ async function callGeminiDirect(prompt, keys, opts = {}) {
       lastErr = e;
       const msg = String(e.message);
       if (/\b429\b/.test(msg)) {
-        const m = msg.match(/retry in ([\d.]+)\s*s/i);
-        const retryS = m ? parseFloat(m[1]) : null;
-        if (retryS != null && retryS <= 60 && waited < 2) {
+        const m = /PerMinute/i.test(msg) ? msg.match(/retry in ([\d.]+)\s*s/i) : null;
+        if (m && waited < 2) {
           waited++;
-          await new Promise((r) => setTimeout(r, Math.min(retryS + 1, 30) * 1000));
-          attempt--; // 等完窗重試不消耗次數(同一把 key 即可,池是共用的)
-          continue;
+          await new Promise((r) => setTimeout(r, Math.min(parseFloat(m[1]) + 1, 30) * 1000));
+          attempt--; // 等完真分鐘窗重試不消耗次數(池是共用的,同把 key 即可)
         }
-        continue; // 沒短窗資訊/已等過 → 視為日額度用罄,快速換下一把 key
+        continue; // 其餘 429 = 日額度用罄 → 快速換下一把,全爆退 proxy(別空等假提示)
       }
     }
   }
