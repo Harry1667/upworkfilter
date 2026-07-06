@@ -33,6 +33,10 @@ export function winCapFor(j) {
   // Gemini review:connect 漲價,門檻 12/15 → 16/18
   if (cr != null && cr >= 18) cap -= 15;
   else if (cr != null && cr >= 16) cap -= 10;
+  // 2026-07 Fix script 事故:列表頁抓的描述被截斷(~385字),Mandatory skills 的 n8n 根本不在文內,
+  // AI 快篩看殘文給了 60。描述 <500 字 = 很可能缺 Mandatory/Skills 區塊 → win 不給高,標記去補全文。
+  // (近 2 天實測 41% 進案是這種殘文,不是個案。)
+  if (String(j.description || '').length < 500) cap = Math.min(cap, 55);
   return Math.max(0, cap);
 }
 
@@ -43,6 +47,8 @@ export function winMissingSignals(j) {
   const miss = [];
   if (j.client_hire_rate == null) miss.push('雇用率');
   if (toNum(j.connects_required) == null) miss.push('需Connects');
+  // 描述殘缺 = 評分根本沒看到 Mandatory skills 等區塊(列表頁截斷),比缺客戶數據更致命
+  if (String(j.description || '').length < 500) miss.push('完整描述');
   return miss;
 }
 
@@ -82,11 +88,14 @@ function userBrief(p) {
 }
 
 function jobLine(j) {
+  const desc = String(j.description || '').replace(/\s+/g, ' ');
+  // 描述殘缺警示:列表頁截斷的殘文常缺 Mandatory skills 區塊(Fix script 事故:n8n 在完整頁才看得到)
+  const shortWarn = desc.length < 500 ? `\n  ⚠️ 描述僅 ${desc.length} 字(列表頁截斷,很可能缺 Mandatory skills/To Apply 區塊)→ win 要保守、reason 註明「資料不全,先補全文」` : '';
   return `[id:${j.id}] ${j.title || ''}\n` +
     `  預算:${j.budget_text || '?'} | 提案數:${j.proposals_bucket || '?'} | 付款驗證:${j.payment_verified ? '是' : '否'} | ` +
     `客戶花費:${j.client_spent_text || '?'} | 客戶評分:${j.client_rating ?? '?'} | 雇用率:${j.client_hire_rate ?? '?'}%\n` +
-    `  經驗等級:${j.experience_level || '?'} | 投案需 Connects:${j.connects_required ?? '?'}\n` +
-    `  內容:${String(j.description || '').replace(/\s+/g, ' ').slice(0, 700)}`;
+    `  經驗等級:${j.experience_level || '?'} | 投案需 Connects:${j.connects_required ?? '?'}${shortWarn}\n` +
+    `  內容:${desc.slice(0, 1400)}`;
 }
 
 export function buildPrompt(jobs, p, parents, needs, outcomeNote = '') {
@@ -97,6 +106,7 @@ export function buildPrompt(jobs, p, parents, needs, outcomeNote = '') {
 ④ 【Required 覆蓋率(不是只看最強項)】把 JD 的「Must-have / Required」逐項拆出,對照他的能力邊界。只要有「他沒做過或深度 1-2 的核心 Required 項」(例:live voice agent / WebRTC 即時語音),win 就要下修、reason 點名該缺口 —— 能力總分高 ≠ 覆蓋每個 Required,別被 4/5 命中騙高分。
 ⑤ 【道歉測試(2026-07 鐵律,從 8 筆零回應提案驗屍得出)】想像他寫 cover letter 的第一段:如果**必須先說「我沒用過 X,但可以用別的方式」才能投**(X = 標題或 Required 明列的核心工具,如 ManyChat/Make/Streamlit/React Native),這案就是「要道歉的案」→ verdict 直接略過、win ≤ 15、reason 寫「核心工具 X 需道歉,別投」。0 評價新人 + 開頭道歉 = 秒刷,他過去 8 筆全靜音有 7 筆栽在這。
 ⑥ 【提案數紀律】他的主戰場是提案 <10 的案:10-20 → win ≤ 35;reason 提醒「偏擁擠」。
+⑦ 【資料不全 → 不給高分】內容標了「⚠️ 描述僅 N 字」的案 = 列表頁截斷的殘文,Mandatory skills / To Apply 可能整段看不到(實案:n8n 藏在完整頁,殘文評 60 分害人)→ win ≤ 55、score 保守,reason 開頭標「資料不全,先按書籤補全文再判」。看不到的東西當作可能藏雷,不當作沒有。
 
 🚨 【勝率硬規則 — 必須嚴格遵守】
 這位使用者**剛起步**:已完成 1 個案($450 earnings)、ID 已驗證,但**尚無公開星評/JSS**(客戶瀏覽時看起來仍接近新手)。所以勝率仍受壓,但比純 0 評價略好。即使能力 100% 符合,你的 win 估計**必須**套用以下硬上限:
