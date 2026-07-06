@@ -35,6 +35,21 @@ export function capabilityBrief(p) {
     (p.capability?.scaleCeiling ? `\n規模上限:${p.capability.scaleCeiling}` : '');
 }
 
+// 身分與語言資產(性別/母語/口說程度/居住地相關的硬事實)— 供求職信判斷「身分門檻」用。
+// 欄位缺失時安全跳過(舊 profile 沒有 languageAssets 也不會 crash)。
+function languageAssetsBrief(p) {
+  const la = p.languageAssets;
+  if (!la || typeof la !== 'object') return '';
+  const bits = [];
+  if (la.gender) bits.push(`性別:${la.gender}`);
+  if (la.nativeLanguage) bits.push(`母語:${la.nativeLanguage}`);
+  if (la.english) bits.push(`英文:${la.english}`);
+  if (la.taiwanese) bits.push(`台語:${la.taiwanese}`);
+  if (la.notes) bits.push(`備註:${la.notes}`);
+  if (!bits.length) return '';
+  return `身分與語言資產(硬事實,判斷「身分門檻」用 — JD 若限定跟這些不符的身分,直接視為不符,不是「profile 可能沒記全」的保留):\n${bits.map((b) => `- ${b}`).join('\n')}`;
+}
+
 // 把檔案濃縮成 prompt 用的文字
 function profileBrief(p) {
   const port = (p.portfolio || []).map((x) => `- ${x.name}(${x.type}):${x.desc}`).join('\n');
@@ -49,6 +64,7 @@ function profileBrief(p) {
     `自介:${p.bio || ''}`,
     `技能:${(p.skills || []).join(', ')}`,
     capBrief,
+    languageAssetsBrief(p),
     `作品集:\n${port}`,
     proven ? `已證明能力(GitHub 真實 repo,優先當證據):\n${proven}` : '',
     // 🌱 經驗存摺 — 已完成的 Upwork/接案實戰(有評價/收入,是最強的社會證明,寫信時優先引用)
@@ -79,10 +95,11 @@ function negotiationPlaybookBrief(p) {
 function jobBrief(job) {
   return [
     `標題:${job.title || ''}`,
+    job.category ? `分類:${job.category}` : '',
     `預算:${job.budget_text || '未知'}|提案數:${job.proposals_bucket || '?'}|付款驗證:${job.payment_verified ? '是' : '否'}`,
     `客戶:花費 ${job.client_spent_text || '?'}、評分 ${job.client_rating ?? '無'}、聘用率 ${job.client_hire_rate ?? '?'}%`,
     `描述:${(job.description || '').slice(0, 2000)}`
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 // ① 求職信(英文 cover letter) — 套 SOP 5 段結構 + 誠實提弱點
@@ -95,6 +112,13 @@ ${profileBrief(p)}
 
 職缺:
 ${jobBrief(job)}
+
+【身分與語言邊界 — 最優先,先判斷這一段,再決定要不要往下寫】
+- 身分門檻:JD 出現性別限定(如 Female only / seeking a woman)、要求非我母語的母語者、或限定居住地/需 on-site 而我不符 → **不要往下寫求職信**,只輸出下面這一行、不要輸出其他任何文字:
+  ⛔ 身分門檻不符([原因]),這案別投
+- 語言案(職缺屬於翻譯 / 配音 / 中文教學 / 在地協助這類語言類工作):信要主打「native Mandarin speaker from Taiwan」+ 交付可靠 + 回應速度快;GitHub / 開發作品最多帶一句帶過,不要主打。**絕對禁止**出現「you're looking for someone else / this isn't the right fit for me」這類拒絕客戶的話 —— 這種案子只有兩種結果:好好寫一封語言案的信,或者身分真的不符時照上面規則輸出 ⛔,沒有第三種。
+- 證據白名單:只能引用「我的檔案」裡實際列出的專案名 / 連結 / 設備 / 已完成的樣本;**禁止發明** repo 名稱、設備型號(如麥克風型號)、已經錄好/準備好的樣本這類 profile 沒有的資產。真的沒有就寫「can prepare this upon request」,不要假裝已經有。
+- 報價紀律:信裡**不要主動報價**;如果 JD 明確要求在信裡回答費用或時程,金額必須貼近客戶預算量級,**不可以喊到超過客戶預算 2 倍以上**(跟投標策略欄位的報價互相矛盾,客戶會起疑)。
 
 【寫作 SOP — 嚴格遵守】
 依案子訊號**精準**選長度(寧短勿長,雇主看不完就跳過):
@@ -249,6 +273,9 @@ ${profileBrief(p)}
 5. 結尾一個針對此案的具體技術問題(邀請對方回覆)
 
 最終版守則:
+- 【身分門檻,最優先】JD 有性別限定 / 要求非我母語的母語者 / 限定居住地而「身分與語言資產」不符 → 丟棄 3 份草稿,只輸出一行「⛔ 身分門檻不符([原因]),這案別投」,不要輸出信。
+- 【證據白名單】只能引用「我的檔案」實際列出的專案 / 連結 / 設備 / 樣本;writer 草稿裡發明的 repo 名、設備型號、已備好的樣本一律刪掉或改成 can prepare upon request。
+- 語言案(翻譯/配音/中文教學/在地協助)→ 主打 native Mandarin speaker from Taiwan + 可靠交付,開發作品最多一句;禁止任何「你找錯人」式拒絕文。
 - 自然像「真人工程師在跟客戶聊」,真實 GitHub URL(github.com/${p.githubUser || 'Harry1667'}),禁 [PLACEHOLDER]
 - 沒做過的技術不可撒謊;只提客戶會發現的弱點;**只主打一個作品,別堆技能/作品清單**
 - 禁浮誇/罐頭詞(10x / vibe coder / perfect fit / cutting-edge / passionate / game-changer / I'm confident)、禁套版開頭
@@ -360,6 +387,7 @@ JD 出現 "Do not apply if..." / "You have not personally..." / "non-negotiable"
 - applyRequirements 逐條列出,前綴「🔴 資格門檻:」,並各自標注 profile 有無**直接證據**(相鄰經驗 ≠ 直接證據:例如 Flutter 上架 ≠ React Native 上架、會 PostgreSQL ≠ 某 SaaS production 實戰)。
 - 有缺口時 winStrategy 講真話:「客戶明說這種情況別投,可能第一眼被刷掉」+ 提醒使用者確認自己是否真有該經驗(profile 可能沒記全,有就先補 profile 再投)。投不投由使用者決定,不要直接判死。
 - cover letter 絕不可把相鄰經驗包裝成客戶點名的那項經驗;只能誠實寫實際做過什麼。
+- **身分條件例外(性別 / 母語 / 居住地這類)**:一律列 🔴 資格門檻,並直接對照下方「我的檔案」裡的身分與語言資產判斷 —— 這種是事實、不是「profile 可能沒記全」的保留。例如 JD 限定 Female / 限定非我母語的母語者 / 限定居住地或需 on-site 而我不符 → winStrategy **直接建議略過**,不要留給使用者「自行確認」的模糊空間。
 
 【🚦 新手能見度評分(關鍵)— 從職缺描述抓 Activity 段算】
 這是 0 評價新手最關鍵的判斷,因為投了沒人看 = 燒 Connects 等於白燒。從描述找:
@@ -426,6 +454,7 @@ export function screeningPrompt(job, p) {
 - 逐條當資格門檻查,meet 只認 profile **直接證據**;相鄰經驗(Flutter 上架 vs React Native 上架、PostgreSQL vs 某 SaaS production)不算「符合」也不寫「勉強符合」,寫「profile 無直接證據 — 若實際做過,先補進 profile」。
 - overall 講真話(哪幾條缺證據、風險是被客戶第一眼刷掉),但**不要因此自動判「不建議投」** —— 使用者可能有 profile 沒記到的經驗,overallNote 要提醒他自行確認。
 - answer 不得說謊、不得把相鄰經驗偽裝成該項經驗;可誠實寫「用過 X(同類技術),該項工具/平台未在 production 用過」。
+- **身分條件(性別/母語/居住地)是事實不是保留**:對照「我的檔案」的身分與語言資產,不符合就 hard=true、meet="不符合"、overall 直接寫「不建議投」,不要留給使用者自行確認。
 
 只輸出 JSON,不要 markdown 圍欄:
 {
