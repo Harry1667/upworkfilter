@@ -4231,8 +4231,9 @@ createServer(async (req, res) => {
       Object.assign(job, scoreJob(job, loadConfig()));
       upsertJob(db, job); // last_seen 自動更新 → 資料新鮮度重置
       // 重抓後補跑該案 AI 快篩,讓 AI 分數/勝率也吃到最新競爭(blocked 的不浪費 AI)
+      // 🗣️ 語言案不進 AI 快篩(同 run-triage/批次快篩的排除:開發顧問人格會亂殺語言案)
       let aiScore = null, aiWin = null;
-      if (!job.blocked) {
+      if (!job.blocked && job.category !== '語言案') {
         try {
           const fresh = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id);
           const { triageJobs } = await import('./triage.js');

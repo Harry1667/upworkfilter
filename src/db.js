@@ -574,8 +574,9 @@ export function setAiVerdict(db, id, score, verdict, win, tags, category) {
     }
   } catch { /* 防呆失敗不擋正常寫入 */ }
   const tagStr = Array.isArray(tags) ? tags.join(',') : (tags ?? null);
+  // 空字串一律當 null:COALESCE 擋不住 '',否則會把已設好的 tags/category(如 語言案)洗掉
   db.prepare('UPDATE jobs SET ai_score = ?, ai_verdict = ?, ai_win = ?, tags = COALESCE(?, tags), category = COALESCE(?, category) WHERE id = ?')
-    .run(score ?? null, verdict ?? null, win ?? null, tagStr, category ?? null, id);
+    .run(score ?? null, verdict ?? null, win ?? null, tagStr || null, category || null, id);
 }
 
 // 學習迴路:標記投標結果
