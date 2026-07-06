@@ -278,38 +278,52 @@ async function callGeminiDirect(prompt, keys, opts = {}) {
 // opts.keyMode:
 // - free:只用免費 key 池,絕不動 paidKey(背景快篩專用,防止自動任務燒錢)
 // - paid:只用 paidKey(互動救急/手動分析)
-// - auto/default:付費開關 ON → paidKey;OFF → 免費池
+// - auto/default:永遠先用免費池;付費開關 ON 時,免費池全失敗後才用 paidKey
 // .env 支援新名字 GEMINI_FREE_API_KEYS / GEMINI_PAID_API_KEY;舊 GEMINI_API_KEYS 當免費池 fallback。
 const KEYS_PATH = path.join(ROOT, 'ai-keys.json');
-export function loadGeminiKeys(opts = {}) {
+function loadGeminiKeyConfig() {
   try {
     if (existsSync(KEYS_PATH)) {
       const k = JSON.parse(readFileSync(KEYS_PATH, 'utf8'));
-      const free = (k.freeKeys || []).map((s) => String(s).trim()).filter(Boolean);
-      const paid = String(k.paidKey || '').trim();
-      if (opts.keyMode === 'free') return free;
-      if (opts.keyMode === 'paid') return paid ? [paid] : [];
-      if (process.env.GEMINI_PAID_ALLOWED === '1' && k.paidEnabled && paid) return [paid];
-      if (free.length) return free;
+      return {
+        free: (k.freeKeys || []).map((s) => String(s).trim()).filter(Boolean),
+        paid: String(k.paidKey || '').trim(),
+        paidEnabled: !!k.paidEnabled,
+      };
     }
   } catch { /* 壞檔不擋,退 .env */ }
   try { if (existsSync(ENV_PATH)) process.loadEnvFile(ENV_PATH); } catch { /* ignore */ }
-  const freeEnv = (process.env.GEMINI_FREE_API_KEYS || process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean);
-  const paidEnv = String(process.env.GEMINI_PAID_API_KEY || '').trim();
-  if (opts.keyMode === 'free') return freeEnv;
-  if (opts.keyMode === 'paid') return paidEnv ? [paidEnv] : [];
-  if (process.env.GEMINI_PAID_ALLOWED === '1' && process.env.GEMINI_PAID_ENABLED === '1' && paidEnv) return [paidEnv];
-  return freeEnv;
+  return {
+    free: (process.env.GEMINI_FREE_API_KEYS || process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').map((s) => s.trim()).filter(Boolean),
+    paid: String(process.env.GEMINI_PAID_API_KEY || '').trim(),
+    paidEnabled: process.env.GEMINI_PAID_ENABLED === '1',
+  };
+}
+
+export function loadGeminiKeys(opts = {}) {
+  const cfg = loadGeminiKeyConfig();
+  if (opts.keyMode === 'paid') return cfg.paid ? [cfg.paid] : [];
+  return cfg.free;
 }
 
 // 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
 export async function askAI(prompt, opts = {}) {
-  // 直連 Gemini 優先(快、繞過 clip);用哪些 key 由 loadGeminiKeys 決定(付費開關/免費/.env)
-  const gkeys = loadGeminiKeys(opts);
+  // 直連 Gemini 優先(快、繞過 clip)。auto 路徑永遠先跑免費池;
+  // 只有免費池全部失敗且付費備援開關 ON,才會碰 paidKey。
+  const keyCfg = loadGeminiKeyConfig();
+  const gkeys = opts.keyMode === 'paid' ? (keyCfg.paid ? [keyCfg.paid] : []) : keyCfg.free;
   if (gkeys.length) {
-    // 直連 Gemini 優先(快、無 60s 上限);失敗(每分鐘撞限 / 每日額度用罄)→ 退回共用 proxy
     try { return await callGeminiDirect(prompt, gkeys, opts); }
-    catch (e) { console.error(`⚠️ Gemini 直連失敗(${String(e.message).slice(0, 80)})→ 退回共用 proxy 鏈`); }
+    catch (e) {
+      const msg = String(e.message).slice(0, 80);
+      if (opts.keyMode !== 'free' && opts.keyMode !== 'paid' && keyCfg.paidEnabled && keyCfg.paid) {
+        console.error(`⚠️ Gemini 免費池失敗(${msg})→ 使用付費備援 key`);
+        try { return await callGeminiDirect(prompt, [keyCfg.paid], { ...opts, keyMode: 'paid' }); }
+        catch (e2) { console.error(`⚠️ Gemini 付費備援也失敗(${String(e2.message).slice(0, 80)})→ 退回共用 proxy 鏈`); }
+      } else {
+        console.error(`⚠️ Gemini 直連失敗(${msg})→ 退回共用 proxy 鏈`);
+      }
+    }
   }
   const env = loadEnv();
   // 明確指定 provider 且不許 fallback(如共識模式)→ 只打那個

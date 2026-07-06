@@ -1298,7 +1298,10 @@ function pageAgents() {
 
   <div class="asec">
     <h2>🔑 Gemini API Key(直連設定)</h2>
-    <p class="reason">直連 Gemini 是最快的路(~1-2s,繞過 clip)。目前採用<b>免費池優先</b>:背景快篩、聊天、單案分析都走免費 key;免費池全限流時才退回 clip 備援。付費 key 已鎖定關閉,只留作緊急備援。</p>
+    <p class="reason">直連 Gemini 是最快的路(~1-2s,繞過 clip)。目前採用<b>免費池優先</b>:背景快篩永遠只走免費 key;聊天/單案分析先走免費池,只有免費池全失敗且你開啟下方備援開關,才會使用付費 key。</p>
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin:8px 0">
+      <input type="checkbox" id="paidEn" style="width:18px;height:18px"> <b>允許付費備援</b>（只限聊天/單案分析；免費池用完後才用）
+    </label>
     <div class="reason" style="margin-top:6px">付費 key <span id="paidStat"></span></div>
     <input id="paidKey" placeholder="貼上付費(已開 billing)的 Gemini API key" style="width:100%;background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:9px;font:13px monospace">
     <div class="reason" style="margin-top:10px">免費 keys(一行一把):</div>
@@ -1310,13 +1313,14 @@ function pageAgents() {
       fetch('/api/ai-keys').then(function(r){return r.json()}).then(function(j){
         if(!j||!j.ok)return;
         el('freeKeys').value=j.freeKeys||'';
-        el('paidStat').textContent=j.hasPaid?('已存(尾碼 '+j.paidLast4+')，目前鎖定關閉'):(j.envFallbackCount?('(目前用 .env 的 '+j.envFallbackCount+' 把免費 key)'):'(未設)');
+        el('paidEn').checked=!!j.paidEnabled;
+        el('paidStat').textContent=j.hasPaid?('已存(尾碼 '+j.paidLast4+')，'+(j.paidEnabled?'備援已開':'備援關閉')):(j.envFallbackCount?('(目前用 .env 的 '+j.envFallbackCount+' 把免費 key)'):'(未設)');
       });
       el('saveKeys').onclick=function(){
         var m=el('keyMsg');m.textContent='儲存中…';
-        fetch('/api/ai-keys',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({freeKeys:el('freeKeys').value,paidKey:el('paidKey').value})})
+        fetch('/api/ai-keys',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({freeKeys:el('freeKeys').value,paidKey:el('paidKey').value,paidEnabled:el('paidEn').checked})})
           .then(function(r){return r.json()}).then(function(j){
-            if(j.ok){m.textContent='✅ 已儲存 · 走免費池/clip($0),付費鎖定關閉';el('paidKey').value='';setTimeout(function(){location.reload()},1100);}
+            if(j.ok){m.textContent='✅ 已儲存 · '+(j.paidEnabled?'免費池失敗後允許付費備援':'只走免費池/clip($0)');el('paidKey').value='';setTimeout(function(){location.reload()},1100);}
             else m.textContent='❌ '+(j.error||'失敗');
           }).catch(function(e){m.textContent='❌ '+e.message});
       };
@@ -4355,9 +4359,9 @@ createServer(async (req, res) => {
       if (body.clearPaid) k.paidKey = '';
       // 只有送進「真的新 key」才覆蓋(空字串或遮罩 •••• 不動,避免把現有 key 洗掉)
       else if (body.paidKey != null && body.paidKey.trim() && !/^[•*]+/.test(body.paidKey)) k.paidKey = body.paidKey.trim();
-      // 付費 Gemini 預設鎖定關閉:避免背景/互動路徑因誤觸開始計費。
-      // 真的要開,需先在伺服器環境明確設 GEMINI_PAID_ALLOWED=1。
-      k.paidEnabled = process.env.GEMINI_PAID_ALLOWED === '1' && !!body.paidEnabled;
+      // 付費 Gemini 只是備援開關:askAI 永遠先跑免費池;只有免費池全部失敗後才會用 paidKey。
+      // 背景快篩固定傳 keyMode=free,不受這個開關影響。
+      if (body.paidEnabled != null) k.paidEnabled = !!body.paidEnabled;
       try {
         writeFileSync(AI_KEYS_PATH, JSON.stringify(k, null, 2));
         res.writeHead(200, { 'content-type': 'application/json' });
