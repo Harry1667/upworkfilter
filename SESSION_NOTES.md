@@ -152,3 +152,30 @@
 **refresh bug(31061d6):** /api/refresh-job 是唯一漏「語言案不進 AI 快篩」的路徑,會把語言案打 0 分+洗掉 category;setAiVerdict 空字串繞過 COALESCE 也修了。4 個受害案已還原。
 
 **即時數據教訓:** 16 案刷新後 7 案現形為紅海(DB 快照「<5 提案」實際 50+)。投前必 refresh。
+
+---
+
+## 2026-07-06(深夜) Sia 提案 + 追蹤/刷新閉環
+
+**✅ 完成**
+- Sia rental app($300 trial)提案包:誠實攤牌版求職信+三題答案 → 桌面`提案-sia-rental-app.md`(用完刪);NearSafe 三屏 demo HTML(中/英雙版,桌面 nearsafe-demo*.html),英文版當 portfolio+附件;portfolio 文案已給。
+- 生成守門審計閉環(見上節):5 錯誤模式修正已部署+驗收 3/3(Female案⛔/男聲配音正確人格/台語案⛔有據)。
+- 一鍵投案追蹤(e774ebb):job 頁+收件匣卡片「✅ 我投了」直接建追蹤。
+- 數據年齡警示+刷新佇列+本機看門狗(e774ebb):job 頁顯示「📡 數據更新於 X 小時前」(6h黃/12h紅),過期自動入佇列;`npm run refresh:watch` 本機消化(網站有📋複製指令按鈕);E2E 驗證佇列拉取/失敗不卡死 OK。
+- advicePrompt:bid 禁嵌套 JSON;visibility 抓不到 Activity 段退回用結構化欄位(proposals/experience/connects,jobBrief 已補)。
+
+**🔄 未完成 / 卡住**
+- **GStack 瀏覽器 Upwork session 斷了**(今日 19 次自動載入後被 Cloudflare 盯上,403 challenge):需在 GStack 視窗手動過 Cloudflare+登入 Upwork,之後看門狗才能動。教訓:別批量刷,一天個位數分散刷。
+- Sia 提案使用者填表中(付款方式 By project/時長 1 to 3 months/附件/highlights 清單已給);投出後要在 job 頁按「✅ 我投了」— 投案追蹤第一筆。
+
+**💡 決策**
+- Do not apply if 資格門檻:經驗類=標紅燈但使用者決定;**身分類(性別/母語/居住地)=直接判死**(languageAssets 是事實)。
+- profile.json 新增 languageAssets,**本機+伺服器兩份都要改**(不進版控)。
+- 提案數快照會過期騙人(16 案刷出 7 紅海)→ 投前必刷新。
+
+**🚀 下次起點**
+1. 確認 GStack 視窗已登入 Upwork(壞了跑 /connect-chrome),測 `npm run refresh:watch`。
+2. 問 Sia 投了沒 → job 頁按「✅ 我投了」開始追蹤;等客戶回應。
+3. 佇列在 job 頁自動累積,看門狗開著就會消化。
+
+**📁 檔案**:src/web.js·db.js·assist.js·refresh-watch.js(新)·package.json;伺服器 HEAD=e774ebb;桌面三個交付檔(提案md/demo html×2)
