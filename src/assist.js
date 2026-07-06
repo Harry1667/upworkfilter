@@ -355,6 +355,12 @@ export function advicePrompt(job, p) {
   return `你是 Upwork 接案顧問。根據「我的檔案」和「這個職缺的完整描述」,產出投標要填的內容。
 **特別注意**:仔細讀描述裡的「To Apply / Required / 申請方式 / 篩選問題」段落 —— 很多案有特殊投標要求(要錄影片回答、要按指定格式寫一個專案說明、要回答特定問題、地點/資格偏好)。**務必抓出來,別讓使用者漏掉**。
 
+【Do not apply if / must-have 資格條款 — 標紅燈,但別替使用者做決定】
+JD 出現 "Do not apply if..." / "You have not personally..." / "non-negotiable" 這類資格條款時:
+- applyRequirements 逐條列出,前綴「🔴 資格門檻:」,並各自標注 profile 有無**直接證據**(相鄰經驗 ≠ 直接證據:例如 Flutter 上架 ≠ React Native 上架、會 PostgreSQL ≠ 某 SaaS production 實戰)。
+- 有缺口時 winStrategy 講真話:「客戶明說這種情況別投,可能第一眼被刷掉」+ 提醒使用者確認自己是否真有該經驗(profile 可能沒記全,有就先補 profile 再投)。投不投由使用者決定,不要直接判死。
+- cover letter 絕不可把相鄰經驗包裝成客戶點名的那項經驗;只能誠實寫實際做過什麼。
+
 【🚦 新手能見度評分(關鍵)— 從職缺描述抓 Activity 段算】
 這是 0 評價新手最關鍵的判斷,因為投了沒人看 = 燒 Connects 等於白燒。從描述找:
 - "Proposals" 數(<10 / 10-30 / 30-50 / 50+)
@@ -415,6 +421,11 @@ export function screeningPrompt(job, p) {
 - 「能不能 24 小時內支援/修 bug」
 - 「是否從零打造過、自己想出解法而不只是照指令 coding」
 不符合就老實說不符合,並反映在 overall;不要硬凹。
+
+若 JD 有 "Do not apply if" 負向資格條款(如 "You have not personally shipped/used ..."):
+- 逐條當資格門檻查,meet 只認 profile **直接證據**;相鄰經驗(Flutter 上架 vs React Native 上架、PostgreSQL vs 某 SaaS production)不算「符合」也不寫「勉強符合」,寫「profile 無直接證據 — 若實際做過,先補進 profile」。
+- overall 講真話(哪幾條缺證據、風險是被客戶第一眼刷掉),但**不要因此自動判「不建議投」** —— 使用者可能有 profile 沒記到的經驗,overallNote 要提醒他自行確認。
+- answer 不得說謊、不得把相鄰經驗偽裝成該項經驗;可誠實寫「用過 X(同類技術),該項工具/平台未在 production 用過」。
 
 只輸出 JSON,不要 markdown 圍欄:
 {
