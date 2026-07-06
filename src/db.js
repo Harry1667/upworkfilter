@@ -117,6 +117,8 @@ export function openDb() {
   try { db.exec('ALTER TABLE jobs ADD COLUMN blocked INTEGER DEFAULT 0'); } catch { /* 已存在 */ }
   // 🗑️ 使用者 skip 掉的案:記 id(墓碑),刪掉 jobs 列 + 之後重抓不再寫回(見 upsertJob 守門)
   try { db.exec('CREATE TABLE IF NOT EXISTS dismissed_jobs (id TEXT PRIMARY KEY, ts TEXT)'); } catch { /* 已存在 */ }
+  // 📡 本機刷新佇列:網站排「數據過期需重抓」的案,本機看門狗(refresh-watch.js)輪詢取走執行
+  try { db.exec('CREATE TABLE IF NOT EXISTS refresh_queue (job_id TEXT PRIMARY KEY, requested_at TEXT)'); } catch { /* 已存在 */ }
   // 💬 聊天 agent 對話紀錄(原本只在瀏覽器 localStorage,清掉/換裝置就沒)→ 存 DB 持久化、可回看
   try { db.exec('CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, convo_id TEXT, role TEXT, content TEXT, ts TEXT)'); } catch { /* 已存在 */ }
   // ⚙️ 全域設定(key-value)— 目前只放接案狀態模式(work_mode:idle/busy),未來可擴充其他全域設定
@@ -360,6 +362,21 @@ export function updateApplication(db, id, patch) {
 }
 export function deleteApplication(db, id) {
   db.prepare('DELETE FROM applications WHERE id=?').run(id);
+}
+
+// ── refresh_queue helpers:網站排 → 本機看門狗輪詢處理(見 web.js /api/refresh-queue/*、src/refresh-watch.js) ──
+export function queueRefresh(db, jobId) {
+  const now = new Date().toISOString();
+  db.prepare('INSERT OR REPLACE INTO refresh_queue (job_id, requested_at) VALUES (?, ?)').run(jobId, now);
+}
+export function getRefreshQueueEntry(db, jobId) {
+  return db.prepare('SELECT * FROM refresh_queue WHERE job_id = ?').get(jobId);
+}
+export function nextRefreshQueueItem(db) {
+  return db.prepare('SELECT * FROM refresh_queue ORDER BY requested_at ASC LIMIT 1').get();
+}
+export function removeRefreshQueueItem(db, jobId) {
+  db.prepare('DELETE FROM refresh_queue WHERE job_id = ?').run(jobId);
 }
 export function applicationStats(db) {
   const rows = db.prepare('SELECT status, COUNT(*) as n FROM applications GROUP BY status').all();

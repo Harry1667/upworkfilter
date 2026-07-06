@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays, dismissJob, addChatMessage, listChatConvos, getChatMessages, getSetting, setSetting } from './db.js';
+import { openDb, markApplied, allJobs, upsertJob, setAiVerdict, setOutcome, upsertInvite, allInvites, getInvite, setInviteAi, setInviteStatus, addLesson, listLessons, setLessonEnabled, deleteLesson, addApplication, listApplications, getApplication, updateApplication, deleteApplication, applicationStats, addAnchor, listAnchors, setAnchorEnabled, deleteAnchor, addTrackRecord, listTrackRecord, getTrackRecord, updateTrackRecord, deleteTrackRecord, trackRecordStats, listNegotiationPlays, dismissJob, addChatMessage, listChatConvos, getChatMessages, getSetting, setSetting, queueRefresh, getRefreshQueueEntry, nextRefreshQueueItem, removeRefreshQueueItem } from './db.js';
 
 // 📌 loadProfileWithLessons — profile + 啟用中的 lessons + anchors,每個 prompt 都會看到
 function loadProfileWithLessons() {
@@ -34,6 +34,8 @@ try { if (existsSync(path.join(__dirname, '..', '.env'))) process.loadEnvFile(pa
 const PORT = Number(process.env.PORT) || 8787;
 const HOST = process.env.HOST || '127.0.0.1';
 const db = openDb();
+// 📋 一鍵複製的看門狗啟動指令 — 單一使用者系統,硬編他的本機專案路徑沒關係(見 refresh-watch.js)
+const WATCH_CMD = 'cd /Users/gomigo/Documents/0-Dev/1-WebDev/Doing/upworkfilter/upwork-job-finder && npm run refresh:watch';
 
 // ── 共用驗證服務 hdw-auth(auth.twloop.com)整合 ──
 // 後端打 /auth/login 拿 JWT → 存 HttpOnly cookie → 每次請求用 /auth/verify 驗(加快取省往返)
@@ -2049,9 +2051,12 @@ function pageInbox(hoursOverride) {
   const total = items.length;
   const refreshUrl = isWidened ? `/inbox?hours=${hours}` : '/inbox';
   const loadedAt = new Date().toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  // ✅ 一次查出已建投案追蹤的 job_id,卡片初始就顯示已建狀態(避免逐張查 DB)
+  const appliedIds = new Set(db.prepare('SELECT job_id FROM applications WHERE job_id IS NOT NULL').all().map((r) => r.job_id));
   const cardsHtml = items.map((it, i) => {
     const { j, ev, win } = it;
     const sid = jid(j.id);
+    const hasApp = appliedIds.has(j.id);
     const missSig = win != null ? winMissingSignals(j) : [];
     const winBadge = win != null
       ? `<span class="ib-b ${winCls(win)}" title="${missSig.length ? `缺 ${esc(missSig.join('、'))} → 樂觀估計,投前按書籤校正` : '中標機率(AI 估)'}">🎯 ${win}%${missSig.length ? '<b style="margin-left:2px">⚠️估</b>' : ''}</span>`
@@ -2087,6 +2092,7 @@ function pageInbox(hoursOverride) {
       </div>
       <div class="ib-mini">
         <button onclick="ibFav('${sid}',this)" title="收藏">❤️ 收藏</button>
+        <button onclick="ibMarkApplied('${sid}',this)" ${hasApp ? 'disabled' : ''} title="投了就按這個建投案追蹤">${hasApp ? '✅ 已建追蹤' : '✅ 我投了'}</button>
         <a href="${esc(cleanUrl(j))}" data-url="${esc(cleanUrl(j))}" onclick="return cp(event,this)" title="複製 Upwork 連結">📋 複製連結</a>
         <a href="/job?id=${sid}" target="_blank" rel="noopener">🔎 完整評估 →</a>
       </div>
@@ -2182,6 +2188,21 @@ function pageInbox(hoursOverride) {
     btn.disabled = true;
     try { await fetch('/api/job/favorite?id=' + id + '&fav=1', { method: 'POST' }); btn.textContent = '❤️ 已收藏'; }
     catch (e) { btn.disabled = false; }
+  }
+  // ✅ 一鍵建投案追蹤紀錄(帶 job id/title/url,對齊 /api/applications schema)
+  async function ibMarkApplied(id, btn){
+    if (btn.disabled) return;
+    btn.disabled = true;
+    var card = btn.closest('.ib-card');
+    var title = card ? card.querySelector('.ib-title').textContent : '';
+    var url = card ? card.querySelector('.ib-mini a').getAttribute('data-url') : location.href;
+    try {
+      var r = await fetch('/api/applications', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ job_id: id, job_title: title, notes: url }) });
+      var j = await r.json();
+      btn.textContent = j.ok ? '✅ 已建追蹤' : '❌ 失敗';
+      if (!j.ok) btn.disabled = false;
+    } catch (e) { btn.textContent = '❌ 失敗'; btn.disabled = false; }
   }
   // 鍵盤快捷:1=寫信、2=稍後、3=跳過。輸入框/textarea 聚焦時不觸發(details 展開不算輸入框)
   document.addEventListener('keydown', function(e){
@@ -2992,11 +3013,15 @@ function winRateAnalysis(job, ev) {
 }
 
 // 共用:單一案頂部資訊列(評估/提案頁共用)
-function jobBarHtml(job, active) {
+function jobBarHtml(job, active, hasApp) {
   const sid = jid(job.id); // XSS 安全化
   const back = active === '/proposal' ? `<a href="/job?id=${sid}">← 回評估</a>` : `<a href="/">← 回列表</a>`;
   const outcomes = ['', '已投待回', '已回覆', '面試中', '已錄取', '沒回/落選'];
   const opts = outcomes.map((o) => `<option value="${esc(o)}"${(job.outcome || '') === o ? ' selected' : ''}>${o || '— 投標結果 —'}</option>`).join('');
+  // ✅ 一鍵投案追蹤(只在 /job 詳情頁放,③ 提案頁已有帶 cover letter 的版本)
+  const appBtn = active === '/job'
+    ? `<button id="markAppBtn" onclick="markApplied2('${sid}')" ${hasApp ? 'disabled' : ''} style="background:${hasApp ? '#30363d' : '#d29922'};color:${hasApp ? '#7ee2a8' : '#fff'};border:0;border-radius:6px;padding:4px 12px;font-size:13px;cursor:${hasApp ? 'default' : 'pointer'}">${hasApp ? '✅ 已建追蹤' : '✅ 我投了'}</button>`
+    : '';
   return `<div class="jobbar">
     ${back}
     <a href="${esc(cleanUrl(job))}" data-url="${esc(cleanUrl(job))}" onclick="return copyUpwork(event,this)" title="複製 Upwork 連結,自己貼到網址列開啟(登入版)">📋 複製 Upwork 連結</a>
@@ -3004,6 +3029,7 @@ function jobBarHtml(job, active) {
     <button id="favBtn" onclick="favThis('${sid}')" title="收藏案件" style="background:none;border:1px solid var(--bd);border-radius:6px;padding:4px 12px;font-size:14px;cursor:pointer">${job.favorited ? '❤️ 已收藏' : '🤍 收藏'}</button>
     <button onclick="markPrivate('${sid}')" title="點進去發現 Access denied / 私案 / 已 hire?點這個直接 SKIP" style="background:#3d1e1e;color:#f85149;border:1px solid #f85149;border-radius:6px;padding:4px 10px;font-size:13px;cursor:pointer">🔒 標為私案 / 已關閉</button>
     <select onchange="setOutcome('${sid}',this.value)" style="background:#0d1117;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-size:13px">${opts}</select>
+    ${appBtn}
   </div>
   <script>
     function setOutcome(id,v){fetch('/api/outcome?id='+id+'&outcome='+encodeURIComponent(v),{method:'POST'});}
@@ -3016,6 +3042,19 @@ function jobBarHtml(job, active) {
       var b=document.getElementById('favBtn');var on=b.textContent.indexOf('❤️')>=0;var newVal=on?0:1;
       await fetch('/api/job/favorite?id='+id+'&fav='+newVal,{method:'POST'});
       b.textContent=newVal?'❤️ 已收藏':'🤍 收藏';
+    }
+    // ✅ 一鍵建投案追蹤紀錄(帶 job id/title/url,對齊 /api/applications schema)
+    async function markApplied2(id){
+      var btn=document.getElementById('markAppBtn');if(!btn||btn.disabled)return;
+      var h2=document.querySelector('h2');var title=h2?h2.textContent:document.title;
+      btn.disabled=true;btn.textContent='處理中…';
+      try{
+        var r=await fetch('/api/applications',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({job_id:id,job_title:title,notes:location.href})});
+        var j=await r.json();
+        if(j.ok){btn.style.background='#30363d';btn.style.color='#7ee2a8';btn.textContent='✅ 已建追蹤';}
+        else{btn.disabled=false;btn.textContent='❌ 失敗,再試一次';}
+      }catch(e){btn.disabled=false;btn.textContent='❌ 失敗,再試一次';}
     }
   </script>`;
 }
@@ -3037,6 +3076,13 @@ function pageJob(id) {
   const aid = String(id).replace(/[^\w-]/g, '');
   const hasAnalysis = existsSync(path.join(__dirname, '..', `upwork-${aid}-analysis.html`));
   const age = ageInfo(job.last_seen);
+  const hasApp = !!db.prepare('SELECT 1 FROM applications WHERE job_id = ?').get(job.id); // ✅ 投案追蹤:初始就顯示已建狀態
+  // 📡 數據新鮮度(小時)— ≥12h 紅色、≥6h 黃色,提醒提案數等快照可能已過期
+  const lastSeenMs = job.last_seen && !isNaN(Date.parse(job.last_seen)) ? new Date(job.last_seen).getTime() : null;
+  const hoursSince = lastSeenMs != null ? (Date.now() - lastSeenMs) / 3600000 : null;
+  const freshColor = hoursSince == null ? 'var(--mut)' : hoursSince >= 12 ? '#f85149' : hoursSince >= 6 ? '#d29922' : '#7ee2a8';
+  const freshText = hoursSince == null ? '未知' : hoursSince < 1 ? `${Math.round(hoursSince * 60)} 分鐘前` : `${Math.round(hoursSince)} 小時前`;
+  const needsRefresh = hoursSince != null && hoursSince >= 6; // >6h 前端載入時自動排入刷新佇列
   const core = [
     ['預算', job.budget_text], ['類型', job.budget_type],
     [age.stale ? '提案數(抓取時·恐已增)' : '提案數(抓取時)', job.proposals_bucket],
@@ -3071,7 +3117,7 @@ function pageJob(id) {
 <header>
   <h1>② 評估案件 <span class="sub">${verdictLine}</span></h1>
   ${navBar('/job', job.id)}
-  ${jobBarHtml(job, '/job')}
+  ${jobBarHtml(job, '/job', hasApp)}
 </header>
 <main>
   <h2 style="margin-top:4px">${esc(job.title)}</h2>
@@ -3091,7 +3137,10 @@ function pageJob(id) {
        <p><button class="save" onclick="genAn()">🌐 產生 AI 詳細分析</button> <span id="anmsg" class="reason"></span></p>`}
   </div>
 
-  <h2>核心數據 <button class="save" style="background:#30363d;padding:5px 12px;font-size:12px;font-weight:400" onclick="refreshLive()">🔄 抓即時數據</button> <span id="rfmsg" class="reason"></span></h2>
+  <h2>核心數據 <button class="save" style="background:#30363d;padding:5px 12px;font-size:12px;font-weight:400" onclick="refreshLive()">🔄 抓即時數據</button>
+    <span style="color:${freshColor};font-size:13px;font-weight:600;margin-left:8px">📡 數據更新於 ${esc(freshText)}</span>
+    <button class="save" style="background:#30363d;padding:3px 9px;font-size:12px;margin-left:6px;font-weight:400" onclick="copyWatchCmd(this)" title="複製本機刷新看門狗啟動指令,貼到終端機跑">📋 複製看門狗指令</button>
+    <span id="rfmsg" class="reason"></span></h2>
   ${age.stale ? `<div class="worth bad">📸 競爭數據是「${age.text}抓的快照」。提案數/面試數會隨時間暴增(尤其熱門案)— <b>投標前務必到 Upwork 看即時 Proposals / Interviewing</b>,別只信這裡的「${esc(job.proposals_bucket || '?')}」。客戶花費/評分/預算等則穩定可信。</div>` : ''}
   <div class="cards">${coreCards}</div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0;font-size:13px">
@@ -3137,7 +3186,19 @@ function pageJob(id) {
 </main>
 <script>
   const ID=${JSON.stringify(jid(job.id))}, AID=${JSON.stringify(aid)};
+  const WATCH_CMD=${JSON.stringify(WATCH_CMD)};
   let anTimer;
+  // 📋 一鍵複製本機看門狗啟動指令(job 詳情頁徽章旁 + 刷新排隊訊息都會用到)
+  function copyWatchCmd(btn){
+    var orig=btn.textContent;
+    navigator.clipboard.writeText(WATCH_CMD).then(function(){
+      btn.textContent='✅ 已複製';setTimeout(function(){btn.textContent=orig;},1500);
+    }).catch(function(){btn.textContent='❌ 複製失敗';setTimeout(function(){btn.textContent=orig;},1500);});
+  }
+  // 📡 數據 >6h 沒更新 → 載入時自動排入本機刷新佇列,不用等使用者手動按
+  if (${needsRefresh ? 'true' : 'false'}) {
+    fetch('/api/refresh-queue/add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})}).catch(function(){});
+  }
   async function markJob(id,a){await fetch('/api/mark?id='+id+'&applied='+(a?1:0),{method:'POST'});}
   function fit(f){try{f.style.height=(f.contentWindow.document.body.scrollHeight+40)+'px';}catch(e){}}
   function showIframe(){clearInterval(anTimer);document.getElementById('anwrap').innerHTML=
@@ -3160,7 +3221,7 @@ function pageJob(id) {
     try{var r=await fetch('/api/refresh-job',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:ID})});
       var j=await r.json();
       if(j.ok){m.textContent='✅ 已更新,重整中…';setTimeout(function(){location.reload();},600);}
-      else if(j.needLocal){m.innerHTML='⚠️ '+j.msg;}
+      else if(j.needLocal){m.innerHTML='⚠️ '+j.msg+' <button class="save" style="background:#30363d;padding:3px 9px;font-size:12px" onclick="copyWatchCmd(this)">📋 複製看門狗指令</button>';}
       else m.textContent='❌ '+(j.error||'失敗');}
     catch(e){m.textContent='❌ '+e.message;}}
   async function patchJob(){var m=document.getElementById('patchmsg');
@@ -3524,6 +3585,17 @@ function agentJobView(j) {
 
 // parseRelativePosted 已抽到 src/ingest.js
 
+// 📡 排入本機刷新佇列 — 同一案 1 小時內已排過就不重複插(避免每次載入/每次點都刷新 requested_at)
+function enqueueRefreshIfStale(dbi, jobId) {
+  const existing = getRefreshQueueEntry(dbi, jobId);
+  const oneHourAgo = Date.now() - 3600000;
+  if (!existing || !existing.requested_at || new Date(existing.requested_at).getTime() < oneHourAgo) {
+    queueRefresh(dbi, jobId);
+    return true;
+  }
+  return false;
+}
+
 // 資料新鮮度:距 last_seen(最後一次抓到)多久。超過 3 小時 → 提案/競爭數據可能已過時。
 function ageInfo(iso) {
   if (!iso || isNaN(Date.parse(iso))) return { text: '未知', stale: true };
@@ -3715,12 +3787,15 @@ createServer(async (req, res) => {
     // /api/ingest 用 INGEST_KEY(擴充套件);其餘頁面/API 一律要登入(hdw-auth JWT cookie)
     // /api/refresh-job 帶正確 key 時(本機 gstack 腳本用)免 cookie 驗證,比照 ingest
     const refreshWithKey = url.pathname === '/api/refresh-job' && process.env.INGEST_KEY && url.searchParams.get('key') === process.env.INGEST_KEY;
+    // 📡 本機看門狗(refresh-watch.js)輪詢/回報用 INGEST_KEY,免 cookie(比照 refresh-job)
+    const refreshQueueWithKey = (url.pathname === '/api/refresh-queue/next' || url.pathname === '/api/refresh-queue/done')
+      && process.env.INGEST_KEY && url.searchParams.get('key') === process.env.INGEST_KEY;
     // 擴充功能也可以用 INGEST_KEY 直接 push invites(不用登入)
     const inviteIngestWithKey = url.pathname === '/api/invites/ingest' && req.method === 'POST' && process.env.INGEST_KEY && (url.searchParams.get('key') === process.env.INGEST_KEY || req.headers['x-ingest-key'] === process.env.INGEST_KEY);
     // 🤖 CLI AI 唯讀通道:/api/agent/read/* 帶正確 AGENT_KEY 免登入(只讀,不改任何東西)
     const agentRead = url.pathname.startsWith('/api/agent/read/') && req.method === 'GET'
       && process.env.AGENT_KEY && (url.searchParams.get('key') === process.env.AGENT_KEY || req.headers['x-agent-key'] === process.env.AGENT_KEY);
-    if (url.pathname !== '/api/ingest' && !refreshWithKey && !inviteIngestWithKey && !agentRead) {
+    if (url.pathname !== '/api/ingest' && !refreshWithKey && !refreshQueueWithKey && !inviteIngestWithKey && !agentRead) {
       const user = await requireAuth(req, res, url.pathname.startsWith('/api/'));
       if (!user) return;
     }
@@ -4220,9 +4295,10 @@ createServer(async (req, res) => {
       if (!row) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"找不到此案"}'); }
       let fresh = live && Object.keys(live).length ? live : null;
       if (!fresh) {
-        // TODO(API 啟用後):用官方 API detail 抓即時 totalApplicants。目前 API 未過 → 引導本機重抓。
+        // TODO(API 啟用後):用官方 API detail 抓即時 totalApplicants。目前 API 未過 → 排入本機看門狗佇列。
+        enqueueRefreshIfStale(db, id);
         res.writeHead(200, { 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ ok: false, needLocal: true, msg: `雲端目前無法直接抓即時數據(需官方 API 或本機 gstack)。請在本機跑:npm run refresh -- ${id}` }));
+        return res.end(JSON.stringify({ ok: false, needLocal: true, msg: '已排入刷新佇列,本機跑著 npm run refresh:watch 就會自動更新。' }));
       }
       const job = { ...row, payment_verified: !!row.payment_verified, enriched: !!row.enriched };
       for (const k of ['proposals_bucket', 'client_hire_rate', 'client_rating', 'client_reviews', 'client_jobs_posted', 'client_spent_text', 'client_spent_usd', 'posted_at', 'experience_level', 'connects_required']) {
@@ -4243,6 +4319,27 @@ createServer(async (req, res) => {
       }
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, verdict: job.verdict, competition: job.scores?.competition, proposals_bucket: job.proposals_bucket, blocked: job.blocked, ai_score: aiScore, ai_win: aiWin }));
+    }
+    // 📡 刷新佇列 — 網站排「數據過期」的案,本機看門狗(refresh-watch.js)輪詢處理
+    if (url.pathname === '/api/refresh-queue/add' && req.method === 'POST') {
+      // 登入後可用(已經過上面 requireAuth);同一案 1 小時內重複請求忽略
+      const { id } = JSON.parse(await readBody(req));
+      if (!id) { res.writeHead(400, { 'content-type': 'application/json' }); return res.end('{"ok":false,"error":"缺 id"}'); }
+      enqueueRefreshIfStale(db, id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
+    }
+    if (url.pathname === '/api/refresh-queue/next' && req.method === 'GET') {
+      // 免 cookie,key 驗證(本機看門狗輪詢用,見上方 refreshQueueWithKey)
+      const item = nextRefreshQueueItem(db);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(item ? { id: item.job_id } : {}));
+    }
+    if (url.pathname === '/api/refresh-queue/done' && req.method === 'POST') {
+      const { id } = JSON.parse(await readBody(req));
+      if (id) removeRefreshQueueItem(db, id);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true}');
     }
     if (url.pathname === '/api/patch-job' && req.method === 'POST') {
       // 單欄位快速更新:user 手動填入 connects_required / client_hire_rate,立即重算

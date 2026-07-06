@@ -17,7 +17,8 @@
     "enrich": "node src/enrich-gstack.js",
     "agent:profile": "node src/agents/profile-agent.js",
     "rescore": "node src/rescore.js",
-    "refresh": "node src/refresh-live.js"
+    "refresh": "node src/refresh-live.js",
+    "refresh:watch": "node src/refresh-watch.js"
   },
   "keywords": [],
   "author": "",

@@ -97,6 +97,8 @@ function jobBrief(job) {
     `標題:${job.title || ''}`,
     job.category ? `分類:${job.category}` : '',
     `預算:${job.budget_text || '未知'}|提案數:${job.proposals_bucket || '?'}|付款驗證:${job.payment_verified ? '是' : '否'}`,
+    job.experience_level ? `經驗等級要求:${job.experience_level}` : '',
+    job.connects_required != null ? `投標需要 Connects:${job.connects_required}` : '',
     `客戶:花費 ${job.client_spent_text || '?'}、評分 ${job.client_rating ?? '無'}、聘用率 ${job.client_hire_rate ?? '?'}%`,
     `描述:${(job.description || '').slice(0, 2000)}`
   ].filter(Boolean).join('\n');
@@ -375,9 +377,11 @@ export function advicePrompt(job, p) {
   const fullJob = [
     `標題:${job.title || ''}`,
     `預算:${job.budget_text || '未知'}|提案數:${job.proposals_bucket || '?'}|付款驗證:${job.payment_verified ? '是' : '否'}`,
+    job.experience_level ? `經驗等級要求:${job.experience_level}` : '',
+    job.connects_required != null ? `投標需要 Connects:${job.connects_required}` : '',
     `客戶:花費 ${job.client_spent_text || '?'}、評分 ${job.client_rating ?? '無'}、聘用率 ${job.client_hire_rate ?? '?'}%`,
     `完整描述:\n${(job.description || '').slice(0, 4000)}`
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   const win = job.ai_win != null ? `${job.ai_win}%` : '未估';
   return `你是 Upwork 接案顧問。根據「我的檔案」和「這個職缺的完整描述」,產出投標要填的內容。
 **特別注意**:仔細讀描述裡的「To Apply / Required / 申請方式 / 篩選問題」段落 —— 很多案有特殊投標要求(要錄影片回答、要按指定格式寫一個專案說明、要回答特定問題、地點/資格偏好)。**務必抓出來,別讓使用者漏掉**。
@@ -415,11 +419,11 @@ JD 出現 "Do not apply if..." / "You have not personally..." / "non-negotiable"
  "recentExperience":"英文段落(3-4句),貼進『Describe your recent experience』:引用 2-3 真實作品+技術,專業像真人,禁用 vibe coder/靠AI/10x",
  "githubLink":"${gh}",
  "profileHighlights":["挑 4 個最貼合的能力標籤(每個≤6字),排序:第 1 個最強最相關,最後 1 個補不同技術棧"],
- "bid":"報價建議,務必分兩段:(1)『新手搶單價』= 實際該 bid 的數字(${p.level || '0 評價新手'},貼近客戶預算或略高,$15 以下不建議會被當業餘)。(2)『有評價後的合理價』= 客觀值多少。比較客戶預算 vs profile rate $${p.hourlyRate || 20},一句話為何這樣報",
+ "bid":"報價建議,務必分兩段:(1)『新手搶單價』= 實際該 bid 的數字(${p.level || '0 評價新手'},貼近客戶預算或略高,$15 以下不建議會被當業餘)。(2)『有評價後的合理價』= 客觀值多少。比較客戶預算 vs profile rate $${p.hourlyRate || 20},一句話為何這樣報。輸出必須是一段純文字敘述,禁止輸出 JSON 物件/嵌套引號結構",
  "connectsBid":"Upwork Connects 競標建議(繁中 1 句):查 JD 旁的 bid 表 — 1st 位通常 50+ Connects 太貴新手不投;**建議 12-15 Connects 搶 2nd 位**(CP 最高);競爭少的爛單可 0 boost。例如:『建議 12 Connects 搶 2nd 名,1st 名 51 太貴』",
  "angle":"切入角度/差異化(1句)",
  "winStrategy":"根據上面中標率的務實建議(1-2句,繁中):低→值不值得投+差異化或略過;中→提高勝算一招;高→穩拿提醒",
- "visibility":"從 Activity 段抓出 4 個數字並評可見度(繁中):格式『Proposals X · Interviewing Y · Boost 1st Z Connects · 評級:極低/低/中/高』。如果 Interviewing ≥ 6 或 Boost 1st ≥ 100 → 加一句『新手不建議投,燒 Connects 無回報』。沒抓到資料就回『未提供,建議去 Upwork 查 Activity』",
+ "visibility":"從 Activity 段抓出 4 個數字並評可見度(繁中):格式『Proposals X · Interviewing Y · Boost 1st Z Connects · 評級:極低/低/中/高』。如果 Interviewing ≥ 6 或 Boost 1st ≥ 100 → 加一句『新手不建議投,燒 Connects 無回報』。**抓不到 Activity 段時不要直接回未提供**:退回用上面『職缺』資訊裡已有的結構化欄位(提案數 bucket / 經驗等級要求 / 投標需要 Connects)組出一個能評的版本(格式比照上面,標註『(推估,非即時 Activity)』);只有連這些結構化欄位也全部沒有時,才回『未提供,建議去 Upwork 查 Activity』",
  "applyRequirements":["這案的特殊投標要求,逐條短列(繁中,每條≤30字)。**重點偵測**:Required Video Questions(幾題、各題大綱)、Required Project + 多少 bullet(常見 12 點)、地區/經驗等級偏好、其他客戶自訂 screening。沒特殊要求回空陣列"],
  "videoScripts":["如果 JD 要錄影,**每題各給一段英文講稿大綱**(每段 30-100 字),套 SOP 標準回答模板:Q1 自我介紹用『Taiwan / CS background / Claude Code daily / ${(p.provenCapabilities||[]).length || 20}+ repos on GitHub / new on Upwork → overdeliver』。Q2 依問題客製,但講具體做法+數字。Q3 工時用『30-40 hrs/week sustained / UTC+8 flexible / priority list』。沒影片題回空陣列"],
  "requiredProjectAnswer":"如果 JD 要求『describe one project』類的 Required Project 答案(尤其列 12 點細節),**回 1 段繁中告訴使用者**:『建議獨立寫一份 .md 當附件,主打 AgentsHub(最強全端 + Claude 範例)。12 點是:short desc / what built / frontend / backend / complexity / UI strength / Claude tools / how used / AI-assisted / your reviews / time / time with Claude Code』。沒要求回空字串"
