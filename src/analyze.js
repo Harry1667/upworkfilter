@@ -228,7 +228,8 @@ function callProxy(env, prompt, opts = {}) {
 // 多把 key 輪替:分散免費額度的速率限制 + 跳過壞/被限流的 key。
 let _gkIdx = 0;
 async function oneGeminiCall(prompt, key, opts = {}) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const model = opts.model || 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs || 120000);
   try {
@@ -236,8 +237,9 @@ async function oneGeminiCall(prompt, key, opts = {}) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: ctrl.signal,
-      // thinkingBudget:0 關掉 Gemini 2.5 Flash 的思考(triage/分類不需要)→ 大幅降延遲
-      body: JSON.stringify({ contents: [{ parts: [{ text: String(prompt) }] }], generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }),
+      // thinkingBudget:0 關掉 Gemini 2.5 Flash 的思考(triage/分類不需要)→ 大幅降延遲;
+      // 品質模型(opts.model 指定新版)讓它照預設思考,寫提案/分析才有判斷力
+      body: JSON.stringify({ contents: [{ parts: [{ text: String(prompt) }] }], ...(opts.model ? {} : { generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }) }),
     });
     if (!r.ok) throw new Error(`Gemini API ${r.status}: ${(await r.text()).slice(0, 160)}`);
     const data = await r.json();
@@ -306,12 +308,26 @@ export function loadGeminiKeys(opts = {}) {
   return cfg.free;
 }
 
+// 🧠 看品質的呼叫(寫提案/大分析/回覆)先試的新版 Gemini,依序試、忙線就換下一個。
+// 2026-10-02 實測:proxy 不理會指定模型(會自己換成 gemini-2.5-flash),pro 系列免費 key 用不了(404/429),
+// 3.5/3.7 flash 可用但常 503 高負載 → 每個只試一次、失敗立刻退回穩定的 gemini-2.5-flash。可用 .env GEMINI_QUALITY_MODELS 覆蓋。
+const QUALITY_MODELS = (process.env.GEMINI_QUALITY_MODELS || 'gemini-3.7-flash,gemini-3.5-flash').split(',').map((s) => s.trim()).filter(Boolean);
+
 // 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
 export async function askAI(prompt, opts = {}) {
   // 直連 Gemini 優先(快、繞過 clip)。auto 路徑永遠先跑免費池;
   // 只有免費池全部失敗且付費備援開關 ON,才會碰 paidKey。
   const keyCfg = loadGeminiKeyConfig();
   const gkeys = opts.keyMode === 'paid' ? (keyCfg.paid ? [keyCfg.paid] : []) : keyCfg.free;
+  // 大量又便宜的(快篩 keyMode:'free'、驗證/功能掃描 cheap)不試新版,省額度也省時間
+  const wantQuality = gkeys.length && !opts.cheap && opts.keyMode !== 'free';
+  if (wantQuality) {
+    for (const model of QUALITY_MODELS) {
+      const key = gkeys[_gkIdx++ % gkeys.length];
+      try { return await oneGeminiCall(prompt, key, { ...opts, model, timeoutMs: Math.min(opts.timeoutMs || 90000, 90000) }); }
+      catch (e) { console.error(`⚠️ ${model} 失敗(${String(e.message).slice(0, 60)})→ 換下一個`); }
+    }
+  }
   if (gkeys.length) {
     try { return await callGeminiDirect(prompt, gkeys, opts); }
     catch (e) {

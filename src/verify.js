@@ -51,7 +51,7 @@ cover letter:
  ]
 }`;
   try {
-    const raw = await askAI(prompt);
+    const raw = await askAI(prompt, { cheap: true }); // 驗證是大量並發的檢查,用穩定快速的 2.5-flash
     const data = extractJson(raw);
     return data;
   } catch (e) {
@@ -133,7 +133,7 @@ S10. 長度精簡(預設 120-180 字;除非 JD 明確要 Required Project / 多�
   detRules.push({ id: 'D-question', desc: '結尾一個具體問題', status: hasQ ? 'followed' : 'broken', quote: hasQ ? '' : '沒有問號/問題', fix: hasQ ? '' : '結尾問一個針對此案的具體技術問題' });
 
   try {
-    const raw = await askAI(prompt);
+    const raw = await askAI(prompt, { cheap: true }); // 驗證是大量並發的檢查,用穩定快速的 2.5-flash
     const aiRes = extractJson(raw) || {};
     const rules = [...detRules, ...(aiRes.rules || [])];
     const detBroken = detRules.filter((r) => r.status === 'broken').length;
@@ -183,7 +183,7 @@ ${jobBrief}
  "verdict":"整體 1 句評(繁中):這封信值不值得貼 / 該怎麼改才能更強"
 }`;
   try {
-    const raw = await askAI(prompt);
+    const raw = await askAI(prompt, { cheap: true }); // 驗證是大量並發的檢查,用穩定快速的 2.5-flash
     return extractJson(raw);
   } catch (e) {
     console.error('Skeptic 失敗:', e.message);
@@ -215,7 +215,7 @@ ${existing || '(無)'}
  "candidates":[{"content":"硬規則(繁中,1 句,可以直接存為 lesson)","category":"honesty|tech|format|location|client-check|strategy|general"}]
 }`;
   try {
-    const raw = await askAI(prompt);
+    const raw = await askAI(prompt, { cheap: true }); // 驗證是大量並發的檢查,用穩定快速的 2.5-flash
     return extractJson(raw);
   } catch (e) {
     console.error('Lesson 萃取失敗:', e.message);
@@ -250,7 +250,7 @@ ${profileFacts(profile)}
  "summary":"整體評估(繁中 1 句):有幾個 contradicted / unverified,建議使用者改哪幾處"
 }`;
   try {
-    const raw = await askAI(prompt);
+    const raw = await askAI(prompt, { cheap: true }); // 驗證是大量並發的檢查,用穩定快速的 2.5-flash
     const data = extractJson(raw);
     return data;
   } catch (e) {
