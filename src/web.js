@@ -3784,6 +3784,21 @@ createServer(async (req, res) => {
       res.writeHead(302, { Location: '/login', 'set-cookie': authCookie(req, '') });
       return res.end();
     }
+    // 🔐 Upwork MCP OAuth 客戶端說明檔(Client ID Metadata Document)— 必須公開,Upwork 授權伺服器會來讀。
+    // client_id 就是這份檔案的網址;不含任何秘密(公開 client,靠 PKCE)。新版 Next.js 站接手後搬過去。
+    if (url.pathname === '/oauth/client-metadata.json') {
+      const self = 'https://upworkfilter.looptw.com/oauth/client-metadata.json';
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'public, max-age=300' });
+      return res.end(JSON.stringify({
+        client_id: self,
+        client_name: 'upworkfilter (private, read-only)',
+        client_uri: 'https://upworkfilter.looptw.com',
+        redirect_uris: ['http://localhost:8787/oauth/callback', 'http://127.0.0.1:8787/oauth/callback', 'https://upworkfilter.looptw.com/oauth/callback'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none'
+      }));
+    }
     // /api/ingest 用 INGEST_KEY(擴充套件);其餘頁面/API 一律要登入(hdw-auth JWT cookie)
     // /api/refresh-job 帶正確 key 時(本機 gstack 腳本用)免 cookie 驗證,比照 ingest
     const refreshWithKey = url.pathname === '/api/refresh-job' && process.env.INGEST_KEY && url.searchParams.get('key') === process.env.INGEST_KEY;
