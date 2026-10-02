@@ -308,20 +308,7 @@ export function loadGeminiKeys(opts = {}) {
 
 // 共用:給 prompt → 回 AI 文字(其他 AI 功能重用)
 export async function askAI(prompt, opts = {}) {
-  // 2026-10-02 實測 proxy:claude/openai 不論指定哪個模型,一律由 gpt-5.6-sol 回答;gemini 只剩 flash-lite(指定 pro 會報錯)。
-  // 所以 'claude' 只是 openai 的別名 → 統一改打 openai,省掉同一模型重試兩次的逾時。
-  if (opts.provider === 'claude') opts = { ...opts, provider: 'openai' };
-  // 明確指定 provider 且不許 fallback(如共識模式)→ 只打那個
-  if (opts.noFallback && opts.provider) return callProxy(loadEnv(), prompt, opts);
-  // 🧠 品質優先(預設):寫提案/大分析/回覆這類「看文筆與判斷」的,先走 proxy 的 gpt-5.6-sol(比 gemini-2.5-flash 強),
-  // 失敗才退 Gemini 直連。大量又便宜的(快篩/驗證/功能掃描)帶 opts.cheap 或 keyMode,維持 Gemini 免費池優先。
-  const qualityFirst = !opts.cheap && opts.keyMode !== 'free' && opts.keyMode !== 'paid';
-  if (qualityFirst) {
-    // loadEnv 放在 try 裡:沒設 proxy token(只用 Gemini key)時照樣退回 Gemini,不整個掛掉
-    try { return await callProxy(loadEnv(), prompt, { ...opts, provider: 'openai', tier: opts.tier || 'high', timeoutMs: opts.timeoutMs || 120000 }); }
-    catch (e) { console.error(`⚠️ proxy gpt-5.6 失敗/逾時(${String(e.message).slice(0, 60)})→ 退回 Gemini 直連`); }
-  }
-  // 直連 Gemini(快、繞過 clip)。auto 路徑永遠先跑免費池;
+  // 直連 Gemini 優先(快、繞過 clip)。auto 路徑永遠先跑免費池;
   // 只有免費池全部失敗且付費備援開關 ON,才會碰 paidKey。
   const keyCfg = loadGeminiKeyConfig();
   const gkeys = opts.keyMode === 'paid' ? (keyCfg.paid ? [keyCfg.paid] : []) : keyCfg.free;
@@ -339,14 +326,15 @@ export async function askAI(prompt, opts = {}) {
     }
   }
   const env = loadEnv();
+  // 明確指定 provider 且不許 fallback(如共識模式)→ 只打那個
+  if (opts.noFallback && opts.provider) return callProxy(env, prompt, opts);
   // 🔗 proxy fallback 鏈:輪詢多個 provider,誰先回用誰。
   // 為什麼是鏈、不寫死單一:共用 proxy 每天「哪個 provider 健康/夠快」會變
   // (實測 2026-06-17 claude 401 掛、openai 行;06-18 反過來 claude 4s、openai/gemini timeout)。
   // 每個短逾時 → 慢/掛的快速跳過換下一個;指定了 opts.provider 就把它排第一個試。
   const chain = [];
   if (opts.provider) chain.push(opts.provider);
-  for (const p of ['openai', 'gemini']) if (!chain.includes(p)) chain.push(p);
-  if (qualityFirst) chain.splice(chain.indexOf('openai'), 1); // 品質優先時 openai 剛試過失敗,別再等一次
+  for (const p of ['claude', 'openai', 'gemini']) if (!chain.includes(p)) chain.push(p);
   const perTry = opts.timeoutMs || 35000; // 每個 provider 上限,慢就跳過(claude 健康時 ~4s、openai ~20s)
   let lastErr;
   for (const provider of chain) {
