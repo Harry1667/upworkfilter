@@ -3275,7 +3275,7 @@ function pageProposal(id) {
   ${warnBanner}
   <p>
     <button class="save" id="go" onclick="gen()">✨ 產生提案</button>
-    <button class="save" style="background:#6e7681;margin-left:6px" onclick="gen('consensus')" title="3 個 AI 各寫一版求職信,把差異標出來。多花約 30 秒,但能看出 AI 哪邊不確定">🤝 三 AI 比對版</button>
+    <button class="save" style="background:#6e7681;margin-left:6px" onclick="gen('consensus')" title="GPT-5.6 與 Gemini 各寫一版求職信,把差異標出來。多花約 30 秒,但能看出 AI 哪邊不確定">🤝 雙模型比對版</button>
     <span id="st" class="reason"></span>
   </p>
 
@@ -3292,7 +3292,7 @@ function pageProposal(id) {
 
   <div class="sect" id="clsect" style="display:none">
     <div id="consensusbox" style="display:none;margin-bottom:14px;background:#0d1117;border:1px solid #9d7cd8;border-radius:10px;padding:14px">
-      <div style="margin-bottom:10px"><b style="color:#9d7cd8">🤝 多模型共識</b><span style="color:var(--mut);font-size:13px;margin-left:8px">3 個 AI 各跑一版,看哪邊有共識/分歧</span></div>
+      <div style="margin-bottom:10px"><b style="color:#9d7cd8">🤝 多模型共識</b><span style="color:var(--mut);font-size:13px;margin-left:8px">GPT-5.6 與 Gemini 各跑一版,看哪邊有共識/分歧</span></div>
       <div id="consensusList"></div>
     </div>
     <h2>✍️ 求職信(英文,可複製)</h2>
@@ -3365,7 +3365,7 @@ function pageProposal(id) {
   }
   async function gen(mode){const btn=document.getElementById('go'),st=document.getElementById('st');
     const descOverride=(document.getElementById('descOv').value||'').trim();
-    btn.disabled=true;st.textContent='產生中…('+(mode==='consensus'?'🤝 3 模型共識,約 60-90 秒':'求職信 + 策略 + 篩選問題作戰區,約30-60秒')+')';
+    btn.disabled=true;st.textContent='產生中…('+(mode==='consensus'?'🤝 雙模型共識,約 30-60 秒':'求職信 + 策略 + 篩選問題作戰區,約30-60秒')+')';
     const body=JSON.stringify({id:ID,descOverride:descOverride});
     const clUrl='/api/cover-letter'+(mode?'?mode='+mode:'?skipverify=1');
     // 安全解析:502/504 會回 HTML,直接 r.json() 會噴「Unexpected token <」→ 改成檢查 r.ok + try/catch,回友善訊息
@@ -4177,19 +4177,23 @@ createServer(async (req, res) => {
       // 🤝 多 agent 合議:
       // mode=single → 單 prompt 快版
       // mode=ensemble(預設) → 3 writer + 1 總編
-      // mode=consensus → 3 個 provider(claude/openai/gemini)各自跑完整 ensemble,共識比對
+      // mode=consensus → GPT-5.6 與 Gemini 各寫一版,共識比對
       const mode = url.searchParams.get('mode') || 'ensemble';
       let text = '';
       let consensus = null;
       if (mode === 'single') {
         text = await askAI(coverLetterPrompt(job, prof));
       } else if (mode === 'consensus') {
-        // 3 個 provider 平行各自跑單版 cover letter,差異越大 = 越不確定 = 風險
-        const providers = ['claude', 'openai', 'gemini'];
-        const results = await Promise.allSettled(providers.map(p => askAI(coverLetterPrompt(job, prof), { provider: p, noFallback: true })));
-        const outputs = results.map((r, i) => ({ provider: providers[i], text: r.status === 'fulfilled' ? r.value.trim() : `(${providers[i]} 失敗)`, ok: r.status === 'fulfilled' }));
-        // 預設用 claude 版做主稿,其他 2 個當共識參考
-        text = outputs.find(o => o.provider === 'claude' && o.ok)?.text || outputs.find(o => o.ok)?.text || '';
+        // 2 個真的不同的模型平行各寫一版,差異越大 = 越不確定 = 風險
+        // (proxy 上 claude/openai 都是 gpt-5.6-sol,三路其實只有兩個模型 → 改成 gpt-5.6 vs Gemini 直連)
+        const models = [
+          { provider: 'GPT-5.6', opts: { provider: 'openai', noFallback: true } },
+          { provider: 'Gemini 2.5 Flash', opts: { keyMode: 'free' } }
+        ];
+        const results = await Promise.allSettled(models.map(m => askAI(coverLetterPrompt(job, prof), m.opts)));
+        const outputs = results.map((r, i) => ({ provider: models[i].provider, text: r.status === 'fulfilled' ? r.value.trim() : `(${models[i].provider} 失敗)`, ok: r.status === 'fulfilled' }));
+        // GPT-5.6 版做主稿,Gemini 當共識參考
+        text = outputs.find(o => o.provider === 'GPT-5.6' && o.ok)?.text || outputs.find(o => o.ok)?.text || '';
         consensus = { outputs };
       } else {
         // 3 個 writer 平行(失敗的不算)

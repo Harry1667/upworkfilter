@@ -156,7 +156,7 @@ async function scanQuery(tax, query, jobs) {
   for (let i = 0; i < jobs.length; i += BATCH) {
     const batch = jobs.slice(i, i + BATCH);
     try {
-      const data = extractJson(await askAI(extractPrompt(query, batch)));
+      const data = extractJson(await askAI(extractPrompt(query, batch), { cheap: true }));
       if (!pinnedName) pinnedName = data?.category?.name?.trim() || query;
       data.category = { name: pinnedName }; // 釘住:所有批次合進同一大類
       const cat = mergeBatch(tax, query, data, batch);
