@@ -825,7 +825,7 @@ function pageJobs() {
     </select>
   </div>
 </header>
-<main>${cards || '<p style="color:var(--mut)">資料庫是空的。擴充套件抓到案子後會出現在這。</p>'}</main>
+<main>${cards || '<p style="color:var(--mut)">資料庫是空的。在 Claude Code 說「撈案」(upwork-mcp-fetch)把新案抓進來後會出現在這。</p>'}</main>
 <script>
   const cards=[...document.querySelectorAll('.card')];
   let verdictF='todo';
@@ -1604,12 +1604,12 @@ function pageGuide() {
   <div class="box"><b>一句話：</b>每天打開 → 🤖AI 快篩 → 看 🟢EV 榜 → 對前幾名按🔎書籤校正勝率 → ②評估 → 💬助手寫提案 → 投 → 標結果。<br>紀律：<b>少投早投投準、絕不亂 boost、衝第一個評價。</b></div>
 
   <h2>0. 這系統在幹嘛</h2>
-  <p>瀏覽器擴充功能在你真實 Upwork session 抓案 → 餵進這站 → 四道門漏斗評分 + AI 重排 → 列出「最值得投」的案，並幫你寫提案、追蹤投標結果回頭校正。</p>
+  <p>Upwork 官方 MCP 用你的帳號撈案(Claude Code 說「撈案」)→ 餵進這站 → 四道門漏斗評分 + AI 重排 → 列出「最值得投」的案，並幫你寫提案、追蹤投標結果回頭校正。</p>
   <p><b>核心理念：能力分高 ≠ 接得到。</b>前兩道門問「該不該做」，後兩道門問「0 評價新手搶不搶得到」。系統寧可少推、也不讓你燒 Connects 投不可能的案。</p>
 
   <h2>1. 一次性設定（裝一次）</h2>
   <ol>
-    <li><b>擴充功能</b>(Upwork-Job-Scraper)裝在 Chrome → 每 15 分自動抓案。<b>前提：Chrome 要開著</b>。</li>
+    <li><b>Upwork MCP</b>：Claude Code 裡跑過 <code>claude mcp add --transport http --scope user upwork https://mcp.upwork.com/mcp</code> 並用 <code>/mcp</code> 登入。之後說「撈案」就會抓 Upwork 推薦給你的新案 + 語言案進來。(舊的 Upwork-Job-Scraper 擴充功能已停用)</li>
     <li><b>書籤</b>：到 <a href="/analyze">🔎 即時分析</a> 把「🔎 Analyze this job」拖到書籤列。之後在任何 Upwork 案件頁點它 → 一鍵帶資料來分析 / 補真數據。</li>
     <li>鐵則：<b>AI 只在你打開網站時才跑</b>(省 token)。每天要真的打開它幾分鐘。</li>
   </ol>
@@ -1938,7 +1938,7 @@ function pageWorklist() {
     <p>🪹 清單空了 — 該抓新案了。</p>
     <p style="color:var(--mut);font-size:13px;line-height:1.7">
       這裡會排出 <b>所有你做得來、還沒投</b> 的案。空了代表 DB 裡的案都投過或被能力門擋下。<br>
-      去 <a href="/" style="color:var(--ac)">① 找案子</a> 用擴充功能多抓一些新案進來,清單就會再長出來。
+      去 <a href="/" style="color:var(--ac)">① 找案子</a> 在 Claude Code 說「撈案」多抓一些新案進來,清單就會再長出來。
     </p>
   </div>`;
 
@@ -2340,7 +2340,7 @@ function pageBackup() {
 <main>
   <div class="help">
     <b>📖 內容</b>:lessons + anchors + applications。<br>
-    profile.json / jobs 不在這份備份(profile 自己 git 管,jobs 隨時可從擴充功能重抓)。<br>
+    profile.json / jobs 不在這份備份(profile 自己 git 管,jobs 隨時可用「撈案」重抓)。<br>
     <b>還原策略</b>:append(不刪現有),不會覆蓋。
   </div>
 

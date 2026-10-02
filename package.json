@@ -18,7 +18,8 @@
     "agent:profile": "node src/agents/profile-agent.js",
     "rescore": "node src/rescore.js",
     "refresh": "node src/refresh-live.js",
-    "refresh:watch": "node src/refresh-watch.js"
+    "refresh:watch": "node src/refresh-watch.js",
+    "mcp:push": "node src/mcp-push.js"
   },
   "keywords": [],
   "author": "",

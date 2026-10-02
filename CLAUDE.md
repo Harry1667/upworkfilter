@@ -1,6 +1,6 @@
 # CLAUDE.md — Upwork 接案助手(專案指引)
 
-> 一套上線的 Upwork 接案輔助系統。瀏覽器擴充套件抓真實職缺 → webhook 餵雲端 → 評分 + AI 漏斗 → dashboard。
+> 一套上線的 Upwork 接案輔助系統。Upwork 官方 MCP 撈真實職缺(本機 Claude Code,skill `upwork-mcp-fetch`)→ `src/mcp-push.js` POST `/api/ingest` 餵雲端 → 評分 + AI 漏斗 → dashboard。
 > 文檔都在 `1-dev/`:詳細交接 `1-dev/AGENTS-PLAN.md`、最新進度 `1-dev/SESSION_NOTES.md`、部署 `1-dev/DEPLOY.md`、API 申請 `1-dev/UPWORK-API申請.md`。
 
 ## 部署
@@ -17,7 +17,7 @@ sudo bash -c 'export PATH=/www/server/nodejs/v22.22.2/bin:$PATH
 - 登入帳號在 auth.twloop.com(hdw-auth 共用驗證)。`/api/ingest` 用 INGEST_KEY。
 
 ## 三道門漏斗(核心心智模型)
-🚪① 來源:`/me` 分級技能 → Upwork 搜尋關鍵字/網址(貼擴充功能,同步 config.searchQueries)
+🚪① 來源:Upwork MCP `find_jobs`(smart_search 推薦新案 + 語言案 title 搜尋)。舊的第三方擴充套件已停用(2026-10-02)
 🎯② 能力(can-do):`score.js` 紅線/能力圈外 → SKIP+`blocked`(不進 AI);核心強命中只標 ⚠️ 軟降
 📊③ 評分+AI:7 維 → AI 快篩 → 大分析
 🥊④ 競爭可行性(can-win):`score.js` 新手競爭閘 + `triage.js` 勝率硬上限。**核心原則:能力分高 ≠ 接得到** —— Expert tag/超高 Connects/超預算的案,能力滿分也要壓成 SKIP/MAYBE,別燒 Connects 投不可能的案。
@@ -31,7 +31,8 @@ sudo bash -c 'export PATH=/www/server/nodejs/v22.22.2/bin:$PATH
 - `verify.js` — **信任度 5 函式**:detectHallucinations(幻覺偵測) / annotateCitations(句句標來源) / skepticCritique(魔鬼代言人) / preflightCheck(SOP 守則核對) / extractLessonCandidates(從 notes 萃取 lesson)。
 - `tools.js` — chat agent **11 個 tool registry**(list/add/update/delete applications/lessons/anchors/jobs)+ ReAct loop。
 - `agents/profile-agent.js` — GitHub → proven capabilities。
-- `refresh-live.js` / `rescore.js` / `api-fetch.js` — 即時刷新 / 重算 / 官方 GraphQL(待 key)。
+- `mcp-push.js` — Upwork MCP 回應(search/smart_search/get 的 JSON)→ ingest 格式 → POST 上站。`--dry` 只印轉換結果。
+- `refresh-live.js` / `rescore.js` / `api-fetch.js` — 即時刷新 / 重算 / 官方 GraphQL(key 被拒 3 次,已由 MCP 取代)。
 - `db.js` — node:sqlite,WAL + busy_timeout。表:`jobs`(含 `blocked`/`posted_at`/`favorited`)、`invites`、`applications`(投案追蹤)、`lessons`(學習日誌)、`anchors`(cover letter 範本)。
 
 ## 能力資料(profile.json `capability`)
@@ -52,5 +53,6 @@ sudo bash -c 'export PATH=/www/server/nodejs/v22.22.2/bin:$PATH
 - 官方 API(待審核):`npm run api:auth` → `npm run api:fetch`（`-- --raw` / `-- --detail <id>` 探針）
 
 ## Skill routing
-- 刷新案子即時數據/提案數對不上 → **upwork-refresh**(本機 gstack)。
+- 撈新案進站 → **upwork-mcp-fetch**(Upwork MCP)。
+- 刷新案子即時數據/提案數對不上 → **upwork-refresh**(本機 gstack;也可改用 MCP `find_jobs` action=get 拿即時 client_record)。
 - Upwork 職缺評估網站 → harry-upworkweb;QA → /qa;Bug → /investigate;登入/auth → 03-Skills/hdw-auth;AI 代理 → proxycli。
